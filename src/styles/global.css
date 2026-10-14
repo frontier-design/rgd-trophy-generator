@@ -1,0 +1,566 @@
+/*
+ * Global stylesheet. All app styling lives here.
+ *
+ * Typography that Pretext measures (font family/size/weight, line height, column width)
+ * comes from Settings and is passed in as --rag-* custom properties by RagEditor, so the
+ * displayed text and the measurement can never drift apart. Don't hard-code those here.
+ *
+ * Local fonts: put files in public/fonts/ and declare them here, e.g.
+ *
+ * @font-face {
+ *   font-family: 'My Serif';
+ *   src: url('/fonts/MySerif-Regular.woff2') format('woff2');
+ *   font-weight: 400;
+ *   font-style: normal;
+ *   font-display: block;
+ * }
+ *
+ * The family name must match Settings.fontFamily exactly, since it is used to build
+ * the canvas font string Pretext measures with (see measure/font.ts).
+ */
+
+/* ---- Fonts -------------------------------------------------------------- */
+
+/* PP Mori, variable: weight axis 100–900 (default 400), plus an ital axis we don't use.
+   font-display: block hides the text while it loads instead of showing a fallback that
+   would wrap differently from what Pretext measures (measurement waits for the load). */
+@font-face {
+  font-family: 'PP Mori';
+  src: url('/fonts/PPMori-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ---- Tokens ------------------------------------------------------------- */
+
+:root {
+  --color-bg: #ffffff;
+  --color-page-bg: #ebebeb;
+  --color-text: #111111;
+  --color-placeholder: #b5b5b5;
+  --color-measure: magenta;
+  --color-baseline: magenta; /* baseline guides */
+  --color-line-box: blue;
+  --color-panel-bg: #ffffff;
+  --color-panel-border: #d0d0d0;
+  --color-label-bg: #d9d9d9; /* sidebar label boxes and buttons */
+
+  --font-ui: 'PP Mori', Arial, sans-serif; /* sidebar, labels; @font-face above */
+
+  --page-padding: 24px;
+  --panel-width: 300px;
+  /* Artboard: the space between its border and the text, and its border. */
+  --artboard-padding: 48px;
+  /* Canvas colors: defaults; the sidebar's background/text pickers override them on
+     .artboard (DEFAULT_CANVAS_COLORS in state/view.ts). */
+  --color-artboard-bg: #ffffff;
+  --color-canvas-text: #111111;
+  --color-artboard-border: #cfcfcf;
+
+  /* Debug overlay: line boxes + width labels */
+  --label-size: 8px;
+  --label-inset: 2px;
+  --line-box-stroke: 1px;
+  --edge-stroke: 1px;
+  --debug-fade: 150ms;
+}
+
+/* ---- Base --------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-page-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+
+/* ---- Layout ------------------------------------------------------------- */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--panel-width) minmax(0, 1fr);
+  gap: var(--page-padding);
+  height: 100vh;
+  padding: var(--page-padding);
+}
+
+/* The right column. */
+.stage {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The canvas: fills the right column (so it's as tall as the control panel), bordered,
+   and clips everything drawn inside. The text block sits at its bottom left, inset by
+   --artboard-padding from both edges. */
+.artboard {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  padding: var(--artboard-padding);
+  overflow: hidden;
+  color: var(--color-canvas-text);
+  background: var(--color-artboard-bg);
+  border: 1px solid var(--color-artboard-border);
+}
+
+/* 3D view: a transparent canvas over the whole artboard, so the solid can grow out of the
+   2D shape in place and extend past the column. It sits behind the text, so the text
+   stays editable; drag anywhere else in the artboard to orbit. */
+.three-view {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.three-view > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* While revolving, the solid replaces the flat 2D shape. */
+.app[data-revolve='on'] .paper-canvas {
+  visibility: hidden;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .stage {
+    height: 70vh;
+  }
+}
+
+/* ---- Rag editor --------------------------------------------------------- */
+
+.rag-editor {
+  position: relative;
+  flex: none;
+  width: var(--rag-column-width);
+}
+
+/* Layers, bottom to top: rag shape canvas → 3D view → textarea → debug overlay. */
+
+/* Covers the whole artboard, so the shape can extend past the text block; drawing is
+   anchored to the editor (see PaperCanvas). */
+.paper-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.paper-canvas > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The textarea must lay text out exactly like Pretext's measurement: same font, same
+   width, no padding/border, and no scrollbar (a scrollbar would narrow the column). */
+.rag-text {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: calc(var(--rag-rows) * var(--rag-line-height));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  font-family: var(--rag-font-family);
+  font-size: var(--rag-font-size);
+  font-weight: var(--rag-font-weight);
+  line-height: var(--rag-line-height);
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.rag-text::placeholder {
+  color: var(--color-placeholder);
+}
+
+/* The mirrored copy: each line right-aligned in the column's reflection across the edge
+   (from the edge to one column-width past it), so its ragged edge mirrors the original. */
+.rag-mirror {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  z-index: 2;
+  width: var(--rag-column-width);
+  pointer-events: none;
+  font-family: var(--rag-font-family);
+  font-size: var(--rag-font-size);
+  font-weight: var(--rag-font-weight);
+  line-height: var(--rag-line-height);
+  text-align: right;
+}
+
+.rag-mirror-line {
+  height: var(--rag-line-height);
+  white-space: pre;
+}
+
+/* Mirrored, the composition (text + its reflection) is centered on the edge. */
+.artboard[data-mirror='on'] {
+  justify-content: center;
+}
+
+.artboard[data-mirror='on'] .rag-editor {
+  margin-right: var(--rag-column-width);
+}
+
+/* Debug overlay: one box per measured line, width label at its top left. */
+.rag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  transition: opacity var(--debug-fade) ease;
+}
+
+.rag-editor[data-debug='off'] .rag-overlay {
+  opacity: 0;
+}
+
+.rag-line-box {
+  position: absolute;
+  /* Geometry comes from rag/lineBoxes (the same data Paper.js carves the shape with). */
+  left: calc(var(--box-x) * 1px);
+  top: calc(var(--box-y) * 1px);
+  width: calc(var(--box-w) * 1px);
+  height: calc(var(--box-h) * 1px);
+  border-radius: calc(var(--box-r) * 1px);
+  /* Inset shadow, not border: it draws inside the box (so the box keeps its exact size)
+     and follows border-radius. */
+  box-shadow: inset 0 0 0 var(--line-box-stroke) var(--color-line-box);
+}
+
+/* The column's right edge: the revolve axis. */
+.rag-edge {
+  position: absolute;
+  top: var(--edge-top);
+  right: 0;
+  height: calc(var(--edge-bottom) - var(--edge-top));
+  width: var(--edge-stroke);
+  background: var(--color-measure);
+}
+
+/* Each line's baseline, across the column. The 1px line sits just under the baseline,
+   where the letters stand. */
+.rag-baseline {
+  position: absolute;
+  top: calc(var(--baseline-y) * 1px);
+  left: 0;
+  right: 0;
+  height: var(--edge-stroke);
+  background: var(--color-baseline);
+}
+
+/* At the measured line's top-left (not the padded box's), in the half-leading above the
+   cap height. */
+.rag-label {
+  position: absolute;
+  top: calc(var(--line-index) * var(--rag-line-height) + var(--label-inset));
+  left: var(--label-inset);
+  font-family: var(--font-ui);
+  font-size: var(--label-size);
+  line-height: 1;
+  color: var(--color-measure);
+  white-space: nowrap;
+}
+
+/* ---- Control panel ------------------------------------------------------ */
+
+/* One two-column grid for the whole panel: bold, right-aligned labels in gray boxes on the
+   left (the column sizes to the longest label), controls on the right. Each field wrapper
+   is display: contents so its label and control land in the panel's grid directly. */
+.control-panel {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 10px;
+  min-height: 0;
+  padding: 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 13px;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+}
+
+.control-field,
+.color-stops {
+  display: contents;
+}
+
+.control-field[data-disabled] > * {
+  opacity: 0.35;
+}
+
+.control-label {
+  justify-self: end;
+  padding: 3px 8px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: capitalize;
+  white-space: nowrap;
+  background: var(--color-label-bg);
+}
+
+.color-stops > .control-label {
+  align-self: start;
+}
+
+/* Sliders: a solid line up to the value, a tall thin tick as the handle, dots after it. */
+.range-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.control-range {
+  --track: var(--color-text);
+  --tick: 2.5px;
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  appearance: none;
+  cursor: pointer;
+  background:
+    /* The solid line, from the start to the tick's center. */
+    linear-gradient(var(--track), var(--track)) no-repeat left center /
+      calc(var(--fill) * (100% - var(--tick)) + var(--tick) / 2) 2px,
+    /* The dotted line under it, showing past the tick. */
+    radial-gradient(circle, var(--track) 0.9px, transparent 1.3px) repeat-x left center / 7px 7px;
+}
+
+.control-range::-webkit-slider-runnable-track {
+  height: 26px;
+  background: transparent;
+}
+
+.control-range::-webkit-slider-thumb {
+  width: var(--tick);
+  height: 26px;
+  appearance: none;
+  background: var(--track);
+  border: 0;
+  border-radius: 0;
+}
+
+.control-range::-moz-range-track {
+  height: 26px;
+  background: transparent;
+}
+
+.control-range::-moz-range-thumb {
+  width: var(--tick);
+  height: 26px;
+  background: var(--track);
+  border: 0;
+  border-radius: 0;
+}
+
+.control-range:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+.control-range:disabled {
+  cursor: default;
+}
+
+/* The value, just above the tick while hovering or dragging (the reference has no
+   readouts at rest). */
+.control-value {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: calc(var(--fill) * (100% - 2.5px) + 1.25px);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+
+.range-wrap:hover .control-value,
+.range-wrap:focus-within .control-value {
+  opacity: 1;
+}
+
+.control-select {
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px 20px 2px 0;
+  font: inherit;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--color-text);
+  appearance: none;
+  cursor: pointer;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--color-text) 50%) right 6px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--color-text) 50%) right 1px center / 5px 5px
+      no-repeat;
+  border: 0;
+  border-bottom: 2px solid var(--color-text);
+  border-radius: 0;
+}
+
+.control-switch {
+  justify-self: start;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+  border: 2px solid var(--color-text);
+}
+
+.control-switch:checked {
+  background: var(--color-text);
+}
+
+.seed-color {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.seed-color-hint {
+  overflow: hidden;
+  color: #6b6b66;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.color-stops-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.color-stop {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+}
+
+.color-stop-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  /* Keeps white or very light colors visible on the white panel. */
+  border: 1px solid var(--color-panel-border);
+}
+
+.color-stop-swatch::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-stop-swatch::-webkit-color-swatch {
+  border: 0;
+}
+
+.color-stop-hex {
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+
+.color-stop-remove {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.color-stop-remove:disabled,
+.color-stops-add:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.color-stops-add {
+  grid-column: 2;
+  justify-self: start;
+}
+
+/* Separates the shape, material, canvas-color and view groups: a dotted rule, like the
+   sliders' dots. */
+.control-divider {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 7px;
+  margin: 4px 0;
+  border: 0;
+  background: radial-gradient(circle, var(--color-panel-border) 0.9px, transparent 1.3px) repeat-x
+    left center / 7px 7px;
+}
+
+.control-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Buttons are gray label boxes; pressed ones invert. */
+.control-button {
+  padding: 4px 10px;
+  font: inherit;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-label-bg);
+  border: 0;
+}
+
+.control-button[aria-pressed='true'] {
+  color: var(--color-bg);
+  background: var(--color-text);
+}
