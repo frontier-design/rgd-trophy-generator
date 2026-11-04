@@ -52,3 +52,87 @@ describe('createTrophyMaterial', () => {
     expect(u.uShading!.value).toBe(0)
   })
 })
+
+describe('trophy shader source', () => {
+  // jsdom can't compile GLSL; this catches the mistake that has bitten before: a name GLSL
+  // ES 3.0 reserves (WebGL 2) used for a variable or parameter, which fails the whole shader.
+  const RESERVED = [
+    'layout',
+    'sample',
+    'input',
+    'output',
+    'filter',
+    'common',
+    'partition',
+    'active',
+    'superp',
+    'half',
+    'fixed',
+    'long',
+    'short',
+    'double',
+    'sizeof',
+    'cast',
+    'namespace',
+    'using',
+    'packed',
+    'resource',
+    'noperspective',
+    'patch',
+    'subroutine',
+    'centroid',
+    'smooth',
+    'flat',
+    'invariant',
+    'precise',
+    'buffer',
+    'shared',
+    'coherent',
+    'volatile',
+    'restrict',
+    'readonly',
+    'writeonly',
+    'atomic_uint',
+    'texture',
+    'union',
+    'enum',
+    'typedef',
+    'template',
+    'this',
+    'goto',
+    'inline',
+    'noinline',
+    'public',
+    'static',
+    'extern',
+    'external',
+    'interface',
+    'unsigned',
+    'class',
+    'struct',
+    'sign',
+  ]
+  const TYPES = '(?:float|int|uint|bool|vec[234]|ivec[234]|mat[234]|sampler2D)'
+
+  it('never declares a variable or parameter with a reserved (or built-in) name', () => {
+    const material = createTrophyMaterial()
+    for (const source of [material.surface.fragmentShader, material.surface.vertexShader]) {
+      const declared = [...source.matchAll(new RegExp(`\\b${TYPES}\\s+([A-Za-z_]\\w*)`, 'g'))]
+      const names = declared.map((m) => m[1])
+      expect(names.filter((name) => RESERVED.includes(name ?? ''))).toEqual([])
+    }
+  })
+})
+
+describe('trophy shaders’ varyings', () => {
+  it('are declared once in each shader, the same in both', () => {
+    const material = createTrophyMaterial()
+    const varyings = (source: string) =>
+      [...source.matchAll(/\bvarying\s+\w+\s+(\w+)\s*;/g)].map((m) => m[1] ?? '')
+    const vertex = varyings(material.surface.vertexShader)
+    const fragment = varyings(material.surface.fragmentShader)
+    expect(new Set(vertex).size).toBe(vertex.length)
+    expect(new Set(fragment).size).toBe(fragment.length)
+    expect([...fragment].sort()).toEqual([...vertex].sort())
+  })
+})

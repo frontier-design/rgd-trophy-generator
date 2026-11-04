@@ -1,4 +1,6 @@
 import { useId, type CSSProperties } from 'react'
+import type { KeyframeControl } from '../../types'
+import { KeyframeButton } from './KeyframeButton'
 
 interface RangeFieldProps {
   label: string
@@ -10,6 +12,8 @@ interface RangeFieldProps {
   digits?: number
   unit?: string
   disabled?: boolean
+  /** Timeline keyframe toggle for this param. */
+  keyframe?: KeyframeControl
   onChange: (value: number) => void
 }
 
@@ -27,6 +31,7 @@ export function RangeField({
   digits = 0,
   unit = 'px',
   disabled = false,
+  keyframe,
   onChange,
 }: RangeFieldProps) {
   const id = useId()
@@ -54,6 +59,7 @@ export function RangeField({
           {unit}
         </output>
       </div>
+      <KeyframeButton label={label} keyframe={keyframe} />
     </div>
   )
 }

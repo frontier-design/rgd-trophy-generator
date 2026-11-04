@@ -45,9 +45,11 @@ function style(padX = 0, padY = 0, radius = 0) {
 }
 
 describe('ragShapeFromBoxes', () => {
-  it('is null without boxes', () => {
-    const extent = { left: 0, top: 0, bottom: 10 }
-    expect(ragShapeFromBoxes(setup(), [], { edgeX: 100, extent })).toBeNull()
+  it('without boxes (nothing typed in yet), is the whole uncarved extent', () => {
+    const extent = { left: 0, top: -20, bottom: 10, bandBottom: 0 }
+    const shape = ragShapeFromBoxes(setup(), [], { edgeX: 100, extent })
+    expect(shape).not.toBeNull()
+    expect(Math.abs((shape as paper.Path).area)).toBeCloseTo(100 * 30)
   })
 
   it('without padding or radius, is the stepped negative space of the rag', () => {

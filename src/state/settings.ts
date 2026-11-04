@@ -18,6 +18,8 @@ export const DEFAULT_MATERIAL: MaterialSettings = {
   edgeHue: -25,
   ledgeShadow: 0.7,
   grain: 0.3,
+  // About 1 px of the 4K export: fine, crisp grain.
+  grainSize: 0.6,
   // Tuned against the RGD reference: a side-on key light from the right, a little above, so
   // the left falls into deep green and the right goes cream, with broad soft highlights.
   lightAngle: 55,

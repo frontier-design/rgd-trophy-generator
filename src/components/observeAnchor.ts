@@ -27,9 +27,14 @@ export function observeAnchor(
   }
 }
 
-/** `element`'s top-left relative to `base`'s top-left, in CSS px. */
+/**
+ * `element`'s top-left relative to `base`'s top-left, in `base`'s own CSS px: CSS transforms
+ * (the artboard is scaled to fit the window) are undone, so positions match canvas sizes,
+ * which are layout sizes.
+ */
 export function relativePosition(element: HTMLElement, base: HTMLElement) {
   const a = element.getBoundingClientRect()
   const b = base.getBoundingClientRect()
-  return { x: a.left - b.left, y: a.top - b.top }
+  const scale = base.offsetWidth > 0 && b.width > 0 ? b.width / base.offsetWidth : 1
+  return { x: (a.left - b.left) / scale, y: (a.top - b.top) / scale }
 }

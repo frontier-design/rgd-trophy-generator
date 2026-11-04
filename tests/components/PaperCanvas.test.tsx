@@ -9,6 +9,7 @@ const scene = {
   showRag: vi.fn(),
   resize: vi.fn(),
   setOrigin: vi.fn(),
+  setVisible: vi.fn(),
   dispose: vi.fn(),
 }
 vi.mock('../../src/shape2d', () => ({ createPaperScene: vi.fn(() => scene) }))

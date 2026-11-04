@@ -10,8 +10,14 @@ export function createThreeScene(): ThreeScene {
     setLook: () => {},
     setProjection: () => {},
     setMirror: () => {},
+    setTwists: () => {},
+    setEtches: () => {},
+    setPatterns: () => {},
     playRevolve: () => {},
     resize: () => {},
+    setPixelRatio: () => {},
+    render: () => {},
+    snapshot: () => document.createElement('canvas'),
     dispose: () => {},
   }
 }

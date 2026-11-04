@@ -45,13 +45,17 @@
   --color-panel-bg: #ffffff;
   --color-panel-border: #d0d0d0;
   --color-label-bg: #d9d9d9; /* sidebar label boxes and buttons */
+  --color-workspace: #d9d9d9; /* the pasteboard around the frame */
 
   --font-ui: 'PP Mori', Arial, sans-serif; /* sidebar, labels; @font-face above */
 
-  --page-padding: 24px;
-  --panel-width: 300px;
+  /* Edge to edge, no gaps: sidebar | canvas over timeline. */
+  --panel-width: clamp(300px, 28vw, 420px);
+  /* The timeline (Theatre.js's sequence editor docks into it) gets what's left under the
+     16:9 canvas, but never less than this. */
+  --timeline-min-height: 220px;
   /* Artboard: the space between its border and the text, and its border. */
-  --artboard-padding: 48px;
+  --artboard-padding: 60px; /* set by App from ARTBOARD.padding */
   /* Canvas colors: defaults; the sidebar's background/text pickers override them on
      .artboard (DEFAULT_CANVAS_COLORS in state/view.ts). */
   --color-artboard-bg: #ffffff;
@@ -87,38 +91,118 @@ body {
 .app {
   display: grid;
   grid-template-columns: var(--panel-width) minmax(0, 1fr);
-  gap: var(--page-padding);
   height: 100vh;
-  padding: var(--page-padding);
 }
 
-/* The right column. */
+/* The right column: the workspace (the frame on a pasteboard), and the timeline below. */
 .stage {
-  display: flex;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) max(var(--timeline-min-height), 32vh);
   min-width: 0;
   min-height: 0;
 }
 
-/* The canvas: fills the right column (so it's as tall as the control panel), bordered,
-   and clips everything drawn inside. The text block sits at its bottom left, inset by
-   --artboard-padding from both edges. */
-.artboard {
+/* The workspace, After Effects–style: a pasteboard the frame sits on. Scroll zooms, drag
+   pans (hooks/usePanZoom); the frame is placed by the view. */
+.artboard-viewport {
   position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  background: var(--color-workspace);
+  touch-action: none;
+  user-select: none;
+}
+
+.artboard-viewport[data-panning='on'] {
+  cursor: grabbing;
+}
+
+/* The artboard's on-screen box: its 1920 × 1080 size times the zoom, at the view's place. */
+.artboard-frame {
+  position: absolute;
+  top: var(--frame-y);
+  left: var(--frame-x);
+  width: calc(var(--artboard-width) * var(--artboard-scale));
+  height: calc(var(--artboard-height) * var(--artboard-scale));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+/* Zoom readout and fit, over the workspace's bottom right. */
+.view-tools {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.view-zoom {
+  min-width: 3.5em;
+  padding: 4px 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: var(--color-panel-bg);
+}
+
+/* The canvas: laid out at a fixed 1920 × 1080 (the video frame) and scaled down to the
+   frame, so the composition is the same at any window size. It clips everything drawn
+   inside. The text block sits at its bottom left, inset by --artboard-padding. */
+.artboard {
+  position: absolute;
+  top: 0;
+  left: 0;
   isolation: isolate;
-  flex: 1;
   display: flex;
   align-items: flex-end;
-  min-width: 0;
+  width: var(--artboard-width);
+  height: var(--artboard-height);
   padding: var(--artboard-padding);
+  /* A bottom banner pushes the text up above it (App sets this). */
+  padding-bottom: var(--artboard-padding-bottom, var(--artboard-padding));
   overflow: hidden;
   color: var(--color-canvas-text);
   background: var(--color-artboard-bg);
-  border: 1px solid var(--color-artboard-border);
+  transform: scale(var(--artboard-scale));
+  transform-origin: 0 0;
+}
+
+/* The banner (logo, headline, link): an SVG in artboard px over everything but the debug
+   overlay, sized by App/banner layout. */
+.banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Theatre.js Studio draws its sequence editor over this area (TimelineSlot docks it). */
+.timeline-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-panel-bg);
+  border-top: 1px solid var(--color-panel-border);
+}
+
+.timeline-slot-hint {
+  font-weight: 700;
+  color: var(--color-placeholder);
 }
 
 /* 3D view: a transparent canvas over the whole artboard, so the solid can grow out of the
    2D shape in place and extend past the column. It sits behind the text, so the text
-   stays editable; drag anywhere else in the artboard to orbit. */
+   stays editable. (The mouse pans and zooms the workspace; the 3D view is fixed.) */
 .three-view {
   position: absolute;
   inset: 0;
@@ -145,7 +229,8 @@ body {
   }
 
   .stage {
-    height: 70vh;
+    height: auto;
+    min-height: 90vh;
   }
 }
 
@@ -177,6 +262,7 @@ body {
 /* The textarea must lay text out exactly like Pretext's measurement: same font, same
    width, no padding/border, and no scrollbar (a scrollbar would narrow the column). */
 .rag-text {
+  user-select: text; /* the workspace turns selection off for panning */
   position: relative;
   z-index: 2;
   display: block;
@@ -219,6 +305,30 @@ body {
   text-align: right;
 }
 
+.rag-editor[data-revealing] .rag-text {
+  color: transparent;
+  caret-color: var(--color-canvas-text);
+}
+
+/* The typed part of each line while revealing, exactly over the textarea's text. */
+.rag-reveal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: var(--rag-column-width);
+  pointer-events: none;
+  font-family: var(--rag-font-family);
+  font-size: var(--rag-font-size);
+  font-weight: var(--rag-font-weight);
+  line-height: var(--rag-line-height);
+}
+
+.rag-letter {
+  position: relative;
+}
+
+.rag-reveal-line,
 .rag-mirror-line {
   height: var(--rag-line-height);
   white-space: pre;
@@ -296,22 +406,24 @@ body {
 /* ---- Control panel ------------------------------------------------------ */
 
 /* One two-column grid for the whole panel: bold, right-aligned labels in gray boxes on the
-   left (the column sizes to the longest label), controls on the right. Each field wrapper
-   is display: contents so its label and control land in the panel's grid directly. */
+   left (the column sizes to the longest label), controls on the right. Sections are
+   subgrids, and each field wrapper is display: contents, so every label and control lands
+   in the panel's columns directly. */
 .control-panel {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  /* Label, control, keyframe button. */
+  grid-template-columns: max-content minmax(0, 1fr) 14px;
   align-content: start;
   align-items: center;
   column-gap: 14px;
-  row-gap: 10px;
+  row-gap: 0;
   min-height: 0;
   padding: 20px;
   overflow-x: hidden;
   overflow-y: auto;
   font-size: 13px;
   background: var(--color-panel-bg);
-  border: 1px solid var(--color-panel-border);
+  border-right: 1px solid var(--color-panel-border);
 }
 
 .control-field,
@@ -324,6 +436,7 @@ body {
 }
 
 .control-label {
+  grid-column: 1;
   justify-self: end;
   padding: 3px 8px;
   font-weight: 700;
@@ -436,6 +549,23 @@ body {
   border-radius: 0;
 }
 
+.control-text {
+  min-width: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--color-text);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid var(--color-text);
+  border-radius: 0;
+  outline: none;
+}
+
+.control-text:focus-visible {
+  border-bottom-color: var(--color-measure);
+}
+
 .control-switch {
   justify-self: start;
   width: 18px;
@@ -477,7 +607,7 @@ body {
 
 .color-stop {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  grid-template-columns: 22px minmax(0, 1fr) 18px 14px;
   align-items: center;
   gap: 10px;
 }
@@ -529,16 +659,96 @@ body {
   justify-self: start;
 }
 
-/* Separates the shape, material, canvas-color and view groups: a dotted rule, like the
-   sliders' dots. */
-.control-divider {
+/* Named, collapsible sections, separated by solid rules. Sections and their bodies are
+   subgrids of the panel, so every label shares the panel's label column. */
+.control-section {
   grid-column: 1 / -1;
-  width: 100%;
-  height: 7px;
-  margin: 4px 0;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-panel-border);
+}
+
+.control-panel-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 12px;
+}
+
+/* Collapse all / expand all: a quiet text button above the sections. */
+.control-section-all {
+  padding: 0;
+  white-space: nowrap;
+  font: inherit;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: #6b6b66;
+  cursor: pointer;
+  background: none;
   border: 0;
-  background: radial-gradient(circle, var(--color-panel-border) 0.9px, transparent 1.3px) repeat-x
-    left center / 7px 7px;
+}
+
+.control-section-all:hover,
+.control-section-all:focus-visible {
+  color: var(--color-text);
+}
+
+.control-section:last-child {
+  padding-bottom: 0;
+}
+
+.control-section-heading {
+  grid-column: 1 / -1;
+  margin: 0;
+  font: inherit;
+}
+
+/* The header: the section's name on the left, + / − on the right. */
+.control-section-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 2px 0;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-transform: capitalize;
+  color: var(--color-text);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.control-section-toggle:focus-visible {
+  outline: 1px solid var(--color-text);
+  outline-offset: 2px;
+}
+
+.control-section-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.control-section-body {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  row-gap: 10px;
+  margin-top: 12px;
+}
+
+/* Collapsed: kept in the layout at zero height (instead of display: none) so its labels
+   still size the label column and the other sections don't shift. */
+.control-section-body[hidden] {
+  display: grid;
+  height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  visibility: hidden;
 }
 
 .control-actions {
@@ -563,4 +773,486 @@ body {
 .control-button[aria-pressed='true'] {
   color: var(--color-bg);
   background: var(--color-text);
+}
+
+/* ---- Timeline keyframes and export --------------------------------------- */
+
+/* A field's keyframe toggle: a small diamond. Outlined gray = static, outlined dark =
+   animated (no keyframe here), filled = a keyframe at the playhead. */
+.keyframe-button {
+  grid-column: 3;
+  justify-self: center;
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  border: 1.5px solid var(--color-placeholder);
+  transform: rotate(45deg);
+}
+
+.keyframe-button:hover,
+.keyframe-button:focus-visible {
+  border-color: var(--color-text);
+  outline: none;
+}
+
+.keyframe-button[data-state='animated'] {
+  border-color: var(--color-text);
+}
+
+.keyframe-button[data-state='key'] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.export-progress {
+  align-self: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #b3261e;
+}
+
+/* ---- Page switch and the canvas page --------------------------------------- */
+
+/* The page dropdown: a label box and a select, side by side. */
+.page-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+}
+
+/* The canvas page: an endless grid filling the window, no sidebar. */
+.canvas-page {
+  height: 100vh;
+}
+
+/* The grid is a background that follows the view (App sets --grid-*): fine lines every
+   --grid-fine, heavier ones every --grid-major, both anchored at the canvas's origin. */
+.infinite-canvas {
+  --grid-fine-color: #e1e1e1;
+  --grid-major-color: #cfcfcf;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background-color: #f4f4f4;
+  background-image:
+    linear-gradient(var(--grid-major-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major-color) 1px, transparent 1px),
+    linear-gradient(var(--grid-fine-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-fine-color) 1px, transparent 1px);
+  background-size:
+    var(--grid-major) var(--grid-major),
+    var(--grid-major) var(--grid-major),
+    var(--grid-fine) var(--grid-fine),
+    var(--grid-fine) var(--grid-fine);
+  background-position: var(--grid-x) var(--grid-y);
+}
+
+.infinite-canvas[data-panning='on'] {
+  cursor: grabbing;
+}
+
+/* Where canvas content will go: moved and scaled with the view, from the origin. */
+.infinite-canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* The page dropdown, floating at the top left. */
+.canvas-page-tools {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: default;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+}
+
+/* A scene on the canvas: the generator's artboard at its place (CanvasPage), its name
+   above it. Sizes that should read the same at any zoom divide by --zoom (set on the
+   world layer). */
+.canvas-scene {
+  position: absolute;
+  width: var(--artboard-width);
+  height: var(--artboard-height);
+  cursor: default;
+  box-shadow: 0 calc(1px / var(--zoom)) calc(3px / var(--zoom)) rgb(0 0 0 / 0.12);
+}
+
+/* The selected scene sits over any it overlaps. */
+.canvas-scene[data-selected] {
+  z-index: 1;
+  outline: calc(2px / var(--zoom)) solid var(--color-text);
+}
+
+.canvas-scene-name {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  padding-bottom: calc(6px / var(--zoom));
+  font-size: calc(12px / var(--zoom));
+  font-weight: 700;
+  line-height: 1;
+  text-transform: capitalize;
+  white-space: nowrap;
+  color: #6b6b66;
+}
+
+.canvas-scene[data-selected] .canvas-scene-name {
+  color: var(--color-text);
+}
+
+/* The selected scene's controls: the sidebar's panel, floating beside the scene
+   (CanvasPage places and sizes it). */
+.scene-controls {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  cursor: default;
+}
+
+.scene-controls > .control-panel {
+  flex: 1;
+  border: 1px solid var(--color-panel-border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+.scene-controls-name {
+  margin-right: auto;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+/* Right-click menu. */
+.context-menu {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  font-size: 13px;
+  cursor: default;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+.context-menu-item {
+  padding: 6px 10px;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-transform: capitalize;
+  color: var(--color-text);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.context-menu-item:hover,
+.context-menu-item:focus-visible {
+  outline: none;
+  background: var(--color-label-bg);
+}
+
+/* Shown on an empty canvas. */
+.canvas-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a9a95;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+/* ---- Canvas nodes (twist) and links -------------------------------------- */
+
+/* A node at its canvas position; its card keeps its size on screen at any zoom. */
+.canvas-node {
+  position: absolute;
+  z-index: 3;
+  width: 0;
+  height: 0;
+}
+
+.canvas-node[data-selected] {
+  z-index: 4;
+}
+
+.node-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 260px; /* NODE_CARD.width in CanvasPage/graph.ts */
+  font-size: 13px;
+  cursor: default;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  /* Its on-screen scale (--card-scale: 1, or with the canvas when zoomed far out). */
+  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform-origin: 0 0;
+}
+
+/* Folded or zoomed far out: just the header. */
+.canvas-node[data-compact] .node-card-header {
+  border-bottom: 0;
+}
+
+/* The header's fold toggle. */
+.node-card-fold {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-label-bg);
+  border: 0;
+}
+
+.canvas-node[data-selected] .node-card {
+  outline: 2px solid var(--color-text);
+}
+
+/* The title bar, with the output port at its right end (NODE_CARD.header tall). */
+.node-card-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  font-weight: 700;
+  text-transform: capitalize;
+  border-bottom: 1px solid var(--color-panel-border);
+}
+
+/* The sliders, in the sidebar's two columns. */
+.node-card-body {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 6px;
+  padding: 12px 14px;
+}
+
+/* Ports: circles on a node's edge, filled when linked. Kept at screen size. */
+.node-port {
+  position: absolute;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  cursor: crosshair;
+  background: var(--color-panel-bg);
+  border: 2px solid var(--color-text);
+  border-radius: 50%;
+}
+
+.node-port[data-connected] {
+  background: var(--color-text);
+}
+
+.node-port:hover,
+.infinite-canvas[data-linking] .node-port-in {
+  box-shadow: 0 0 0 4px rgb(0 0 0 / 0.12);
+}
+
+.node-port-out {
+  top: 50%;
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+/* On a scene: the middle of its left side, at screen size. */
+.node-port-in {
+  top: 25%; /* INPUT_PORT_AT in CanvasPage/graph.ts */
+  left: 0;
+  transform: translate(-50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+}
+
+/* Links, in canvas px over the scenes and under the node cards. */
+.node-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.node-links path {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.node-links path[data-pending] {
+  stroke-dasharray: 6 4;
+}
+
+/* ---- Page tools: the page dropdown and saving ------------------------------ */
+
+.page-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-right: auto;
+}
+
+.page-tools .page-switch {
+  margin-right: 0;
+}
+
+/* Save / open, and when it last autosaved (or why it couldn't). */
+.save-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.save-status {
+  font-size: 11px;
+  color: #6b6b66;
+  white-space: nowrap;
+}
+
+.save-status[data-error] {
+  color: #b3261e;
+}
+
+/* A node card row spanning both columns (the pattern node's preview and buttons). */
+.node-card-wide {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+/* The pattern's height map, white ornament on black. */
+.pattern-preview {
+  width: 100%;
+  height: auto;
+  image-rendering: auto;
+  background: #000000;
+  border: 1px solid var(--color-panel-border);
+}
+
+.node-card-status {
+  margin: 0;
+  font-size: 11px;
+  color: #6b6b66;
+}
+
+.node-card-status[data-busy] {
+  color: var(--color-text);
+}
+
+/* A number input with its unit after it (frame width / height). */
+.control-number {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.control-number .control-text {
+  width: 7em;
+}
+
+/* The selected scene's resize handles: bars at its edges' midpoints (at screen size), and
+   its size beside them, as in design tools. */
+.frame-handle {
+  position: absolute;
+  z-index: 2;
+  width: 46px;
+  height: 10px;
+  padding: 0;
+  background: var(--color-panel-bg);
+  border: 1.5px solid #8a8a85;
+  border-radius: 2px;
+  transform: translate(-50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+}
+
+.frame-handle:hover,
+.frame-handle[data-active] {
+  border-color: var(--color-text);
+}
+
+.frame-handle[data-edge='top'] {
+  top: 0;
+  left: 50%;
+  cursor: ns-resize;
+}
+
+.frame-handle[data-edge='bottom'] {
+  top: 100%;
+  left: 50%;
+  cursor: ns-resize;
+}
+
+.frame-handle[data-edge='left'],
+.frame-handle[data-edge='right'] {
+  top: 50%;
+  width: 10px;
+  height: 46px;
+  cursor: ew-resize;
+}
+
+.frame-handle[data-edge='left'] {
+  left: 0;
+}
+
+.frame-handle[data-edge='right'] {
+  left: 100%;
+}
+
+/* The size readouts: the width above the top handle, the height right of the right one. */
+.frame-size {
+  position: absolute;
+  z-index: 2;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #6b6b66;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.frame-size[data-axis='width'] {
+  top: 0;
+  left: 50%;
+  transform: scale(calc(var(--card-scale, 1) / var(--zoom))) translate(-50%, calc(-100% - 16px));
+  transform-origin: 0 0;
+}
+
+.frame-size[data-axis='height'] {
+  top: 50%;
+  left: 100%;
+  transform: scale(calc(var(--card-scale, 1) / var(--zoom))) translate(18px, -50%);
+  transform-origin: 0 0;
 }

@@ -38,7 +38,6 @@ export function ragShapeFromBoxes(
   boxes: LineBox[],
   { edgeX, extent, topCornerRadius = 0, taper = 0, joinRadius = 0 }: BoxShapeOptions,
 ): paper.PathItem | null {
-  if (boxes.length === 0) return null
   scope.activate()
 
   const { left, top, bottom } = extent
@@ -49,7 +48,9 @@ export function ragShapeFromBoxes(
   // corner angle). Joined before carving: the two only share a straight edge then, which
   // keeps Paper's boolean ops robust (carving first can leave the shared edge ending
   // exactly on a box's curve, where union fails).
-  const bandBottom = Math.max(top, Math.min(...boxes.map((b) => b.y)))
+  // With no boxes (nothing typed in yet) and no band bottom given, it's all one block.
+  const firstBoxTop = boxes.length > 0 ? Math.min(...boxes.map((b) => b.y)) : top
+  const bandBottom = Math.min(bottom, Math.max(top, extent.bandBottom ?? firstBoxTop))
   let shape: paper.PathItem = new scope.Path.Rectangle({
     rectangle: new scope.Rectangle(left, bandBottom, edgeX - left, bottom - bandBottom),
     insert: false,

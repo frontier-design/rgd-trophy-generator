@@ -35,6 +35,15 @@ export interface RagShapeInput {
   mirror: boolean
 }
 
+/** An image and where it goes on the canvas, in CSS px. */
+export interface PaperSnapshot {
+  image: HTMLCanvasElement
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface PaperScene {
   /** The dedicated scope for this canvas. Never use Paper's global scope. */
   readonly scope: paper.PaperScope
@@ -44,6 +53,12 @@ export interface PaperScene {
   resize(width: number, height: number): void
   /** Where the shape's origin (0, 0) is on the canvas, in CSS px. */
   setOrigin(x: number, y: number): void
+  /** Whether the shape is drawn. Hidden (behind the 3D view), it's still built (for its
+   *  outline) but not painted, which saves a full-canvas gradient fill per change. */
+  setVisible(visible: boolean): void
+  /** The drawing rasterized at `pixelRatio` px per CSS px, with its place on the canvas in
+   *  CSS px (for video export); null when nothing is drawn. */
+  snapshot(pixelRatio: number): PaperSnapshot | null
   /** Remove the scope, its project, view and event handlers. Safe to call twice. */
   dispose(): void
 }
@@ -53,6 +68,8 @@ export function createPaperScene(canvas: HTMLCanvasElement): PaperScene {
   const scope = new paper.PaperScope()
   scope.setup(canvas)
   let disposed = false
+  let origin = { x: 0, y: 0 }
+  let visible = true
 
   return {
     scope,
@@ -85,6 +102,10 @@ export function createPaperScene(canvas: HTMLCanvasElement): PaperScene {
         reflection.fillColor = fill()
         scope.project.activeLayer.addChild(reflection)
       }
+      scope.project.activeLayer.visible = visible
+      // Draw now rather than on Paper's next frame, so the shape lands in the same frame as
+      // the text it's carved by.
+      if (visible) scope.view.update()
       // The 3D stage revolves the original half only.
       return pathToOutline(shape)
     },
@@ -92,8 +113,24 @@ export function createPaperScene(canvas: HTMLCanvasElement): PaperScene {
       scope.view.viewSize = new scope.Size(width, height)
     },
     setOrigin(x, y) {
+      origin = { x, y }
       scope.view.matrix = new scope.Matrix(1, 0, 0, 1, x, y)
       scope.view.requestUpdate()
+    },
+    setVisible(next) {
+      visible = next
+      scope.project.activeLayer.visible = next
+      scope.view.requestUpdate()
+    },
+    snapshot(pixelRatio) {
+      scope.activate()
+      const layer = scope.project.activeLayer
+      if (!layer.hasChildren()) return null
+      // 72 dpi = 1 px per unit. The raster's bounds are in project coordinates, which the
+      // view shifts by the origin.
+      const raster = layer.rasterize({ resolution: 72 * pixelRatio, insert: false })
+      const { left, top, width, height } = raster.bounds
+      return { image: raster.canvas, x: left + origin.x, y: top + origin.y, width, height }
     },
     dispose() {
       if (disposed) return

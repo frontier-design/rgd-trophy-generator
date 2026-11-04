@@ -36,8 +36,7 @@ export function topBandGeometry(
   extent: ShapeExtent,
   { edgeX, taper, cornerRadius }: TopBandOptions,
 ): TopBand | null {
-  if (boxes.length === 0) return null
-  const bandBottom = Math.min(...boxes.map((b) => b.y))
+  const bandBottom = extent.bandBottom ?? Math.min(...boxes.map((b) => b.y))
   const { left, top } = extent
   if (!(bandBottom > top) || !(edgeX > left)) return null
 
@@ -83,13 +82,13 @@ export function topBandGeometry(
 }
 
 /**
- * Length of the band's visible bottom edge: from the text's left side to where the first
- * line's box (right under the band) starts curving. 0 if no box sits there.
+ * Length of the band's visible bottom edge: from the shape's left side to where the first
+ * line's box (right under the band) starts curving. 0 if no box sits there. Boxes carve
+ * from past the shape's left side whatever their x (ragShapeFromBoxes), so any box there
+ * counts.
  */
 function bottomRun(boxes: LineBox[], bandBottom: number, left: number): number {
-  const under = boxes.filter(
-    (b) => b.y === bandBottom && b.width > 0 && b.height > 0 && b.x <= left,
-  )
+  const under = boxes.filter((b) => b.y === bandBottom && b.width > 0 && b.height > 0)
   return Math.max(0, ...under.map((b) => b.x + b.width - b.radius - left))
 }
 

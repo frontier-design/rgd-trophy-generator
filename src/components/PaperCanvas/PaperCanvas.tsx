@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import { gradientRamp, gradientSpan, litFrontRamp, materialStops } from '../../material'
 import { createPaperScene, type PaperScene } from '../../shape2d'
 import type { LineBox, MaterialSettings, Outline2D, ShapeExtent } from '../../types'
-import { observeAnchor } from '../observeAnchor'
+import { observeAnchor, relativePosition } from '../observeAnchor'
 import { observeSize } from '../observeSize'
 
 interface PaperCanvasProps {
@@ -26,6 +26,11 @@ interface PaperCanvasProps {
   look: MaterialSettings
   /** Receives the drawn shape's outline (for the 3D stage). Should be referentially stable. */
   onOutline?: (outline: Outline2D) => void
+  /** Receives the scene once created, and null on unmount (for video export). Should be
+   *  referentially stable. */
+  onScene?: (scene: PaperScene | null) => void
+  /** Draw the shape (false while the 3D view covers it: it's still built for its outline). */
+  visible?: boolean
 }
 
 /**
@@ -36,6 +41,9 @@ interface PaperCanvasProps {
  *
  * A fresh <canvas> is created in the effect and removed in cleanup, so StrictMode's
  * mount → unmount → mount gets a clean element and a new PaperScope each time.
+ *
+ * Layout effects, so the shape (and the outline handed to the 3D view) is redrawn in the
+ * same commit as the text, before the browser paints: animated text and shape stay in step.
  */
 export function PaperCanvas({
   anchorRef,
@@ -48,30 +56,47 @@ export function PaperCanvas({
   mirror,
   look,
   onOutline,
+  onScene,
+  visible = true,
 }: PaperCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<PaperScene | null>(null)
+  const originRef = useRef({ x: NaN, y: NaN })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const host = hostRef.current
-    const anchor = anchorRef.current
-    if (!host || !anchor) return
+    if (!host) return
 
     const canvas = document.createElement('canvas')
     host.appendChild(canvas)
     const scene = createPaperScene(canvas)
     sceneRef.current = scene
     const stopObservingSize = observeSize(host, (w, h) => scene.resize(w, h))
-    const stopObservingAnchor = observeAnchor(anchor, host, (x, y) => scene.setOrigin(x, y))
+    onScene?.(scene)
 
     return () => {
-      stopObservingAnchor()
+      onScene?.(null)
       stopObservingSize()
       scene.dispose()
       sceneRef.current = null
       canvas.remove()
     }
-  }, [anchorRef])
+  }, [onScene])
+
+  // A passive effect: the anchor (the text editor, rendered after this canvas) only has its
+  // ref attached once the layout effects above have run.
+  useEffect(() => {
+    const host = hostRef.current
+    const anchor = anchorRef.current
+    const scene = sceneRef.current
+    if (!host || !anchor || !scene) return
+    return observeAnchor(anchor, host, (x, y) => scene.setOrigin(x, y))
+  }, [anchorRef, onScene])
+
+  // Declared before the drawing effect, so a hidden shape is never painted first.
+  useLayoutEffect(() => {
+    sceneRef.current?.setVisible(visible)
+  }, [visible])
 
   // The 3D material's look, flat. Painted: the same height bands the sweep starts from (a
   // seamless handoff). Lit: the front of the lit trophy, from silhouette to silhouette.
@@ -131,13 +156,26 @@ export function PaperCanvas({
   ])
 
   // Declared after the mount effect so it runs after the scene exists.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const outline = sceneRef.current?.showRag(
       { boxes, edgeX, extent, topCornerRadius, taper, joinRadius, mirror },
       style,
     )
     if (outline) onOutline?.(outline)
   }, [boxes, edgeX, extent, topCornerRadius, taper, joinRadius, mirror, style, onOutline])
+
+  // After every commit, follow the anchor: a layout change (e.g. a bottom banner's padding)
+  // can move the text without resizing anything the observers watch.
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    const anchor = anchorRef.current
+    const scene = sceneRef.current
+    if (!host || !anchor || !scene) return
+    const { x, y } = relativePosition(anchor, host)
+    if (x === originRef.current.x && y === originRef.current.y) return
+    originRef.current = { x, y }
+    scene.setOrigin(x, y)
+  })
 
   return <div ref={hostRef} className="paper-canvas" aria-hidden="true" />
 }

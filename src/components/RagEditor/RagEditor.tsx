@@ -1,4 +1,5 @@
 import type { CSSProperties, Ref } from 'react'
+import type { LineReveal } from '../../rag'
 import type { LineBox, LineMeasure, Settings, ShapeExtent } from '../../types'
 
 interface RagEditorProps {
@@ -14,6 +15,9 @@ interface RagEditorProps {
   extent: ShapeExtent | null
   /** Show a right-aligned copy of the text reflected across the edge (read-only). */
   mirror: boolean
+  /** During the stack-in reveal: whether each line shows, and its slide offset
+   *  (rag/stackReveal); null = all in place. */
+  reveals?: LineReveal[] | null
   onTextChange: (text: string) => void
   /** Show the debug overlay (line boxes, width labels, baselines, right-edge guide).
    *  Hidden via opacity, not removed. */
@@ -40,6 +44,7 @@ export function RagEditor({
   baselines,
   extent,
   mirror,
+  reveals = null,
   onTextChange,
   debug,
 }: RagEditorProps) {
@@ -57,9 +62,47 @@ export function RagEditor({
     '--edge-top': `${extent?.top ?? 0}px`,
     '--edge-bottom': `${extent?.bottom ?? rows * settings.lineHeight}px`,
   } as CSSProperties
+  // While revealing: a line shows only once it has appeared, moved by its slide offset
+  // (mirrored: from the right). Typed, the mirror's line moves so its typed letters end at
+  // the reflected edge, as the carving's reflection does.
+  const revealStyle = (line: LineMeasure, side: 1 | -1): CSSProperties | undefined => {
+    const reveal = reveals?.[line.index]
+    if (!reveals) return undefined
+    if (!reveal?.shown) return { visibility: 'hidden' }
+    if (reveal.letters) {
+      return side === 1
+        ? undefined
+        : { transform: `translateX(${line.width - (reveal.extent ?? 0)}px)` }
+    }
+    return { transform: `translateX(${side * reveal.offset}px)` }
+  }
+  // Typed, each letter is its own span: hidden until it appears, then nudged by the
+  // spacing still closing up (relative positioning keeps the line's shaping and kerning).
+  const lineContent = (line: LineMeasure, text: string) => {
+    const letters = reveals?.[line.index]?.letters
+    if (!letters) return text
+    return Array.from(text).map((char, i) => (
+      <span
+        key={i}
+        className="rag-letter"
+        style={{
+          left: `${letters.offsets[i] ?? 0}px`,
+          visibility: letters.shown[i] ? undefined : 'hidden',
+        }}
+      >
+        {char}
+      </span>
+    ))
+  }
 
   return (
-    <div ref={ref} className="rag-editor" style={vars} data-debug={debug ? 'on' : 'off'}>
+    <div
+      ref={ref}
+      className="rag-editor"
+      style={vars}
+      data-debug={debug ? 'on' : 'off'}
+      data-revealing={reveals ? 'on' : undefined}
+    >
       <textarea
         className="rag-text"
         aria-label="Text"
@@ -67,16 +110,28 @@ export function RagEditor({
         onChange={(e) => onTextChange(e.target.value)}
         placeholder="Start typing…"
         spellCheck={false}
-        autoFocus
       />
+      {/* While revealing, the textarea's own text is hidden and the lines that have
+          appeared are drawn here instead, sliding into their places (the textarea stays
+          editable). */}
+      {reveals && (
+        <div className="rag-reveal" aria-hidden="true" data-testid="rag-reveal">
+          {lines.map((line) => (
+            <div key={line.index} className="rag-reveal-line" style={revealStyle(line, 1)}>
+              {lineContent(line, line.text.trimEnd())}
+            </div>
+          ))}
+        </div>
+      )}
       {/* The mirror: each measured line, right-aligned in the column's reflection across
           the edge. Same widths, so its ragged edge mirrors the original's exactly. Built
-          from the measured lines, so it always breaks where the editor does. */}
+          from the measured lines, so it always breaks where the editor does. While
+          revealing, its lines slide in from the right, as the carving's reflection does. */}
       {mirror && (
         <div className="rag-mirror" aria-hidden="true" data-testid="rag-mirror">
           {lines.map((line) => (
-            <div key={line.index} className="rag-mirror-line">
-              {line.text.trimEnd()}
+            <div key={line.index} className="rag-mirror-line" style={revealStyle(line, -1)}>
+              {lineContent(line, line.text.trimEnd())}
             </div>
           ))}
         </div>

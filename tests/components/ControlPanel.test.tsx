@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../../src/App'
 import { MAX_STOPS, PALETTES } from '../../src/material'
 import { DEFAULT_LINE_BOX_STYLE, DEFAULT_SETTINGS, SettingsProvider } from '../../src/state'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
+vi.mock('../../src/timeline', () => import('../support/timelineStub'))
 
 function renderApp() {
   return render(
@@ -112,7 +113,7 @@ describe('ControlPanel', () => {
   it('top slider adds a band above the text and stretches the edge guide over it', async () => {
     const { container } = renderApp()
     const slider = screen.getByRole('slider', { name: 'top' })
-    expect(slider).toHaveAttribute('max', '300')
+    expect(slider).toHaveAttribute('max', '1000')
 
     fireEvent.change(slider, { target: { value: '120' } })
     const editor = container.querySelector<HTMLElement>('.rag-editor')
@@ -238,9 +239,111 @@ describe('ControlPanel', () => {
     expect(editor?.style.getPropertyValue('--rag-font-size')).toBe(`${DEFAULT_SETTINGS.fontSize}px`)
   })
 
-  it('has no section eyebrow headings', () => {
+  it('groups the fields into named sections, open by default', () => {
     renderApp()
-    expect(screen.queryByRole('heading')).toBeNull()
+    const names = [
+      'type',
+      'shape',
+      'top',
+      'line boxes',
+      'material',
+      'lighting',
+      'canvas',
+      'banner',
+      'view',
+      'image',
+      'timeline',
+    ]
+    expect(screen.getAllByRole('heading').map((h) => h.textContent?.replace(/[+−]$/, ''))).toEqual(
+      names,
+    )
+    for (const name of names) {
+      expect(screen.getByRole('button', { name })).toHaveAttribute('aria-expanded', 'true')
+    }
+  })
+
+  it('shows the banner at the bottom by default; it toggles, takes its text and moves', () => {
+    const { container } = renderApp()
+    const banner = () => screen.queryByTestId('banner')
+    expect(banner()).toBeInTheDocument()
+    expect(banner()).toHaveTextContent('Call for Entries: November 16th')
+    expect(banner()).toHaveTextContent('rgdbrandingawards.com')
+    expect(banner()?.querySelector('image')).toHaveAttribute('href', '/images/RGD_Logo.svg')
+    expect(screen.getByRole('combobox', { name: 'position' })).toHaveValue('bottom')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'headline' }), {
+      target: { value: 'Winners: March 3rd' },
+    })
+    expect(banner()).toHaveTextContent('Winners: March 3rd')
+
+    // At the bottom, it pushes the text up above it; at the top or hidden, it doesn't.
+    const artboard = container.querySelector<HTMLElement>('.artboard')
+    const padding = () =>
+      parseFloat(artboard?.style.getPropertyValue('--artboard-padding-bottom') ?? '')
+    const atBottom = padding()
+    fireEvent.change(screen.getByRole('combobox', { name: 'position' }), {
+      target: { value: 'top' },
+    })
+    const atTop = padding()
+    expect(atBottom).toBeGreaterThan(atTop)
+
+    fireEvent.click(screen.getByRole('switch', { name: 'banner' }))
+    expect(banner()).toBeNull()
+    expect(padding()).toBe(atTop)
+  })
+
+  it('reveals the banner: at 0% nothing shows', () => {
+    renderApp()
+    fireEvent.change(screen.getByRole('slider', { name: 'banner reveal' }), {
+      target: { value: '0' },
+    })
+    const [background] = [...screen.getByTestId('banner').querySelectorAll('rect')].filter(
+      (rect) => !rect.closest('clipPath'),
+    )
+    expect(background).toHaveAttribute('height', '0')
+  })
+
+  it('collapses and expands every section at once', () => {
+    renderApp()
+    const all = screen.getByRole('button', { name: 'collapse all' })
+    fireEvent.click(all)
+    expect(screen.getByRole('button', { name: 'type' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'timeline' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByRole('slider', { name: 'size' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'expand all' }))
+    expect(screen.getByRole('slider', { name: 'size' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'collapse all' })).toBeInTheDocument()
+  })
+
+  it('gives every param a keyframe button, and the timeline section its export', () => {
+    renderApp()
+    for (const name of ['size', 'mirror', 'shading', 'background', 'color 1', 'join radius']) {
+      expect(screen.getByRole('button', { name: `keyframe ${name}` })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      )
+    }
+    expect(screen.getByRole('button', { name: 'export 4K MP4' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'play' })).toBeInTheDocument()
+  })
+
+  it('collapses and expands a section from its header', () => {
+    renderApp()
+    const header = screen.getByRole('button', { name: 'line boxes' })
+    expect(screen.getByRole('slider', { name: 'pad x' })).toBeInTheDocument()
+
+    fireEvent.click(header)
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('slider', { name: 'pad x' })).toBeNull()
+    // Other sections stay open.
+    expect(screen.getByRole('slider', { name: 'size' })).toBeInTheDocument()
+
+    fireEvent.click(header)
+    expect(screen.getByRole('slider', { name: 'pad x' })).toBeInTheDocument()
   })
 
   it('round top toggle enables the top radius slider', () => {
@@ -255,6 +358,10 @@ describe('ControlPanel', () => {
     expect(radius).toBeEnabled()
     fireEvent.change(radius, { target: { value: '30' } })
     expect(radius).toHaveValue('30')
+    // Up to 200 px.
+    expect(radius).toHaveAttribute('max', '200')
+    fireEvent.change(radius, { target: { value: '160' } })
+    expect(radius).toHaveValue('160')
   })
 
   it('has a taper slider in percent, 0 by default', () => {
@@ -322,5 +429,35 @@ describe('ControlPanel', () => {
     for (const name of lightingSliders) expect(slider(name)).toBeDisabled()
     expect(slider('tilt')).toBeEnabled()
     expect(slider('edge hue')).toBeEnabled()
+  })
+})
+
+describe('image export (generator)', () => {
+  it('offers PNG (optionally transparent) or JPEG at ×1–×5', () => {
+    render(
+      <SettingsProvider>
+        <App />
+      </SettingsProvider>,
+    )
+    const section = screen.getByRole('region', { name: 'image' })
+    const format = within(section).getByRole('combobox', { name: 'format' })
+    expect(format).toHaveValue('png')
+    const scale = within(section).getByRole('combobox', { name: 'scale' })
+    expect([...scale.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+      '×1',
+      '×2',
+      '×3',
+      '×4',
+      '×5',
+    ])
+    expect(within(section).getByText('3840 × 2160')).toBeInTheDocument()
+    fireEvent.change(scale, { target: { value: '×4' } })
+    expect(within(section).getByText('7680 × 4320')).toBeInTheDocument()
+    // Transparency is PNG's.
+    const transparent = within(section).getByRole('switch', { name: 'transparent' })
+    expect(transparent).toBeEnabled()
+    fireEvent.change(format, { target: { value: 'jpeg' } })
+    expect(transparent).toBeDisabled()
+    expect(within(section).getByRole('button', { name: 'export jpeg' })).toBeInTheDocument()
   })
 })

@@ -1,10 +1,14 @@
 import { MAX_STOPS, MIN_CUSTOM_COLORS } from '../../material'
+import type { KeyframeControl } from '../../types'
+import { KeyframeButton } from './KeyframeButton'
 
 interface ColorStopsProps {
   /** `#rrggbb` colors, top → bottom of the gradient. */
   colors: readonly string[]
   /** Called with the full new list on any edit, add or remove. */
   onChange: (colors: string[]) => void
+  /** Timeline keyframe toggle for each color (by index). */
+  keyframe?: (index: number) => KeyframeControl | undefined
 }
 
 /**
@@ -12,7 +16,7 @@ interface ColorStopsProps {
  * picker per stop, its hex value, and remove; plus add. Between MIN_CUSTOM_COLORS and
  * MAX_STOPS colors.
  */
-export function ColorStops({ colors, onChange }: ColorStopsProps) {
+export function ColorStops({ colors, onChange, keyframe }: ColorStopsProps) {
   const set = (index: number, hex: string) =>
     onChange(colors.map((c, i) => (i === index ? hex : c)))
   const remove = (index: number) => onChange(colors.filter((_, i) => i !== index))
@@ -42,6 +46,7 @@ export function ColorStops({ colors, onChange }: ColorStopsProps) {
             >
               ×
             </button>
+            <KeyframeButton label={`color ${i + 1}`} keyframe={keyframe?.(i)} />
           </li>
         ))}
       </ol>

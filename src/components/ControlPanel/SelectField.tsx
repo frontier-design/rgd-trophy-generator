@@ -1,9 +1,14 @@
 import { useId } from 'react'
+import type { KeyframeControl } from '../../types'
+import { KeyframeButton } from './KeyframeButton'
 
 interface SelectFieldProps<T extends string> {
   label: string
   value: T
   options: readonly T[]
+  disabled?: boolean
+  /** Timeline keyframe toggle for this param. */
+  keyframe?: KeyframeControl
   onChange: (value: T) => void
 }
 
@@ -12,11 +17,13 @@ export function SelectField<T extends string>({
   label,
   value,
   options,
+  disabled = false,
+  keyframe,
   onChange,
 }: SelectFieldProps<T>) {
   const id = useId()
   return (
-    <div className="control-field control-field--select">
+    <div className="control-field control-field--select" data-disabled={disabled || undefined}>
       <label className="control-label" htmlFor={id}>
         {label}
       </label>
@@ -24,6 +31,7 @@ export function SelectField<T extends string>({
         id={id}
         className="control-select"
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value as T)}
       >
         {options.map((option) => (
@@ -32,6 +40,7 @@ export function SelectField<T extends string>({
           </option>
         ))}
       </select>
+      <KeyframeButton label={label} keyframe={keyframe} />
     </div>
   )
 }

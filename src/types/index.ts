@@ -43,6 +43,8 @@ export interface MaterialSettings {
   ledgeShadow: number
   /** Surface grain, 0–1. */
   grain: number
+  /** Grain size in frame px (a 4K export has 2 px per frame px). */
+  grainSize: number
   /** Lit mode: the key light's direction around the subject, degrees (0 = front, + = right). */
   lightAngle: number
   /** Lit mode: the key light's height, degrees (0 = level, 90 = overhead). */
@@ -111,6 +113,9 @@ export interface ShapeExtent {
   left: number
   /** Top of the first line's box, raised by the top band. */
   top: number
+  /** Where the top band ends: the first line's box top, for all the text (typed in or
+   *  not). Defaults to the carving boxes' top. */
+  bandBottom?: number
   /** The last line's baseline, plus the optical overshoot. */
   bottom: number
 }
@@ -151,4 +156,219 @@ export interface LineBoxStyle {
   padY: number
   /** Corner radius in px. */
   radius: number
+}
+
+/**
+ * Shape and canvas parameters held by App (not measurement inputs, so not in Settings).
+ * Together with the animatable Settings they are what the timeline animates.
+ */
+/** How the text reveals: lines stacking in from the bottom, or typed letter by letter. */
+export type RevealStyle = 'stack' | 'type'
+/** Which line reveals first. */
+export type RevealOrder = 'bottom' | 'top'
+
+export interface SceneParams {
+  revealStyle: RevealStyle
+  /** Which line reveals first, in either style. */
+  revealOrder: RevealOrder
+  /** Type reveal: 0 = letters in reading order, 100 = scattered within each line (%). */
+  revealScatter: number
+  /** Type reveal: the extra space a letter arrives with, closing up as it settles (% of the
+   *  type size). */
+  revealSpacing: number
+  /** Stack-in reveal of the text, in % (100 = all in place): lines appear bottom up and
+   *  slide into place. Only shown lines carve the shape, so 0 leaves it uncarved (a full
+   *  cylinder). */
+  reveal: number
+  /** Time between lines (or, typed, letters) appearing, in % of one's settle time. */
+  revealStagger: number
+  /** Stack-in: how far left a line appears before sliding into place (% of the type size). */
+  revealSlide: number
+  /** How far the uncarved trophy reaches out to the frame's edges at the reveal's start, in
+   *  % (100 = covering the whole frame). It eases back to its place as the text stacks in. */
+  revealFill: number
+  /** Reflect the text (and the 2D shape) across the edge. */
+  mirror: boolean
+  /** How far the shape's bottom extends below the last baseline (px). */
+  overshoot: number
+  /** Height of the full-width band on top of the shape (px). */
+  topHeight: number
+  /** Round the top band's bottom-left corner, with topRadius (px). */
+  roundTop: boolean
+  topRadius: number
+  /** Taper of the top band, in % (0–90). */
+  taper: number
+  lineBox: LineBoxStyle
+  /** Fillet the sharp corners where consecutive lines' boxes meet, with joinRadius (px). */
+  smoothJoins: boolean
+  joinRadius: number
+  canvasColors: CanvasColors
+  /** Show the banner (logo, headline, link) along the frame's top or bottom. */
+  banner: boolean
+  /** The banner's reveal, in % (100 = all in place): the bar grows up, then its items rise
+   *  into place. */
+  bannerReveal: number
+}
+
+/**
+ * A twist node's settings (canvas page): flutes around the trophy, turning as they rise,
+ * like fluted and gadrooned silver. They only cut in from the revolved silhouette, so the
+ * trophy never grows past its rag.
+ */
+export interface TwistParams {
+  /** How many flutes (lobes) around. */
+  flutes: number
+  /** How deep the grooves between them cut in, in % of the radius. */
+  depth: number
+  /** How far the flutes turn from the top to the bottom, in degrees (0 = straight). */
+  twist: number
+  /** The flutes' section, in %: 0 = smooth waves, 100 = round lobes meeting in crisp
+   *  creases (scalloped). */
+  sharpness: number
+  /** Turns the whole pattern around the axis, in degrees. */
+  rotate: number
+  /** The band of the height the flutes cover, in % from the top (0) to the bottom (100). */
+  from: number
+  to: number
+  /** How the flutes finish at the band's ends: fading out, or in rounded arches (each
+   *  lobe, or groove, closing in a round top, bordered by a channel). */
+  ends: TwistEnds
+  /** How long the ends are (the fade, or the arches' height), in % of the height. */
+  endSize: number
+  /** Bends the twist, in %: 0 turns evenly; positive turns slowly at the top and faster
+   *  toward the bottom (a swirl tightening downward), negative the other way. */
+  curve: number
+  /** The flutes' section: raised lobes with grooves between (sharpness = rounder lobes,
+   *  crisper creases), or narrow rounded grooves cut into flat ribs (sharpness = narrower). */
+  section: TwistSection
+}
+
+/**
+ * An etch node's settings (canvas page): a strip of fine engraved lines around the trophy,
+ * in bundles winding down it, crossing into a lattice. Drawn by the trophy's shader (no
+ * geometry), at a fixed line width on the frame.
+ */
+export interface EtchParams {
+  /** The strip, in % of the height from the top (0) to the bottom (100). */
+  from: number
+  to: number
+  /** How the lines run: diagonal (winding down by the slant), vertical (straight down),
+   *  horizontal (rings around), zigzag (chevrons) or wave (wavy); cross doubles them up
+   *  (diagonal/zigzag/wave: mirrored, crossing; horizontal: plus vertical lines, a grid). */
+  layout: EtchLayout
+  /** Bundles of lines around the trophy (horizontal: rings of lines across the strip). */
+  bundles: number
+  /** Lines in each bundle. */
+  lines: number
+  /** The space between a bundle's lines, in % of a bundle's share of the way around. */
+  gap: number
+  /** Line thickness, in frame px (the sidebar's "thickness"). */
+  width: number
+  /** How far the lines wind around over the strip, in degrees (zigzag/wave: how far they
+   *  swing). */
+  slant: number
+  /** Zigzag/wave: how many zigs or waves over the strip. */
+  waves: number
+  /** Lines both ways, crossing (a lattice); off = one way. */
+  cross: boolean
+  /** Cut: grooves in the surface, catching the light on one wall and shaded on the other
+   *  (they move with the light). Bright / dark: lines inlaid in a light or dark tone. */
+  style: EtchStyle
+  /** How strongly the lines show, in %: cut, how steep the grooves' walls are. */
+  strength: number
+  /** Fades the lines in from the strip's top and bottom edges, in % of the strip. */
+  fade: number
+  /** How deep (or, inlaid, how strong) the lines are at the strip's top and bottom, in %
+   *  (eased between): e.g. 100 → 0 for lines that gradually fade out toward the bottom. */
+  depthTop: number
+  depthBottom: number
+}
+
+export type EtchStyle = 'cut' | 'bright' | 'dark'
+export type EtchLayout = 'diagonal' | 'vertical' | 'horizontal' | 'zigzag' | 'wave'
+
+/**
+ * A pattern node's settings (canvas page): ornament on a strip of the trophy from an image,
+ * either generated in its style by Wave Function Collapse or the image itself, repeated.
+ * Drawn by the trophy's shader as relief (or inlay) from a height map.
+ */
+export interface PatternParams {
+  /** The source image: a URL or data URL (the node stores what was loaded). */
+  image: string
+  /** Generate new ornament from the image's pieces (WFC), or repeat the image itself. */
+  mode: PatternMode
+  /** The strip, in % of the height from the top (0) to the bottom (100). */
+  from: number
+  to: number
+  /** How many times the ornament repeats around the trophy (at 100% scale). */
+  repeats: number
+  /** The ornament's size, in % (proportions kept): smaller repeats more around and stacks in
+   *  rows across the strip; larger is cropped to the strip, centered. */
+  scale: number
+  /** How the ornament is laid on: stretched over its strip (from/to), or following the
+   *  surface, keeping its proportions everywhere and repeating in rows (smaller where the
+   *  trophy narrows): for covering the whole shape without stretching. */
+  mapping: PatternMapping
+  /** Each motif's size in its place, in % (proportions kept): smaller leaves plain surface
+   *  around each one (the same motifs, spaced out); larger crops into them. Unlike `scale`,
+   *  it never changes how many there are. */
+  shapeScale: number
+  /** Generate: the cells across the strip (the image is read at this size, so more is finer
+   *  and slower). */
+  detail: number
+  /** Generate: the cells around, per repeat. */
+  length: number
+  /** Generate: the neighborhood size learned from the image (2–4): larger keeps bigger
+   *  shapes, but needs a richer image. */
+  size: number
+  /** Generate: also use the image's pieces mirrored, or every rotation and mirror. */
+  symmetry: PatternSymmetry
+  /** Mirror the map like designed ornament: across the strip's middle line, around (each
+   *  repeat a mirrored pair, meeting seamlessly), both, or none. */
+  fold: PatternFold
+  /** Generate: which of the possible results (change it for another). */
+  seed: number
+  /** What counts as ornament (brighter than this, %). */
+  threshold: number
+  /** Swap ornament and ground (for dark ornament on a light image). */
+  invert: boolean
+  /** Rounds the relief's edges (px of the map). */
+  softness: number
+  /** Fades the ornament in from the strip's top and bottom edges, in % of the strip's
+   *  height, so it sinks into the surface rather than stopping at a line. */
+  fade: number
+  /** The embossing's depth at the strip's top and at its bottom, in % (eased between): e.g.
+   *  100 → 0 for ornament that gradually loses its relief toward the bottom. */
+  depthTop: number
+  depthBottom: number
+  /** Raised relief, cut in, or inlaid bright or dark. */
+  style: PatternStyle
+  /** How strongly it shows: relief, how tall; inlay, how opaque (%). */
+  strength: number
+}
+
+export type PatternMode = 'generate' | 'repeat'
+export type PatternMapping = 'strip' | 'surface'
+export type PatternFold = 'none' | 'across' | 'around' | 'both'
+export type PatternSymmetry = 'none' | 'mirror' | 'all'
+export type PatternStyle = 'raised' | 'cut' | 'bright' | 'dark'
+
+export type TwistEnds = 'fade' | 'round'
+export type TwistSection = 'lobes' | 'grooves'
+
+/** Every parameter the timeline can animate: the sidebar's controls, minus the text. */
+export type AnimatedParams = Pick<
+  Settings,
+  'fontSize' | 'lineHeight' | 'columnWidth' | 'material'
+> &
+  SceneParams
+
+/** A timeline keyframe button's state for one parameter at the playhead: not animated,
+ *  animated (no keyframe here), or a keyframe right at the playhead. */
+export type KeyframeState = 'static' | 'animated' | 'key'
+
+/** A param's keyframe button: its state at the playhead, and what clicking it does. */
+export interface KeyframeControl {
+  state: KeyframeState
+  onToggle: () => void
 }

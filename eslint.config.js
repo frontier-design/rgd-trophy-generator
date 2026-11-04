@@ -37,6 +37,9 @@ export default defineConfig([
       'src/shape2d/**',
       'src/render3d/**',
       'src/export/**',
+      'src/timeline/**',
+      'src/banner/**',
+      'src/pattern/**',
     ],
     rules: {
       'no-restricted-imports': [
@@ -53,8 +56,8 @@ export default defineConfig([
     },
   },
   {
-    // rag/ and material/ are pure math: no third-party libraries at all.
-    files: ['src/rag/**', 'src/material/**'],
+    // rag/, material/, banner/ and pattern/ are pure math: no third-party libraries at all.
+    files: ['src/rag/**', 'src/material/**', 'src/banner/**', 'src/pattern/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -62,7 +65,7 @@ export default defineConfig([
           patterns: [
             {
               regex: '^[^./]',
-              message: 'rag/ and material/ must not import libraries; keep them pure math.',
+              message: 'rag/, material/, banner/ and pattern/ must not import libraries; keep them pure math.',
             },
           ],
         },

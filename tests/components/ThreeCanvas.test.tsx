@@ -10,8 +10,14 @@ const scene = {
   setProjection: vi.fn(),
   setLook: vi.fn(),
   setMirror: vi.fn(),
+  setTwists: vi.fn(),
+  setEtches: vi.fn(),
+  setPatterns: vi.fn(),
   playRevolve: vi.fn(),
   resize: vi.fn(),
+  setPixelRatio: vi.fn(),
+  render: vi.fn(),
+  snapshot: vi.fn(),
   dispose: vi.fn(),
 }
 vi.mock('../../src/render3d', () => ({ createThreeScene: vi.fn(() => scene) }))
@@ -28,6 +34,7 @@ describe('ThreeCanvas under StrictMode', () => {
           look={DEFAULT_MATERIAL}
           mirror
           animateIn
+          pixelRatio={1}
         />
       </StrictMode>,
     )
@@ -53,6 +60,7 @@ describe('ThreeCanvas under StrictMode', () => {
         look={DEFAULT_MATERIAL}
         mirror={false}
         animateIn={false}
+        pixelRatio={1}
       />,
     )
     expect(scene.playRevolve).not.toHaveBeenCalled()

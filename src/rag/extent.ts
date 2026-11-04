@@ -36,9 +36,43 @@ export function shapeExtent(
 ): ShapeExtent | null {
   const last = lines.at(-1)
   if (!last || boxes.length === 0) return null
+  const bandBottom = Math.min(...boxes.map((b) => b.y))
   return {
     left: 0,
-    top: Math.min(...boxes.map((b) => b.y)) - Math.max(0, topHeight),
+    top: bandBottom - Math.max(0, topHeight),
+    bandBottom,
     bottom: lineBaseline(last.index, lineHeight, metrics) + overshoot,
+  }
+}
+
+/** A rectangle in the text block's px coordinates (y down). */
+export interface FrameRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+/**
+ * `extent` grown `amount` (0–1) of the way to covering `frame` once revolved around
+ * `edgeX`: its left side out to the radius that reaches the farther of the frame's sides,
+ * its top and bottom out to the frame's. The band's bottom stays put, so the boxes carve
+ * the same. Only ever grows: sides already past the frame are kept.
+ */
+export function fillExtent(
+  extent: ShapeExtent,
+  frame: FrameRect,
+  edgeX: number,
+  amount: number,
+): ShapeExtent {
+  const t = Math.min(1, Math.max(0, amount))
+  if (t === 0) return extent
+  const radius = Math.max(edgeX - frame.left, frame.right - edgeX)
+  const grow = (from: number, to: number) => from + (to - from) * t
+  return {
+    ...extent,
+    left: grow(extent.left, Math.min(extent.left, edgeX - radius)),
+    top: grow(extent.top, Math.min(extent.top, frame.top)),
+    bottom: grow(extent.bottom, Math.max(extent.bottom, frame.bottom)),
   }
 }

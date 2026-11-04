@@ -16,6 +16,10 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.9",
+    "@theatre/core": "0.7.2",
+    "@theatre/dataverse": "0.7.2",
+    "@theatre/studio": "0.7.2",
+    "mediabunny": "^1.61.5",
     "paper": "^0.12.18",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
