@@ -9,3 +9,4 @@ export { useSceneModel, type BannerText, type SceneModel, type SceneRefs } from 
 export { useAutosave, useSaveStatus } from './useAutosave'
 export { usePatternMaps, type PatternStatus } from './usePatternMaps'
 export { useSettled } from './useSettled'
+export { useUndo, type UndoHistory } from './useUndo'

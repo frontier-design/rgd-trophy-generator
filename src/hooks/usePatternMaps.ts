@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { imageToGray } from '../components/CanvasPage/patternImage'
-import { buildPatternMap, prepareSample, type Gray, type PatternMapParams } from '../pattern'
+import { buildPatternMap, type Gray, type PatternMapParams } from '../pattern'
 import type { PatternJob, PatternJobResult } from '../pattern/worker'
 import type { PatternParams } from '../types'
 
@@ -38,7 +38,7 @@ function imageId(image: string): number {
 
 /**
  * Each pattern node's height map, rebuilt when its image or map fields change: the image is
- * loaded (once per image) and prepared, then the map is built in a worker (WFC can take a
+ * loaded (once per image), then the map is built in a worker (WFC can take a
  * moment), or right here where workers aren't available. A newer job supersedes an older one.
  */
 export function usePatternMaps(
@@ -75,7 +75,7 @@ export function usePatternMaps(
     const sampleOf = (image: string) => {
       let sample = samples.current.get(image)
       if (!sample) {
-        sample = imageToGray(image).then(prepareSample)
+        sample = imageToGray(image)
         samples.current.set(image, sample)
         // A failed load can be retried (e.g. the same file picked again).
         sample.catch(() => samples.current.delete(image))

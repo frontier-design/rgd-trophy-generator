@@ -7,6 +7,7 @@ export const DEFAULT_LINE_BOX_STYLE: LineBoxStyle = { padX: 15, padY: 15, radius
 export const DEFAULT_CANVAS_COLORS: CanvasColors = { background: '#ffffff', text: '#111111' }
 
 export const DEFAULT_SCENE_PARAMS: SceneParams = {
+  textAlign: 'left',
   revealStyle: 'stack',
   revealOrder: 'bottom',
   revealScatter: 50,

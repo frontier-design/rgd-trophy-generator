@@ -8,6 +8,7 @@ import {
 import { BLOB_PREFIX, loadBlob, pruneBlobs, readSaved, storeBlob } from '../../state/persist'
 import {
   DEFAULT_ETCH,
+  DEFAULT_TEXTURE,
   DEFAULT_PATTERN,
   SAMPLE_IMAGE,
   DEFAULT_TWIST,
@@ -24,7 +25,7 @@ export interface CanvasDocument {
   modifiers: ModifierNode[]
   links: NodeLink[]
   /** Nodes inserted so far of each kind (their names and ids continue from here). */
-  inserted: { scene: number; twist: number; etch: number; pattern: number }
+  inserted: { scene: number; twist: number; etch: number; pattern: number; texture: number }
   /** Where the canvas was looking. */
   view: PanZoomView | null
 }
@@ -34,7 +35,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   scenes: [],
   modifiers: [],
   links: [],
-  inserted: { scene: 0, twist: 0, etch: 0, pattern: 0 },
+  inserted: { scene: 0, twist: 0, etch: 0, pattern: 0, texture: 0 },
   view: null,
 }
 
@@ -104,7 +105,7 @@ function parseScene(value: unknown): SceneNode | null {
   }
 }
 
-/** A saved twist or etch node (saves from before etch have only twists, without a kind). */
+/** A saved modifier node (saves from before etch have only twists, without a kind). */
 function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode | null {
   if (!isObject(value) || typeof value.id !== 'string') return null
   const base = {
@@ -130,6 +131,13 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
       ...base,
       kind: 'pattern',
       params: { ...DEFAULT_PATTERN, ...params, image: image ?? SAMPLE_IMAGE },
+    } as ModifierNode
+  }
+  if (type === 'texture') {
+    return {
+      ...base,
+      kind: 'texture',
+      params: { ...DEFAULT_TEXTURE, ...params },
     } as ModifierNode
   }
   if (type === 'twist') {
@@ -191,6 +199,10 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       pattern: Math.max(
         isFiniteNumber(inserted.pattern) ? inserted.pattern : 0,
         highestId(modifiers, 'pattern'),
+      ),
+      texture: Math.max(
+        isFiniteNumber(inserted.texture) ? inserted.texture : 0,
+        highestId(modifiers, 'texture'),
       ),
     },
     view:

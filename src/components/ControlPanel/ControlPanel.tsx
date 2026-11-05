@@ -11,6 +11,7 @@ import type {
   RevealOrder,
   RevealStyle,
   Shading,
+  TextAlign,
 } from '../../types'
 import { ColorField } from './ColorField'
 import { ColorStops } from './ColorStops'
@@ -29,6 +30,7 @@ const SHADINGS: readonly Shading[] = ['lit', 'painted']
 const REVEAL_STYLES: readonly RevealStyle[] = ['stack', 'type']
 /** Which line reveals first. */
 const REVEAL_ORDERS: readonly RevealOrder[] = ['bottom', 'top']
+const TEXT_ALIGNS: readonly TextAlign[] = ['left', 'center']
 /** Line height slider range, as multiples of the type size. */
 const LINE_HEIGHT_RANGE = { min: 0.7, max: 2.5 }
 const FRAME_RATES = ['24', '30', '60'] as const
@@ -232,6 +234,14 @@ export function ControlPanel({
           digits={1}
           keyframe={keyframe?.('type.leading')}
           onChange={(lineHeight) => onParamsChange({ lineHeight })}
+        />
+        {/* Left (the rag on the right) or centered lines; the mirror follows. */}
+        <SelectField
+          label="align"
+          value={params.textAlign}
+          options={TEXT_ALIGNS}
+          keyframe={keyframe?.('type.align')}
+          onChange={(textAlign) => onParamsChange({ textAlign })}
         />
         {revealControls && (
           <>

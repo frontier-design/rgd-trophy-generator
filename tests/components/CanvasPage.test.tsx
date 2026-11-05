@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { CanvasPage } from '../../src/components/CanvasPage'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
@@ -196,6 +196,8 @@ describe('CanvasPage', () => {
       'repeats',
       'scale',
       'shape scale',
+      'spin',
+      'angle',
       'detail',
       'length',
       'size',
@@ -214,7 +216,91 @@ describe('CanvasPage', () => {
     })
     expect(within(pattern).getByRole('slider', { name: 'detail' })).toBeEnabled()
     expect(within(pattern).getByRole('button', { name: 'new seed' })).toBeEnabled()
+    // Image: the image as is, so no threshold or folding.
+    fireEvent.change(within(pattern).getByRole('combobox', { name: 'mode' }), {
+      target: { value: 'image' },
+    })
+    expect(within(pattern).getByRole('slider', { name: 'threshold' })).toBeDisabled()
+    expect(within(pattern).getByRole('combobox', { name: 'fold' })).toBeDisabled()
+    expect(within(pattern).getByRole('slider', { name: 'angle' })).toBeEnabled()
     expect(within(pattern).getByRole('combobox', { name: 'style' })).toHaveValue('raised')
+  })
+
+  it('texture nodes insert with their fields (angle for brushed only)', () => {
+    render(<CanvasPage tools={null} />)
+    fireEvent.contextMenu(canvas(), { clientX: 30, clientY: 30 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert texture' }))
+    const texture = screen.getByRole('group', { name: 'texture 1' })
+    expect(within(texture).getByRole('combobox', { name: 'style' })).toHaveValue('rough')
+    for (const name of ['scale', 'strength', 'from', 'to', 'fade', 'top depth', 'bottom depth'])
+      expect(within(texture).getByRole('slider', { name })).toBeInTheDocument()
+    expect(within(texture).getByRole('slider', { name: 'angle' })).toBeDisabled()
+    fireEvent.change(within(texture).getByRole('combobox', { name: 'style' }), {
+      target: { value: 'brushed' },
+    })
+    expect(within(texture).getByRole('slider', { name: 'angle' })).toBeEnabled()
+  })
+
+  it('copies, pastes and duplicates nodes (menu and keyboard)', async () => {
+    render(<CanvasPage tools={null} />)
+    fireEvent.contextMenu(canvas(), { clientX: 30, clientY: 30 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert etch' }))
+    const etch = screen.getByRole('group', { name: 'etch 1' })
+    fireEvent.change(within(etch).getByRole('combobox', { name: 'layout' }), {
+      target: { value: 'wave' },
+    })
+    // Duplicate: a copy beside it, with its settings.
+    fireEvent.contextMenu(etch)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'duplicate etch' }))
+    const copy = screen.getByRole('group', { name: 'etch 2' })
+    expect(within(copy).getByRole('combobox', { name: 'layout' })).toHaveValue('wave')
+    // Copy, then paste where the menu opens.
+    fireEvent.contextMenu(etch)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'copy etch' }))
+    fireEvent.contextMenu(canvas(), { clientX: 400, clientY: 300 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'paste' }))
+    expect(screen.getByRole('group', { name: 'etch 3' })).toBeInTheDocument()
+
+    // Keyboard, on the selected scene: ⌘D duplicates, ⌘C / ⌘V copy and paste.
+    await insertScene()
+    fireEvent.keyDown(window, { key: 'd', metaKey: true })
+    expect(await screen.findByLabelText('scene 2')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'c', metaKey: true })
+    fireEvent.keyDown(window, { key: 'v', metaKey: true })
+    expect(await screen.findByLabelText('scene 3')).toBeInTheDocument()
+    // Not while typing in a field.
+    fireEvent.keyDown(within(screen.getByLabelText('scene 3')).getByLabelText('Text'), {
+      key: 'd',
+      metaKey: true,
+    })
+    expect(screen.queryByLabelText('scene 4')).toBeNull()
+  })
+
+  it('undoes and redoes with ⌘Z / ⇧⌘Z (not while typing)', async () => {
+    render(<CanvasPage tools={null} />)
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 350)))
+    fireEvent.contextMenu(canvas(), { clientX: 30, clientY: 30 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert etch' }))
+    await settle()
+    const etch = screen.getByRole('group', { name: 'etch 1' })
+    fireEvent.change(within(etch).getByRole('combobox', { name: 'layout' }), {
+      target: { value: 'wave' },
+    })
+    await settle()
+    const layout = () =>
+      within(screen.getByRole('group', { name: 'etch 1' })).getByRole('combobox', {
+        name: 'layout',
+      })
+    // Inside a field, its own undo: the canvas's history is left alone.
+    fireEvent.keyDown(layout(), { key: 'z', metaKey: true })
+    expect(layout()).toHaveValue('wave')
+    fireEvent.keyDown(window, { key: 'z', metaKey: true })
+    expect(layout()).toHaveValue('diagonal')
+    fireEvent.keyDown(window, { key: 'z', metaKey: true })
+    expect(screen.queryByRole('group', { name: 'etch 1' })).toBeNull()
+    fireEvent.keyDown(window, { key: 'Z', metaKey: true, shiftKey: true })
+    fireEvent.keyDown(window, { key: 'Z', metaKey: true, shiftKey: true })
+    expect(layout()).toHaveValue('wave')
   })
 
   it('node cards fold to their header (and keep it when saved)', () => {

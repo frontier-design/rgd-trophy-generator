@@ -3,7 +3,14 @@ import type { BannerText, SceneModel, SceneRefs } from '../../hooks/useSceneMode
 import type { SolidPattern, ThreeScene } from '../../render3d'
 import type { PaperScene } from '../../shape2d'
 import { ARTBOARD } from '../../state'
-import type { EtchParams, Outline2D, SceneParams, Settings, TwistParams } from '../../types'
+import type {
+  EtchParams,
+  Outline2D,
+  SceneParams,
+  Settings,
+  TextureParams,
+  TwistParams,
+} from '../../types'
 import { Banner } from '../Banner'
 import { PaperCanvas } from '../PaperCanvas'
 import { RagEditor } from '../RagEditor'
@@ -29,6 +36,8 @@ interface SceneArtboardProps extends SceneRefs {
   twists?: readonly TwistParams[]
   /** Etch nodes' engraved strips (canvas page). */
   etches?: readonly EtchParams[]
+  /** Texture nodes' rough finishes (canvas page). */
+  textures?: readonly TextureParams[]
   /** Pattern nodes' ornament (canvas page). */
   patterns?: readonly SolidPattern[]
   onTextChange: (text: string) => void
@@ -56,6 +65,7 @@ export function SceneArtboard({
   pixelRatio,
   twists,
   etches,
+  textures,
   patterns,
   onTextChange,
   onPaperScene,
@@ -105,6 +115,7 @@ export function SceneArtboard({
           pixelRatio={pixelRatio}
           twists={twists}
           etches={etches}
+          textures={textures}
           patterns={patterns}
           onScene={onThreeScene}
         />
@@ -113,6 +124,7 @@ export function SceneArtboard({
         ref={editorRef}
         settings={settings}
         lines={model.lines}
+        align={scene.textAlign}
         boxes={model.carvingBoxes}
         baselines={model.baselines}
         extent={model.extent}

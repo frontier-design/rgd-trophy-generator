@@ -112,6 +112,7 @@ describe('patternPlacement', () => {
         depthBottom: 20,
         scale: 50,
         shapeScale: 60,
+        angle: 90,
       }),
     ).toEqual({
       from: 0.1,
@@ -121,6 +122,8 @@ describe('patternPlacement', () => {
       scale: 0.5,
       shapeScale: 0.6,
       surface: 0,
+      angle: Math.PI / 2,
+      spin: 0,
       style: 1,
       strength: DEFAULT_PATTERN.strength / 100,
       fade: 0.5,

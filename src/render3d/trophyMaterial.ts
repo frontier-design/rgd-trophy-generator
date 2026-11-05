@@ -23,6 +23,7 @@ import {
 import { lightDirection, materialStops, MAX_STOPS, type PaletteStop } from '../material'
 import type { MaterialSettings } from '../types'
 import { MAX_ETCH_LINES, MAX_ETCHES, type EtchShape } from './etch'
+import { MAX_TEXTURES, type TextureShape } from './texture'
 import { MAX_PATTERNS, patternPlacement, type HeightMap, type SolidPattern } from './pattern'
 import { MAX_TWISTS, type TwistShape } from './twist'
 
@@ -47,6 +48,8 @@ export interface TrophyMaterial {
   setTwists(twists: readonly TwistShape[], top: number, height: number): void
   /** Etch nodes' engraved lines (up to MAX_ETCHES); none = no etching. */
   setEtches(etches: readonly EtchShape[]): void
+  /** Texture nodes' rough finishes (up to MAX_TEXTURES); none = a smooth surface. */
+  setTextures(textures: readonly TextureShape[]): void
   /** Pattern nodes' ornament (up to MAX_PATTERNS): each map is uploaded once (when it's a
    *  new map), the placement every call. `surfaceAt(from)` gives the surface coordinate at
    *  a strip's top (a share of the height), where patterns following the surface start. */
@@ -54,6 +57,9 @@ export interface TrophyMaterial {
   /** Free the pattern textures (the materials are disposed with the scene). */
   dispose(): void
 }
+
+/** The pattern slots (0 … MAX_PATTERNS − 1): each needs its own sampler, written out. */
+const PATTERN_SLOTS = Array.from({ length: MAX_PATTERNS }, (_, i) => i)
 
 const vertexShader = /* glsl */ `
   attribute float aLedge;
@@ -93,6 +99,7 @@ const fragmentShader = /* glsl */ `
   #define MAX_ETCHES ${MAX_ETCHES}
   #define MAX_ETCH_LINES ${MAX_ETCH_LINES}
   #define MAX_PATTERNS ${MAX_PATTERNS}
+  #define MAX_TEXTURES ${MAX_TEXTURES}
 
   uniform vec3 uStopColors[MAX_STOPS];
   uniform float uStopPositions[MAX_STOPS];
@@ -135,14 +142,19 @@ const fragmentShader = /* glsl */ `
   uniform vec4 uEtchD[MAX_ETCHES];
   // Pattern nodes (render3d/pattern.ts): height maps, and (from, to, repeats, style),
   // (strength, fade, top depth, bottom depth), (scale, shape scale, follows the surface,
-  // surface coordinate at the strip's top), (map width / height, -, -, -). Style: 0 raised, 1 cut, 2 bright inlay, 3 dark inlay.
+  // surface coordinate at the strip's top), (map width / height, angle, spin, -). Style: 0 raised, 1 cut, 2 bright inlay, 3 dark inlay.
   uniform int uPatternCount;
-  uniform sampler2D uPatternMap0;
-  uniform sampler2D uPatternMap1;
+${PATTERN_SLOTS.map((i) => `  uniform sampler2D uPatternMap${i};`).join('\n')}
   uniform vec4 uPatternA[MAX_PATTERNS];
   uniform vec4 uPatternB[MAX_PATTERNS];
   uniform vec4 uPatternC[MAX_PATTERNS];
   uniform vec4 uPatternD[MAX_PATTERNS];
+  // Texture nodes (TextureShape in texture.ts): (from, to, fade, style), (scale, strength,
+  // angle, seed), (top depth, bottom depth, -, -). Style: 0 rough, 1 hammered, 2 brushed.
+  uniform int uTextureCount;
+  uniform vec4 uTextureA[MAX_TEXTURES];
+  uniform vec4 uTextureB[MAX_TEXTURES];
+  uniform vec4 uTextureC[MAX_TEXTURES];
 
   varying vec3 vSolidPosition;
   varying vec3 vSolidNormal;
@@ -401,9 +413,14 @@ const fragmentShader = /* glsl */ `
   // sampled with seam-safe slopes (as the etch's angle), so mipmapping never sees atan's
   // jump. Sampled everywhere (its screen slopes need every pixel's value); patternDepth
   // confines it to the strip.
-  float patternHeight(sampler2D map, vec4 a, vec4 c, float aspect, float phi, vec2 dPhi, float v, vec2 dV, float surface, vec2 dSurface) {
+  float patternHeight(sampler2D map, vec4 a, vec4 c, vec4 d, float phi, vec2 dPhi, float v, vec2 dV, float surface, vec2 dSurface) {
     float scale = c.x;
     float shapeScale = c.y;
+    float aspect = d.x;
+    float angle = d.y;
+    // Spun around the trophy: the whole pattern turned about the axis.
+    phi -= d.z;
+    bool turned = abs(angle) > 1e-4;
     vec2 uv;
     vec2 dx;
     vec2 dy;
@@ -418,10 +435,24 @@ const fragmentShader = /* glsl */ `
     } else {
       // Over the strip: scaled about its middle line (smaller stacks rows, larger crops).
       float band = max(a.y - a.x, 1e-6) * max(scale, 1e-3);
-      float across = 0.5 + (clamp((v - a.x) / max(a.y - a.x, 1e-6), 0.0, 1.0) - 0.5) / max(scale, 1e-3);
+      // (Turned, the rows run on past the strip's edges instead of clamping.)
+      float vb = (v - a.x) / max(a.y - a.x, 1e-6);
+      float across = 0.5 + ((turned ? vb : clamp(vb, 0.0, 1.0)) - 0.5) / max(scale, 1e-3);
       uv = vec2(phi / 6.28318531 * a.z, across);
       dx = vec2(dPhi.x / 6.28318531 * a.z, dV.x / band);
       dy = vec2(dPhi.y / 6.28318531 * a.z, dV.y / band);
+    }
+    // Turned: the map's coordinates rotated in its own proportions (a tile is 'aspect' rows
+    // wide), so the ornament turns without shearing; its slopes turn with them. (Around the
+    // back, where the angle wraps, a turned lattice can't meet itself: out of a front view.)
+    if (turned) {
+      vec2 k = vec2(aspect, 1.0);
+      float cs = cos(angle);
+      float sn = sin(angle);
+      mat2 turn = mat2(cs, sn, -sn, cs);
+      uv = (turn * (uv * k)) / k;
+      dx = (turn * (dx * k)) / k;
+      dy = (turn * (dy * k)) / k;
     }
     // Each motif scaled in its own cell (one repeat around, one row across) about the cell's
     // middle: smaller leaves plain surface around it, larger crops into it. Explicit slopes,
@@ -436,6 +467,20 @@ const fragmentShader = /* glsl */ `
     vec2 inside = smoothstep(vec2(0.0), feather, local) * smoothstep(vec2(0.0), feather, 1.0 - local);
     float h = textureGrad(map, clamp(local, 0.0, 1.0) + floor(uv), dx / k, dy / k).r;
     return k < 1.0 ? h * inside.x * inside.y : h;
+  }
+
+  // One pattern's part at a point, from its height there (h) and its screen slope: relief
+  // (raised or cut, up to 10 frame px × strength × the strip's depth) bends 'slope' and
+  // shades the ground or the cut; inlays recolor through 'overlay'.
+  void applyPattern(float h, vec2 gradient, vec4 a, vec4 b, float v, float edge, inout vec2 overlay, inout vec2 slope, inout float shade) {
+    float depth = patternDepth(a, b, v, edge) * b.x;
+    if (a.w < 1.5) {
+      float direction = a.w < 0.5 ? 1.0 : -1.0;
+      slope += direction * depth * 10.0 * gradient;
+      shade = max(shade, (a.w < 0.5 ? 1.0 - h : h) * depth * 0.3);
+    } else if (h * depth > overlay.x) {
+      overlay = vec2(h * depth, a.w < 2.5 ? 1.0 : -1.0);
+    }
   }
 
   // The pattern nodes at p: inlays give 'overlay' (coverage × strength, tone ±1); relief gives
@@ -456,26 +501,175 @@ const fragmentShader = /* glsl */ `
     vec2 dV = vec2(dFdx(v), dFdy(v));
     float edge = abs(dV.x) + abs(dV.y);
     vec2 dSurface = vec2(dFdx(vSurface), dFdy(vSurface));
-    // Each map sampled in uniform control flow, with its screen slopes.
-    float h0 = uPatternCount > 0 ? patternHeight(uPatternMap0, uPatternA[0], uPatternC[0], uPatternD[0].x, phi, dPhi, v, dV, vSurface, dSurface) : 0.0;
-    float h1 = uPatternCount > 1 ? patternHeight(uPatternMap1, uPatternA[1], uPatternC[1], uPatternD[1].x, phi, dPhi, v, dV, vSurface, dSurface) : 0.0;
-    vec2 g0 = vec2(dFdx(h0), dFdy(h0));
-    vec2 g1 = vec2(dFdx(h1), dFdy(h1));
-    for (int i = 0; i < MAX_PATTERNS; i++) {
-      if (i >= uPatternCount) break;
-      float h = i == 0 ? h0 : h1;
-      vec2 gradient = i == 0 ? g0 : g1;
-      vec4 a = uPatternA[i];
-      vec4 b = uPatternB[i];
-      float depth = patternDepth(a, b, v, edge) * b.x;
-      if (a.w < 1.5) {
-        // Relief up to 10 frame px tall: raised ornament, or cut in.
-        float direction = a.w < 0.5 ? 1.0 : -1.0;
-        slope += direction * depth * 10.0 * gradient;
-        shade = max(shade, (a.w < 0.5 ? 1.0 - h : h) * depth * 0.3);
-      } else if (h * depth > overlay.x) {
-        overlay = vec2(h * depth, a.w < 2.5 ? 1.0 : -1.0);
+    // Each map sampled in uniform control flow, with its screen slopes (one sampler each, so
+    // written out per slot).
+${PATTERN_SLOTS.map(
+  (i) => `    if (uPatternCount > ${i}) {
+      float h${i} = patternHeight(uPatternMap${i}, uPatternA[${i}], uPatternC[${i}], uPatternD[${i}], phi, dPhi, v, dV, vSurface, dSurface);
+      applyPattern(h${i}, vec2(dFdx(h${i}), dFdy(h${i})), uPatternA[${i}], uPatternB[${i}], v, edge, overlay, slope, shade);
+    }`,
+).join('\n')}
+  }
+
+  // Texture ------------------------------------------------------------------------------
+
+  // Well-distributed hashes of a lattice point ("hash without sine", Hoskins): to 0..1, and
+  // to 0..1 in each of three channels.
+  float hash13(vec3 p3) {
+    p3 = fract(p3 * 0.1031);
+    p3 += dot(p3, p3.zyx + 31.32);
+    return fract((p3.x + p3.y) * p3.z);
+  }
+
+  vec3 hash33(vec3 p3) {
+    p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+  }
+
+  // Value noise (0..1) and its exact gradient (Quilez), with quintic easing between lattice
+  // points so its slopes are smooth too (no grid in the shading).
+  vec4 noiseGradient(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    vec3 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    float a = hash13(i);
+    float b = hash13(i + vec3(1.0, 0.0, 0.0));
+    float c = hash13(i + vec3(0.0, 1.0, 0.0));
+    float d = hash13(i + vec3(1.0, 1.0, 0.0));
+    float e = hash13(i + vec3(0.0, 0.0, 1.0));
+    float f1 = hash13(i + vec3(1.0, 0.0, 1.0));
+    float g = hash13(i + vec3(0.0, 1.0, 1.0));
+    float h = hash13(i + vec3(1.0, 1.0, 1.0));
+    float k1 = b - a;
+    float k2 = c - a;
+    float k3 = e - a;
+    float k4 = a - b - c + d;
+    float k5 = a - c - e + g;
+    float k6 = a - b - e + f1;
+    float k7 = -a + b + c - d + e - f1 - g + h;
+    float value = a + k1 * u.x + k2 * u.y + k3 * u.z + k4 * u.x * u.y + k5 * u.y * u.z
+      + k6 * u.z * u.x + k7 * u.x * u.y * u.z;
+    vec3 gradient = du * vec3(
+      k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z,
+      k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x,
+      k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y);
+    return vec4(value, gradient);
+  }
+
+  // Hammered: the squared distance to the nearest of jittered points, one per cell (Worley),
+  // so each point sits at the bottom of a round dent and dents meet in ridges; with its
+  // gradient (twice the offset from the point).
+  vec4 dentsGradient(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    float nearest = 8.0;
+    vec3 offset = vec3(0.0);
+    for (int cz = -1; cz <= 1; cz++) {
+      for (int cy = -1; cy <= 1; cy++) {
+        for (int cx = -1; cx <= 1; cx++) {
+          vec3 cell = vec3(float(cx), float(cy), float(cz));
+          vec3 d = f - cell - (0.1 + 0.8 * hash33(i + cell));
+          float distance2 = dot(d, d);
+          if (distance2 < nearest) {
+            nearest = distance2;
+            offset = d;
+          }
+        }
       }
+    }
+    return vec4(nearest, 2.0 * offset);
+  }
+
+  // The texture nodes at p (solid space, frame px): 'slope', the relief's screen-space slope
+  // (frame px per drawing-buffer px, for perturbNormal), and 'shade', how much darker the
+  // pits (rough, hammered) or the streaks (brushed) are. Each height comes with its exact
+  // gradient, projected on the screen through p's screen slopes, so the relief is smooth per
+  // pixel; detail smaller than a couple of pixels on screen fades out instead of shimmering.
+  // The relief's height is up to half the feature size × strength, so its steepness holds at
+  // any scale.
+  void surfaceTextureAt(vec3 p, out vec2 slope, out float shade) {
+    slope = vec2(0.0);
+    shade = 0.0;
+    float span = max(uHeightRange.y - uHeightRange.x, 1e-5);
+    float v = (uHeightRange.y - p.y) / span;
+    vec2 dV = vec2(dFdx(v), dFdy(v));
+    float edge = abs(dV.x) + abs(dV.y);
+    vec3 px = dFdx(p);
+    vec3 py = dFdy(p);
+    // Frame px per drawing-buffer px: how small a feature gets on screen.
+    float footprint = max(0.5 * (length(px) + length(py)), 1e-5);
+    // Around the axis (brushed): seam-safe angle slopes, as the etch's.
+    float phi = atan(p.x, p.z);
+    float phi2 = atan(-p.x, -p.z);
+    vec2 d1 = vec2(dFdx(phi), dFdy(phi));
+    vec2 d2 = vec2(dFdx(phi2), dFdy(phi2));
+    vec2 dPhi = vec2(abs(d1.x) < abs(d2.x) ? d1.x : d2.x, abs(d1.y) < abs(d2.y) ? d1.y : d2.y);
+    for (int i = 0; i < MAX_TEXTURES; i++) {
+      if (i >= uTextureCount) break;
+      vec4 a = uTextureA[i];
+      vec4 b = uTextureB[i];
+      vec4 c = uTextureC[i];
+      float depth = stripDepth(a.x, a.y, a.z, c.x, c.y, v, edge) * b.y;
+      if (depth <= 0.0) continue;
+      float scale = max(b.x, 1e-3);
+      vec3 seed = b.w * vec3(13.0, 7.0, 11.0);
+      float h = 0.0;
+      vec2 hSlope = vec2(0.0);
+      float tone = 0.0;
+      if (a.w < 0.5) {
+        // Rough: four octaves of noise, each half the size and height of the last.
+        float total = 0.0;
+        float amplitude = 1.0;
+        float size = scale;
+        for (int k = 0; k < 4; k++) {
+          float lod = smoothstep(1.0, 3.0, size / footprint);
+          vec4 n = noiseGradient(p / size + seed + float(k) * 17.0);
+          h += amplitude * lod * n.x;
+          vec3 gradient = n.yzw / size;
+          hSlope += amplitude * lod * vec2(dot(gradient, px), dot(gradient, py));
+          total += amplitude;
+          amplitude *= 0.5;
+          size *= 0.5;
+        }
+        h /= total;
+        hSlope /= total;
+        tone = 0.35 * (1.0 - h);
+      } else if (a.w < 1.5) {
+        // Hammered: one dent per cell.
+        float lod = smoothstep(1.5, 4.0, scale / footprint);
+        vec4 n = dentsGradient(p / scale + seed);
+        h = min(n.x, 1.0) * lod;
+        vec3 gradient = n.x < 1.0 ? n.yzw / scale : vec3(0.0);
+        hSlope = lod * vec2(dot(gradient, px), dot(gradient, py));
+        tone = 0.2 * (1.0 - h) * lod;
+      } else {
+        // Brushed: noise stretched 16× along the streaks, in (around, down) frame px, the
+        // around coordinate at the solid's half height as radius (so its slope is exact),
+        // turned by the angle.
+        float radius = 0.5 * span;
+        float cs = cos(b.z);
+        float sn = sin(b.z);
+        vec2 at = vec2(phi * radius, -p.y);
+        vec2 dAtX = vec2(dPhi.x * radius, -px.y);
+        vec2 dAtY = vec2(dPhi.y * radius, -py.y);
+        vec2 along = vec2(cs, sn);
+        vec2 across = vec2(-sn, cs);
+        float lod = smoothstep(1.0, 3.0, scale / footprint);
+        vec2 q = vec2(dot(at, along) / (16.0 * scale), dot(at, across) / scale);
+        vec4 n = noiseGradient(vec3(q, 0.0) + seed);
+        vec4 n2 = noiseGradient(vec3(q * 2.0, 5.0) + seed);
+        h = (n.x + 0.5 * n2.x) / 1.5 * lod;
+        // d h / d (around, down), then on the screen.
+        vec2 g = (n.yz + n2.yz) / 1.5;
+        vec2 dAt = g.x * along / (16.0 * scale) + g.y * across / scale;
+        hSlope = lod * vec2(dot(dAt, dAtX), dot(dAt, dAtY));
+        tone = 0.45 * h;
+      }
+      float height = 0.5 * scale * depth;
+      slope += height * hSlope;
+      shade = max(shade, tone * depth);
     }
   }
 
@@ -545,9 +739,13 @@ const fragmentShader = /* glsl */ `
     vec2 patternSlope = vec2(0.0);
     float patternShade = 0.0;
     if (!flatFace && uPatternCount > 0) patternAt(vSolidPosition, patternOverlay, patternSlope, patternShade);
-    if (!flatFace && (uEtchCount > 0 || uPatternCount > 0)) {
+    // Texture nodes: fine relief bending the normal too; pits or streaks a touch darker.
+    vec2 textureSlope = vec2(0.0);
+    float textureShade = 0.0;
+    if (!flatFace && uTextureCount > 0) surfaceTextureAt(vSolidPosition, textureSlope, textureShade);
+    if (!flatFace && (uEtchCount > 0 || uPatternCount > 0 || uTextureCount > 0)) {
       // (Slopes are per drawing-buffer px; positions' screen slopes match them.)
-      n = perturbNormal(vViewPosition, n, etchSlope + patternSlope, facing);
+      n = perturbNormal(vViewPosition, n, etchSlope + patternSlope + textureSlope, facing);
     }
     etchCut = max(etchCut, patternShade);
     if (patternOverlay.x > etchOverlay.x) etchOverlay = patternOverlay;
@@ -599,6 +797,7 @@ const fragmentShader = /* glsl */ `
       // Cut grooves are a touch darker at the bottom; inlays: bright toward the map's
       // highlight, dark toward its shadow.
       lum *= 1.0 - 0.2 * etchCut;
+      lum *= 1.0 - textureShade;
       lum = mix(lum, etchOverlay.y > 0.0 ? 1.1 : 0.0, etchOverlay.x);
       // Mirrors gradientCoord(): offset/scale move and stretch the map along the light.
       float g = 0.5 + (lum - 0.5 - uGradientOffset) / max(uGradientScale, 1e-3);
@@ -625,6 +824,7 @@ const fragmentShader = /* glsl */ `
         color = mix(color, color + (1.0 - color) * 0.22, top * uLedgeShadow);
       }
       color *= 1.0 - 0.2 * etchCut;
+      color *= 1.0 - textureShade;
       color = mix(color, etchOverlay.y > 0.0 ? vec3(1.0) : color * 0.2, etchOverlay.x);
     }
 
@@ -685,9 +885,12 @@ export function createTrophyMaterial(): TrophyMaterial {
     uEtchB: { value: Array.from({ length: MAX_ETCHES }, () => new Vector4()) },
     uEtchC: { value: Array.from({ length: MAX_ETCHES }, () => new Vector4()) },
     uEtchD: { value: Array.from({ length: MAX_ETCHES }, () => new Vector4()) },
+    uTextureCount: { value: 0 },
+    uTextureA: { value: Array.from({ length: MAX_TEXTURES }, () => new Vector4()) },
+    uTextureB: { value: Array.from({ length: MAX_TEXTURES }, () => new Vector4(1, 0, 0, 0)) },
+    uTextureC: { value: Array.from({ length: MAX_TEXTURES }, () => new Vector4()) },
     uPatternCount: { value: 0 },
-    uPatternMap0: { value: blankMap },
-    uPatternMap1: { value: blankMap },
+    ...Object.fromEntries(PATTERN_SLOTS.map((i) => [`uPatternMap${i}`, { value: blankMap }])),
     uPatternA: { value: Array.from({ length: MAX_PATTERNS }, () => new Vector4()) },
     uPatternB: { value: Array.from({ length: MAX_PATTERNS }, () => new Vector4()) },
     uPatternC: { value: Array.from({ length: MAX_PATTERNS }, () => new Vector4(1, 1, 0, 0)) },
@@ -750,13 +953,13 @@ export function createTrophyMaterial(): TrophyMaterial {
           slot = { map, texture: heightTexture(map) }
           patternTextures[i] = slot
         }
-        const uniform = i === 0 ? uniforms.uPatternMap0 : uniforms.uPatternMap1
-        uniform.value = slot.texture
+        const uniform = (uniforms as Record<string, { value: unknown }>)[`uPatternMap${i}`]
+        if (uniform) uniform.value = slot.texture
         const p = patternPlacement(params)
         uniforms.uPatternA.value[i]?.set(p.from, p.to, p.repeats, p.style)
         uniforms.uPatternB.value[i]?.set(p.strength, p.fade, p.depthTop, p.depthBottom)
         uniforms.uPatternC.value[i]?.set(p.scale, p.shapeScale, p.surface, surfaceAt(p.from))
-        uniforms.uPatternD.value[i]?.set(map.width / Math.max(map.height, 1), 0, 0, 0)
+        uniforms.uPatternD.value[i]?.set(map.width / Math.max(map.height, 1), p.angle, p.spin, 0)
       })
     },
     dispose() {
@@ -771,6 +974,15 @@ export function createTrophyMaterial(): TrophyMaterial {
         uniforms.uEtchB.value[i]?.set(e.gap, e.width, e.slant, e.cross)
         uniforms.uEtchC.value[i]?.set(e.style, e.strength, e.layout, e.waves)
         uniforms.uEtchD.value[i]?.set(e.fade, e.depthTop, e.depthBottom, 0)
+      })
+    },
+    setTextures(textures) {
+      const used = textures.slice(0, MAX_TEXTURES)
+      uniforms.uTextureCount.value = used.length
+      used.forEach((t, i) => {
+        uniforms.uTextureA.value[i]?.set(t.from, t.to, t.fade, t.style)
+        uniforms.uTextureB.value[i]?.set(t.scale, t.strength, t.angle, t.seed)
+        uniforms.uTextureC.value[i]?.set(t.depthTop, t.depthBottom, 0, 0)
       })
     },
     setTwists(twists, top, height) {

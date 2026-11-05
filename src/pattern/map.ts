@@ -6,8 +6,10 @@ import { wfcOverlapping } from './wfc'
 
 /** What's below this brightness (0–255) is the image's empty margin, cropped off. */
 const MARGIN = 24
-/** Repeat: the map's height (px across the strip). */
-const REPEAT_HEIGHT = 192
+/** Repeat: the map's height at most (px across the strip). */
+const REPEAT_HEIGHT = 512
+/** Repeat: the map's widest (px, before folding doubles it; textures stay within limits). */
+const REPEAT_MAX_WIDTH = 4096
 /** Generate: map px per WFC cell (the cells are smoothed into relief). */
 const CELL_PX = 6
 /** Generate: neighborhoods past this many make WFC too slow (lower detail or size). */
@@ -64,17 +66,47 @@ export function fold(g: Gray, how: PatternParams['fold']): Gray {
   return out
 }
 
-/** The image prepared for either mode: margins cropped, its long side running around. */
+/** The image prepared for repeat and generate: margins cropped, its long side running
+ *  around (as is for image mode). */
 export function prepareSample(image: Gray): Gray {
   return landscape(autocrop(image, MARGIN))
 }
 
-/** A pattern node's height map from its (prepared) image. */
-export function buildPatternMap(sample: Gray, params: PatternMapParams): PatternMapResult {
+/** Image mode: the map's longest side at most this (px; the texture's size). */
+const IMAGE_MAX_SIDE = 2048
+
+/**
+ * A pattern node's height map from its image. Image: the image itself, as is (its
+ * brightness is the height: no cropping, turning, contrast or folding), only scaled to fit
+ * a texture, inverted and softened if asked. Repeat: the image prepared (prepareSample),
+ * pushed toward black and white at the threshold, folded. Generate: Wave Function Collapse
+ * from it.
+ */
+export function buildPatternMap(image: Gray, params: PatternMapParams): PatternMapResult {
   const threshold = (params.threshold / 100) * 255
   const softness = Math.max(0, params.softness)
+  if (params.mode === 'image') {
+    const fit = Math.min(1, IMAGE_MAX_SIDE / Math.max(image.width, image.height))
+    const sized = resize(image, image.width * fit, image.height * fit, true)
+    const height = params.invert
+      ? gray(
+          sized.width,
+          sized.height,
+          sized.data.map((v) => 255 - v),
+        )
+      : sized
+    const map = blur(height, softness, true)
+    return { map, message: `${map.width} × ${map.height}, as is` }
+  }
+  const sample = prepareSample(image)
   if (params.mode === 'repeat') {
-    const height = REPEAT_HEIGHT
+    // As sharp as the image allows (never upscaled), at most REPEAT_HEIGHT across the strip
+    // and REPEAT_MAX_WIDTH around (before folding).
+    const height = Math.min(
+      REPEAT_HEIGHT,
+      sample.height,
+      Math.round((REPEAT_MAX_WIDTH * sample.height) / sample.width),
+    )
     const width = Math.max(1, Math.round((sample.width / sample.height) * height))
     const sized = fold(resize(sample, width, height), params.fold)
     const map = blur(contrast(sized, threshold, 48, params.invert), softness, true)

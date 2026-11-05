@@ -271,6 +271,7 @@ export const CanvasScene = memo(function CanvasScene({
         pixelRatio={pixelRatio}
         twists={modifiers.twists}
         etches={modifiers.etches}
+        textures={modifiers.textures}
         patterns={modifiers.patterns}
         onTextChange={setText}
         onPaperScene={setPaper}

@@ -1,6 +1,6 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
 import { ARTBOARD } from '../../state'
-import type { EtchParams, PatternParams, TwistParams } from '../../types'
+import type { EtchParams, PatternParams, TextureParams, TwistParams } from '../../types'
 
 /** A node on the canvas that changes the scenes its output links to: where it sits. */
 interface ModifierBase {
@@ -31,9 +31,15 @@ export interface PatternNode extends ModifierBase {
   params: PatternParams
 }
 
-export type ModifierNode = TwistNode | EtchNode | PatternNode
+/** Texture: a rough finish (noise, dents or streaks) over the trophy. */
+export interface TextureNode extends ModifierBase {
+  kind: 'texture'
+  params: TextureParams
+}
+
+export type ModifierNode = TwistNode | EtchNode | PatternNode | TextureNode
 export type ModifierKind = ModifierNode['kind']
-export const MODIFIER_KINDS: readonly ModifierKind[] = ['twist', 'etch', 'pattern']
+export const MODIFIER_KINDS: readonly ModifierKind[] = ['twist', 'etch', 'pattern', 'texture']
 
 /** A link from a node's output to a scene's input. */
 export interface NodeLink {
@@ -88,6 +94,8 @@ export const DEFAULT_PATTERN: PatternParams = {
   to: 30,
   repeats: 3,
   scale: 100,
+  angle: 0,
+  spin: 0,
   mapping: 'strip',
   shapeScale: 100,
   detail: 16,
@@ -104,6 +112,20 @@ export const DEFAULT_PATTERN: PatternParams = {
   depthBottom: 100,
   style: 'raised',
   strength: 60,
+}
+
+/** A new texture: a fine, cast-metal roughness over the whole trophy. */
+export const DEFAULT_TEXTURE: TextureParams = {
+  style: 'rough',
+  scale: 6,
+  strength: 40,
+  angle: 0,
+  seed: 1,
+  from: 0,
+  to: 100,
+  fade: 0,
+  depthTop: 100,
+  depthBottom: 100,
 }
 
 /** Node cards' size at full scale (px): their width, and their header's height (the output
@@ -138,6 +160,8 @@ export function createModifier(
       return { kind, id, name, x, y, params: DEFAULT_ETCH }
     case 'pattern':
       return { kind, id, name, x, y, params: DEFAULT_PATTERN }
+    case 'texture':
+      return { kind, id, name, x, y, params: DEFAULT_TEXTURE }
   }
 }
 
@@ -177,6 +201,7 @@ export function connect(links: readonly NodeLink[], from: string, to: string): N
 export interface SceneModifiers {
   twists: TwistParams[]
   etches: EtchParams[]
+  textures: TextureParams[]
   patterns: SolidPattern[]
   /** Anything linked at all (patterns still generating included). */
   linked: boolean
@@ -193,9 +218,16 @@ export function modifiersByScene(
   for (const link of links) {
     const node = byId.get(link.from)
     if (!node) continue
-    const current = out.get(link.to) ?? { twists: [], etches: [], patterns: [], linked: true }
+    const current = out.get(link.to) ?? {
+      twists: [],
+      etches: [],
+      textures: [],
+      patterns: [],
+      linked: true,
+    }
     if (node.kind === 'twist') current.twists = [...current.twists, node.params]
     else if (node.kind === 'etch') current.etches = [...current.etches, node.params]
+    else if (node.kind === 'texture') current.textures = [...current.textures, node.params]
     else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]

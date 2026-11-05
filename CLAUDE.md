@@ -38,7 +38,7 @@ src/
                        sidebar (left); right column: the artboard (1920 × 1080, scaled to fit)
                        holding PaperCanvas, ThreeCanvas and RagEditor (text at its bottom
                        left), and the TimelineSlot below it. State: Settings (store) +
-                       SceneParams (mirror, overshoot, top height, round top + top radius,
+                       SceneParams (align, mirror, overshoot, top height, round top + top radius,
                        taper, line box style, smooth joins + join radius, canvas colors) =
                        AnimatedParams; view toggles (revolve: starts 3D, "2D sketch" flips it;
                        debug; perspective); export fps. Also builds export frames (compose).
@@ -66,7 +66,7 @@ src/
                        keyframes, playback, docking), studioPrivate.ts (Studio internals)
   components/          SceneArtboard (one scene's artboard: shape, solid, text, banner),
                        CanvasPage (+ CanvasScene, NodeCard, TwistFields, EtchFields,
-                       PatternFields, patternImage,
+                       PatternFields, TextureFields, patternImage,
                        ContextMenu, sceneNode, graph,
                        canvasDocument: the canvas page), SaveControls (save / open / status),
                        RagEditor (the text block is the editor; debug boxes + width labels),
@@ -75,14 +75,14 @@ src/
                        ThreeCanvas (fills the artboard behind the text; revolves the shape in place),
                        TimelineSlot (the strip Theatre's sequence editor docks into),
                        ControlPanel (Collapse/Expand All; ControlSections of
-                       Range/Select/Toggle/ColorFields, each with a KeyframeButton: size, line height, edge, mirror, top, round top, top
+                       Range/Select/Toggle/ColorFields, each with a KeyframeButton: size, line height, align, edge, mirror, top, round top, top
                        radius, taper, overshoot, box pad x/y,
                        radius, smooth joins + join radius; material incl. SeedColorField + ColorStops; canvas colors;
                        2D sketch, perspective, debug; timeline: play, to start, length, fps,
                        export 4K MP4)
   hooks/               usePage (URL ⇄ page), useInfiniteCanvas (the canvas page's pan/zoom),
                        useSceneModel (one scene's composition, shared by both pages),
-                       useAutosave + useSaveStatus (saving), usePatternMaps (pattern nodes'
+                       useAutosave + useSaveStatus (saving), useUndo (the canvas's undo / redo), usePatternMaps (pattern nodes'
                        maps, in a worker),
                        useFontLoaded, useRagMeasure, usePanZoom, useTimeline (params ⇄
                        timeline), useVideoExport (one export job: progress, cancel, error)
@@ -216,6 +216,14 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   radius reaching the frame's farther side, top and bottom past the frame, 1 px bleed);
   the boxes carve from past its left side as always, so the grooves stay on the text. App
   measures the text block's place in the frame after every commit for this.
+- **Align** (sidebar **align**, `textAlign`, animatable as `type.align`): left (default) or
+  center. `rag/alignOffsets` gives each line's start in the column ((column − width) / 2
+  centered); its box still starts at the text's left side and reaches to where the line ends
+  (`lineBoxes` `offsets`), so the carving stays between the text and the axis (typed, the
+  start grows in with the line's first letter, `revealedBoxes`). The textarea, the reveal
+  lines and the mirror center with CSS (`.rag-editor[data-align='center']`; the mirror's
+  reveal offsets work unchanged), width labels move with their line (`--line-start`), and
+  exports add the starts to the text layers' offsets (`composeScene`).
 - **Line order** (sidebar **line order**, `revealOrder`, animatable): which line reveals
   first, bottom (default, the RGD reference) or top, for both styles (`from` in
   `stackReveal` / `typeReveal`).
@@ -290,7 +298,16 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   sidebar's `ControlPanel` with no keyframes, no timeline, no banner section and
   `revealControls={false}`), kept on screen; dragging it (not its text) moves it; its text
   edits as in the generator; a press on the empty canvas deselects; Delete/Backspace
-  (unless typing) or right-click → **delete scene** removes it. A new scene starts on RGD's
+  (unless typing) or right-click → **delete scene** removes it. **Copy / paste**: right-click
+  a scene or node → **copy** / **duplicate** (beside it), right-click anywhere → **paste**
+  (at the click); ⌘/Ctrl C, V (at the pointer), D (not while typing). The clipboard is the
+  module's (`copied`, a deep copy), so it survives switching pages; a paste gets the next id
+  and name of its kind and is selected. **Undo / redo** (⌘/Ctrl Z, ⇧⌘Z or Ctrl Y;
+  `hooks/useUndo`): over the scenes, nodes and links (not the view, selection or id
+  counters), each change recorded once it settles (300 ms with no pointer pressed, so a drag
+  or a slider's whole move is one step; 100 steps). Inside a text field the field's own undo
+  applies. The keys are caught on the window in the capture phase and stopped, so Theatre's
+  ⌘Z (the generator's undo, for its params) never sees them. A new scene starts on RGD's
   reference layout without the banner (`canvasSceneDefaults`): text measured once its font
   loads (`measureDefaultText`), fitted with `rag/fitToFrame` (the sculpt intro's rule:
   mirrored, the widest line + box carving 80% of the radius, the top band up to the top
@@ -312,7 +329,7 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   of the height). Drag from its output port onto a scene's input port (mid-left) to link
   (`NodeLink`, curves in `.node-links`, an SVG in canvas px); dragging from a linked input
   picks its last link up; deleting a node drops its links. An output can feed several
-  scenes; a scene takes the first `MAX_TWISTS` (4), multiplied.
+  scenes; a scene takes the first `MAX_TWISTS` (8), multiplied (etches: `MAX_ETCHES`, 8).
   - The math (`render3d/twist.ts`, pure, tested; `twistScale`): the radius is scaled by
     m = 1 − depth·fade·cut, cuts centered on the creases (lobes 1 − sin(x/2)^p, grooves
     cos(x/2)^p, x = distance from the crease), so the surface only cuts in from the revolved
@@ -369,7 +386,9 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   (`imageExport`) and in the generator's document.
 - **Pattern node** (`PatternFields`; right-click → **insert pattern**; starts in repeat mode,
   fold around, which works best for organic ornament): ornament on a strip from an image (starts with `public/images/ornament-sample.png`; **load image** stores a
-  ≤ 600 px PNG data URL in the node, so it's saved with the canvas). The image is cropped to
+  ≤ 2048 px WebP data URL in the node, so it's saved with the canvas; maps keep up to 512 px
+  across the strip / 4096 around in repeat mode, never upscaled, and 2048 px in image mode:
+  `pattern/map.ts` `REPEAT_HEIGHT`, `REPEAT_MAX_WIDTH`, `IMAGE_MAX_SIDE`). The image is cropped to
   its ornament and turned so its long side runs around (`pattern/grid.ts`). **mode**:
   - **generate**: Wave Function Collapse, the overlapping model (`pattern/wfc.ts`, after
     Gumin; AC-4 propagation, seeded mulberry32, retries on contradiction, gives up past
@@ -381,6 +400,16 @@ public/fonts/          local font files (declare them with @font-face in src/sty
     designed ornament (across the middle line, around in pairs, both: the default).
   - **repeat**: the image itself (contrast at threshold), **fold** around mirrors every
     other repeat so they meet seamlessly.
+  - **image**: the image itself, as is: no cropping, turning, contrast or folding; its
+    brightness is the relief (soft shading carries over), scaled to ≤ 1024 px, invert and
+    softness still apply (`buildPatternMap` prepares the image only for repeat/generate;
+    `usePatternMaps` caches raw images).
+  - **spin** slides the whole pattern around the trophy (about its axis, degrees;
+    `uPatternD.z`, subtracted from the angle around before mapping).
+  - **angle** turns the ornament on the trophy: the map's coordinates rotated in its own
+    proportions (a tile is `aspect` rows wide), slopes with them, so it doesn't shear (exact
+    under surface mapping); a turned lattice can't meet itself where the angle wraps, at
+    the back, out of a front view.
   - The map (255 = ornament) is blurred by **softness**, built in a worker
     (`pattern/worker.ts`, driven by `hooks/usePatternMaps`: per node, debounced, stale jobs
     dropped, sync fallback without workers; only map fields rebuild, placement doesn't), and
@@ -403,11 +432,25 @@ public/fonts/          local font files (declare them with @font-face in src/sty
     never adds its own slope (the normal follows the map's gradient × depth), so motifs
     flatten into the surface instead of the strip reading as a bevel; **style** raised / cut bends the normal by
     the height's screen-space slope (relief up to 10 frame px × **strength**, the ground or
-    the cut a touch darker), bright / dark inlay recolor. Up to `MAX_PATTERNS` (2) per scene;
+    the cut a touch darker), bright / dark inlay recolor. Up to `MAX_PATTERNS` (4) per scene (one
+    sampler each: the shader writes out the per-slot code, `PATTERN_SLOTS`);
     textures upload once per map (`trophyMaterial.setPatterns`) and are freed with the scene.
-- **Modifier nodes** (`graph.ts`: `ModifierNode` = twist | etch, `kind`; `NodeCard` is the
-  shared card, `TwistFields` / `EtchFields` the fields): one link model, `modifiersByScene`
-  groups each scene's twists and etches in link order. Saved under `modifiers` (saves from
+- **Texture node** (`TextureFields`, `render3d/texture.ts`; right-click → **insert texture**):
+  a rough finish, by default over the whole trophy: **style** rough (four octaves of value
+  noise: cast metal), hammered (Worley: a round dent per cell, ridges where they meet) or
+  brushed (noise stretched 16× along streaks around, turned by **angle**), **scale** (feature
+  size, frame px), **strength**, **new seed**, and the strip (**from**/**to**, **fade**,
+  **top depth** / **bottom depth**, `stripDepth`). Drawn by the shader (`surfaceTextureAt`),
+  in solid space (frame px), so it holds at any zoom and in exports: each height comes with
+  its exact gradient (`noiseGradient`, `dentsGradient`), projected on the screen through the
+  position's screen slopes into `perturbNormal` (smooth per pixel, no 2 × 2 blocks), its
+  height up to half the feature size × strength (same steepness at any scale); octaves
+  smaller than ~2 px on screen fade out instead of shimmering; pits or streaks a touch
+  darker. Up to `MAX_TEXTURES` (4) per scene; uniforms only (`setTextures`).
+- **Modifier nodes** (`graph.ts`: `ModifierNode` = twist | etch | pattern | texture, `kind`;
+  `NodeCard` is the shared card, `TwistFields` / `EtchFields` / `PatternFields` /
+  `TextureFields` the fields): one link model, `modifiersByScene` groups each scene's
+  twists, etches, textures and patterns in link order. Saved under `modifiers` (saves from
   before etch, with `twists` only, still load).
 - **Saving** (`state/persist.ts`, `hooks/useAutosave`, `components/SaveControls`):
   - **Autosave**: each page writes its document to localStorage (`rgd-generator:canvas`,

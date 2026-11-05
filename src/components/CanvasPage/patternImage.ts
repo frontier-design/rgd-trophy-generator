@@ -2,8 +2,9 @@
 // pixels for pattern/.
 import { gray, type Gray } from '../../pattern'
 
-/** Stored images are at most this many px on their long side (they're saved with the canvas). */
-const STORED_SIZE = 600
+/** Stored images are at most this many px on their long side (they're saved with the canvas,
+ *  in the browser's ~5 MB storage: WebP keeps a 2048 px image to a few hundred KB). */
+const STORED_SIZE = 2048
 
 /** An image file, scaled down to STORED_SIZE and re-encoded, as a data URL to store. */
 export async function imageFileToUrl(file: File): Promise<string> {
@@ -15,7 +16,8 @@ export async function imageFileToUrl(file: File): Promise<string> {
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
     canvas.getContext('2d')?.drawImage(image, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/png')
+    // WebP where the browser encodes it (it falls back to PNG elsewhere).
+    return canvas.toDataURL('image/webp', 0.92)
   } finally {
     URL.revokeObjectURL(url)
   }

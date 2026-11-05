@@ -12,6 +12,7 @@ const scene = {
   setMirror: vi.fn(),
   setTwists: vi.fn(),
   setEtches: vi.fn(),
+  setTextures: vi.fn(),
   setPatterns: vi.fn(),
   playRevolve: vi.fn(),
   resize: vi.fn(),

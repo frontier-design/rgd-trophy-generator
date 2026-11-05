@@ -1,6 +1,13 @@
 // Pure mapping between the app's parameters and the timeline's (Theatre.js) prop values.
 // No libraries, so it's easy to unit test; theatre.ts builds the Theatre object from it.
-import type { AnimatedParams, PaletteChoice, RevealOrder, RevealStyle, Shading } from '../types'
+import type {
+  AnimatedParams,
+  PaletteChoice,
+  RevealOrder,
+  RevealStyle,
+  Shading,
+  TextAlign,
+} from '../types'
 
 /** Theatre's color value: channels 0–1. */
 export interface Rgba {
@@ -28,6 +35,7 @@ export interface TimelineValues {
     fill: number
     style: RevealStyle
     order: RevealOrder
+    align: TextAlign
     scatter: number
     spacing: number
   }
@@ -77,6 +85,7 @@ export const PARAM_PATHS = [
   'type.fill',
   'type.style',
   'type.order',
+  'type.align',
   'type.scatter',
   'type.spacing',
   'shape.edge',
@@ -152,6 +161,7 @@ export function toTimelineValues(p: AnimatedParams): TimelineValues {
       fill: p.revealFill,
       style: p.revealStyle,
       order: p.revealOrder,
+      align: p.textAlign,
       scatter: p.revealScatter,
       spacing: p.revealSpacing,
     },
@@ -211,6 +221,7 @@ export function fromTimelineValues(v: TimelineValues, current: AnimatedParams): 
     revealFill: v.type.fill,
     revealStyle: v.type.style,
     revealOrder: v.type.order,
+    textAlign: v.type.align,
     revealScatter: v.type.scatter,
     revealSpacing: v.type.spacing,
     columnWidth: v.shape.edge,

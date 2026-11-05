@@ -97,7 +97,7 @@ describe('saved documents', () => {
     expect(etch?.kind === 'etch' && etch.params.cross).toBe(true)
     expect(doc.links).toEqual([{ from: 'twist-2', to: 'scene-4' }])
     // New ids continue past the highest one there.
-    expect(doc.inserted).toEqual({ scene: 4, twist: 2, etch: 3, pattern: 5 })
+    expect(doc.inserted).toEqual({ scene: 4, twist: 2, etch: 3, pattern: 5, texture: 0 })
     const pattern = doc.modifiers[2]
     expect(pattern?.kind === 'pattern' && pattern.params.repeats).toBe(3)
     expect(pattern?.kind === 'pattern' && pattern.params.image).toMatch(/ornament-sample/)

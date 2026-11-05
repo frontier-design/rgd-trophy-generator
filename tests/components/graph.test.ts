@@ -3,6 +3,7 @@ import {
   connect,
   createModifier,
   DEFAULT_ETCH,
+  DEFAULT_TEXTURE,
   DEFAULT_TWIST,
   inputPort,
   linkPath,
@@ -18,7 +19,7 @@ describe('node graph', () => {
     expect(connect(links, 'twist-2', 'scene-1')).toHaveLength(2)
   })
 
-  it('gives each scene its twists and etches, in the order they were linked', () => {
+  it('gives each scene its twists, etches and textures, in the order they were linked', () => {
     const twist = (id: string, flutes: number) => ({
       kind: 'twist' as const,
       id,
@@ -30,21 +31,25 @@ describe('node graph', () => {
     const twistA = twist('a', 5)
     const twistB = twist('b', 9)
     const e = createModifier('etch', 'e', 'etch 1', 0, 0)
+    const t = createModifier('texture', 't', 'texture 1', 0, 0)
     const byScene = modifiersByScene(
       [
         { from: 'b', to: 's1' },
         { from: 'e', to: 's1' },
+        { from: 't', to: 's1' },
         { from: 'a', to: 's1' },
         { from: 'a', to: 's2' },
         { from: 'gone', to: 's2' },
       ],
-      [twistA, twistB, e],
+      [twistA, twistB, e, t],
     )
     expect(byScene.get('s1')?.twists.map((twist) => twist.flutes)).toEqual([9, 5])
     expect(byScene.get('s1')?.etches).toEqual([DEFAULT_ETCH])
+    expect(byScene.get('s1')?.textures).toEqual([DEFAULT_TEXTURE])
     expect(byScene.get('s2')).toEqual({
       twists: [twistA.params],
       etches: [],
+      textures: [],
       patterns: [],
       linked: true,
     })

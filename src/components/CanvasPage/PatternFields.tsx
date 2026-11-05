@@ -14,7 +14,7 @@ import { SelectField } from '../ControlPanel/SelectField'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import { imageFileToUrl } from './patternImage'
 
-const MODES: readonly PatternMode[] = ['repeat', 'generate']
+const MODES: readonly PatternMode[] = ['repeat', 'generate', 'image']
 const MAPPINGS: readonly PatternMapping[] = ['strip', 'surface']
 const SYMMETRIES: readonly PatternSymmetry[] = ['none', 'mirror', 'all']
 const FOLDS: readonly PatternFold[] = ['none', 'across', 'around', 'both']
@@ -32,6 +32,8 @@ interface PatternFieldsProps {
 export function PatternFields({ params, set, status }: PatternFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
   const generate = params.mode === 'generate'
+  // Image mode uses the image as is: no threshold, no folding.
+  const asIs = params.mode === 'image'
   return (
     <>
       <div className="node-card-wide">
@@ -68,8 +70,9 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
       {/* Generate: new ornament from the image's pieces (Wave Function Collapse), read at
           'detail' cells across the strip, 'length' cells around each repeat, learning
           'size' × 'size' neighborhoods (with their mirror images, or every rotation too),
-          folded into symmetric motifs. Repeat: the image itself around the strip (fold
-          around mirrors every other repeat, so they meet seamlessly). */}
+          folded into symmetric motifs. Repeat: the image's ornament around the strip (fold
+          around mirrors every other repeat, so they meet seamlessly). Image: the image
+          itself, as is (its brightness the relief), repeated around. */}
       <SelectField
         label="mode"
         value={params.mode}
@@ -146,6 +149,24 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         unit="%"
         onChange={(scale) => set({ scale })}
       />
+      {/* Spins the pattern around the trophy (slides it sideways around the axis). */}
+      <RangeField
+        label="spin"
+        value={params.spin}
+        min={-180}
+        max={180}
+        unit="°"
+        onChange={(spin) => set({ spin })}
+      />
+      {/* Turns the ornament on the trophy (in its rows and repeats). */}
+      <RangeField
+        label="angle"
+        value={params.angle}
+        min={-180}
+        max={180}
+        unit="°"
+        onChange={(angle) => set({ angle })}
+      />
       {/* Each motif's size where it sits (the same number of them): smaller spaces them out
           on plain surface, larger crops into them. */}
       <RangeField
@@ -194,6 +215,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         label="fold"
         value={params.fold}
         options={FOLDS}
+        disabled={asIs}
         onChange={(fold) => set({ fold })}
       />
       <RangeField
@@ -202,6 +224,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={1}
         max={99}
         unit="%"
+        disabled={asIs}
         onChange={(threshold) => set({ threshold })}
       />
       <ToggleField label="invert" checked={params.invert} onChange={(invert) => set({ invert })} />

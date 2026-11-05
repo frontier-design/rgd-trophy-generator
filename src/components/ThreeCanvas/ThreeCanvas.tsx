@@ -5,12 +5,19 @@ import {
   type SolidPattern,
   type ThreeScene,
 } from '../../render3d'
-import type { EtchParams, MaterialSettings, Outline2D, TwistParams } from '../../types'
+import type {
+  EtchParams,
+  MaterialSettings,
+  Outline2D,
+  TextureParams,
+  TwistParams,
+} from '../../types'
 import { observeAnchor, relativePosition } from '../observeAnchor'
 import { observeSize } from '../observeSize'
 
 const NO_TWISTS: readonly TwistParams[] = []
 const NO_ETCHES: readonly EtchParams[] = []
+const NO_TEXTURES: readonly TextureParams[] = []
 const NO_PATTERNS: readonly SolidPattern[] = []
 
 interface ThreeCanvasProps {
@@ -34,6 +41,8 @@ interface ThreeCanvasProps {
   twists?: readonly TwistParams[]
   /** Etch nodes' engraved strips (canvas page); none by default. */
   etches?: readonly EtchParams[]
+  /** Texture nodes' rough finishes (canvas page); none by default. */
+  textures?: readonly TextureParams[]
   /** Pattern nodes' ornament (canvas page): height maps and placement; none by default. */
   patterns?: readonly SolidPattern[]
   /** Receives the scene once created, and null on unmount (for video export). Should be
@@ -64,6 +73,7 @@ export function ThreeCanvas({
   pixelRatio,
   twists = NO_TWISTS,
   etches = NO_ETCHES,
+  textures = NO_TEXTURES,
   patterns = NO_PATTERNS,
   onScene,
 }: ThreeCanvasProps) {
@@ -143,6 +153,10 @@ export function ThreeCanvas({
   useLayoutEffect(() => {
     sceneRef.current?.setEtches(etches)
   }, [etches])
+
+  useLayoutEffect(() => {
+    sceneRef.current?.setTextures(textures)
+  }, [textures])
 
   useLayoutEffect(() => {
     sceneRef.current?.setPatterns(patterns)

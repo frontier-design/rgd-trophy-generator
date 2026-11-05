@@ -62,6 +62,16 @@ describe('revealedBoxes', () => {
     )
     expect(boxes).toEqual([{ lineIndex: 1, x: -16, y: 8, width: 88, height: 14, radius: 0 }])
   })
+
+  it('centered: a stacked line reaches its end; a typed one grows in from the left', () => {
+    const centered = { ...options, offsets: [35, 10] }
+    const [stacked] = revealedBoxes(lines, [{ shown: true, offset: 0, settle: 1 }], centered)
+    expect(stacked?.width).toBe(35 + 30 + 8)
+    const typed = (settle: number) =>
+      revealedBoxes(lines, [{ shown: true, offset: 0, settle, extent: 12 }], centered)[0]?.width
+    expect(typed(0)).toBe(12)
+    expect(typed(1)).toBe(35 + 12 + 8)
+  })
 })
 
 describe('staggered', () => {

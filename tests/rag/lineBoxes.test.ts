@@ -1,4 +1,4 @@
-import { lineBoxes } from '../../src/rag'
+import { alignOffsets, lineBoxes } from '../../src/rag'
 
 const lines = [
   { index: 0, text: 'RGD', width: 30 },
@@ -23,5 +23,19 @@ describe('lineBoxes', () => {
     expect(empty).toMatchObject({ width: 0, height: 0, radius: 0 })
     const [box] = lineBoxes(lines, { lineHeight: 10, padX: 0, padY: 0, radius: 50 })
     expect(box?.radius).toBe(5)
+  })
+})
+
+describe('alignment', () => {
+  it('starts centered lines half their leftover space in', () => {
+    expect(alignOffsets(lines, 100, 'center')).toEqual([35, 50])
+    expect(alignOffsets(lines, 100, 'left')).toEqual([0, 0])
+    // Never before the column's left side.
+    expect(alignOffsets([{ index: 0, text: 'x', width: 120 }], 100, 'center')).toEqual([0])
+  })
+
+  it("a centered line's box starts at the text's left and reaches to where the line ends", () => {
+    const [box] = lineBoxes(lines, { lineHeight: 10, padX: 4, padY: 0, radius: 0, offsets: [35] })
+    expect(box).toMatchObject({ x: -4, width: 35 + 30 + 8 })
   })
 })

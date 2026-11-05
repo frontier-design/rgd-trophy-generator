@@ -14,11 +14,12 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { ledgeOcclusion } from '../material'
-import type { EtchParams, MaterialSettings, Outline2D, TwistParams } from '../types'
+import type { EtchParams, MaterialSettings, Outline2D, TextureParams, TwistParams } from '../types'
 import { disposeObject3D } from './dispose'
 import { buildLathe, surfaceAtHeight, surfaceCoordinates } from './lathe'
 import { outlineToLatheProfiles, subdivideProfile, withCrispCorners } from './revolve'
 import { etchShape } from './etch'
+import { textureShape } from './texture'
 import type { SolidPattern } from './pattern'
 import { createTrophyMaterial } from './trophyMaterial'
 import { MAX_TWISTS, STEPS_PER_FLUTE, twistDeform, twistShape, type RadialScale } from './twist'
@@ -54,6 +55,9 @@ export interface ThreeScene {
   /** Etch nodes' engraved strips (the first MAX_ETCHES), drawn by the material (no
    *  rebuild). */
   setEtches(etches: readonly EtchParams[]): void
+  /** Texture nodes' rough finishes (the first MAX_TEXTURES), drawn by the material (no
+   *  rebuild). */
+  setTextures(textures: readonly TextureParams[]): void
   /** Pattern nodes' ornament (the first MAX_PATTERNS): their height maps, uploaded once
    *  each, and their placement. */
   setPatterns(patterns: readonly SolidPattern[]): void
@@ -402,6 +406,10 @@ export function createThreeScene(canvas: HTMLCanvasElement): ThreeScene {
     },
     setEtches(next) {
       material.setEtches(next.map(etchShape))
+      requestRender()
+    },
+    setTextures(next) {
+      material.setTextures(next.map(textureShape))
       requestRender()
     },
     setTwists(next) {

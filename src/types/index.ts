@@ -166,8 +166,13 @@ export interface LineBoxStyle {
 export type RevealStyle = 'stack' | 'type'
 /** Which line reveals first. */
 export type RevealOrder = 'bottom' | 'top'
+/** How the text's lines align in the column. */
+export type TextAlign = 'left' | 'center'
 
 export interface SceneParams {
+  /** Lines left-aligned (the rag on the right) or centered in the column. Each line's box
+   *  still starts at the text's left side and reaches to where the line ends. */
+  textAlign: TextAlign
   revealStyle: RevealStyle
   /** Which line reveals first, in either style. */
   revealOrder: RevealOrder
@@ -285,6 +290,35 @@ export interface EtchParams {
 }
 
 export type EtchStyle = 'cut' | 'bright' | 'dark'
+
+/**
+ * A texture node's settings (canvas page): a rough finish over a strip of the trophy (all of
+ * it by default), drawn by the trophy's shader as fine relief that catches the light.
+ */
+export interface TextureParams {
+  /** Rough: cast, uneven noise. Hammered: overlapping dents, like beaten metal. Brushed:
+   *  fine streaks running one way (around, at angle 0). */
+  style: TextureStyle
+  /** The features' size, in frame px (rough: the largest bumps; hammered: the dents;
+   *  brushed: the streaks' width). */
+  scale: number
+  /** How strongly it shows, in % (how steep the relief is). */
+  strength: number
+  /** Brushed: the streaks' direction on the trophy, in degrees (0 = around, 90 = down). */
+  angle: number
+  /** Picks another texture of the same kind. */
+  seed: number
+  /** The strip, in % of the height from the top (0) to the bottom (100). */
+  from: number
+  to: number
+  /** Fades the texture in from the strip's top and bottom edges, in % of the strip. */
+  fade: number
+  /** Its depth at the strip's top and bottom, in % (eased between). */
+  depthTop: number
+  depthBottom: number
+}
+
+export type TextureStyle = 'rough' | 'hammered' | 'brushed'
 export type EtchLayout = 'diagonal' | 'vertical' | 'horizontal' | 'zigzag' | 'wave'
 
 /**
@@ -295,7 +329,9 @@ export type EtchLayout = 'diagonal' | 'vertical' | 'horizontal' | 'zigzag' | 'wa
 export interface PatternParams {
   /** The source image: a URL or data URL (the node stores what was loaded). */
   image: string
-  /** Generate new ornament from the image's pieces (WFC), or repeat the image itself. */
+  /** Repeat the image (cropped to its ornament, turned to run around, black-and-white at the
+   *  threshold, folded), generate new ornament from its pieces (WFC), or use the image
+   *  itself as is (its brightness the relief), repeated around. */
   mode: PatternMode
   /** The strip, in % of the height from the top (0) to the bottom (100). */
   from: number
@@ -305,6 +341,11 @@ export interface PatternParams {
   /** The ornament's size, in % (proportions kept): smaller repeats more around and stacks in
    *  rows across the strip; larger is cropped to the strip, centered. */
   scale: number
+  /** Spins the pattern around the trophy (its axis), in degrees: slides it sideways. */
+  spin: number
+  /** Turns the ornament on the trophy, in degrees (in its rows and repeats, its proportions
+   *  kept as the map's). */
+  angle: number
   /** How the ornament is laid on: stretched over its strip (from/to), or following the
    *  surface, keeping its proportions everywhere and repeating in rows (smaller where the
    *  trophy narrows): for covering the whole shape without stretching. */
@@ -347,7 +388,7 @@ export interface PatternParams {
   strength: number
 }
 
-export type PatternMode = 'generate' | 'repeat'
+export type PatternMode = 'repeat' | 'generate' | 'image'
 export type PatternMapping = 'strip' | 'surface'
 export type PatternFold = 'none' | 'across' | 'around' | 'both'
 export type PatternSymmetry = 'none' | 'mirror' | 'all'

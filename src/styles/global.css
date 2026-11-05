@@ -324,6 +324,11 @@ body {
   line-height: var(--rag-line-height);
 }
 
+/* Centered: the text, the lines drawn over it while revealing, and the mirror. */
+.rag-editor[data-align='center'] :is(.rag-text, .rag-reveal, .rag-mirror) {
+  text-align: center;
+}
+
 .rag-letter {
   position: relative;
 }
@@ -395,7 +400,7 @@ body {
 .rag-label {
   position: absolute;
   top: calc(var(--line-index) * var(--rag-line-height) + var(--label-inset));
-  left: var(--label-inset);
+  left: calc(var(--line-start, 0px) + var(--label-inset));
   font-family: var(--font-ui);
   font-size: var(--label-size);
   line-height: 1;

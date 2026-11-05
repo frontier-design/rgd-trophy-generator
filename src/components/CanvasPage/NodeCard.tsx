@@ -1,13 +1,15 @@
 import { memo, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import type { PatternStatus } from '../../hooks'
-import type { EtchParams, PatternParams, TwistParams } from '../../types'
+import type { EtchParams, PatternParams, TextureParams, TwistParams } from '../../types'
 import { EtchFields } from './EtchFields'
 import type { ModifierNode } from './graph'
 import { PatternFields } from './PatternFields'
+import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
 
 /** A node's field edit: a patch of its params. */
-export type ParamsPatch = Partial<TwistParams> | Partial<EtchParams> | Partial<PatternParams>
+export type ParamsPatch =
+  Partial<TwistParams> | Partial<EtchParams> | Partial<PatternParams> | Partial<TextureParams>
 
 /** Where a press edits rather than drags the node. */
 const EDITABLE = 'textarea, input, select, button, a, [data-port]'
@@ -33,7 +35,7 @@ interface NodeCardProps {
 }
 
 /**
- * A modifier node (twist, etch, pattern): a card with its fields and an output port at its
+ * A modifier node (twist, etch, pattern, texture): a card with its fields and an output port at its
  * header's right end to drag onto scenes' inputs. Full size on screen down to
  * CARD_FULL_ZOOM, then shrinking with the canvas, and only its header when small (`compact`)
  * or folded. Dragging the card (not a field) moves it.
@@ -130,6 +132,8 @@ export const NodeCard = memo(function NodeCard({
               <TwistFields params={node.params} set={set} />
             ) : node.kind === 'etch' ? (
               <EtchFields params={node.params} set={set} />
+            ) : node.kind === 'texture' ? (
+              <TextureFields params={node.params} set={set} />
             ) : (
               <PatternFields params={node.params} set={set} status={pattern} />
             )}

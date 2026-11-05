@@ -8,7 +8,7 @@ import type { TwistParams } from '../types'
 export type RadialScale = (phi: number, y: number) => number
 
 /** At most this many twist nodes shape one solid (the shader's uniform array size). */
-export const MAX_TWISTS = 4
+export const MAX_TWISTS = 8
 /** Steps around the axis the flutes need to read crisply: this many per flute. */
 export const STEPS_PER_FLUTE = 40
 

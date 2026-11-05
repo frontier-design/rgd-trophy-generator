@@ -258,6 +258,7 @@ function theatreProps(d: TimelineValues) {
       fill: num(d.type.fill, [0, 100]),
       style: types.stringLiteral(d.type.style, { stack: 'Stack', type: 'Type' }),
       order: types.stringLiteral(d.type.order, { bottom: 'Bottom first', top: 'Top first' }),
+      align: types.stringLiteral(d.type.align, { left: 'Left', center: 'Center' }),
       scatter: num(d.type.scatter, [0, 100]),
       spacing: num(d.type.spacing, [0, 100]),
     }),

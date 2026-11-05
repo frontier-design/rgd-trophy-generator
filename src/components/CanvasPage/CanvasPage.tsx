@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { downloadBlob, maxImageScale } from '../../export'
-import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled } from '../../hooks'
+import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled, useUndo } from '../../hooks'
 import type { HeightMap } from '../../render3d'
 import { ARTBOARD } from '../../state'
 import { ControlPanel } from '../ControlPanel'
@@ -55,14 +55,25 @@ const CONTROLS = { width: 340, gap: 16, inset: 12, minHeight: 240 }
 /** Where a right-click keeps the browser's own menu (copy, paste…). */
 const NATIVE_MENU = 'textarea, input, select'
 /** Room kept for the right-click menu, so it opens inside the window (px). */
-const MENU_SIZE = { width: 180, height: 190 }
+const MENU_SIZE = { width: 200, height: 300 }
 /** Shared by scenes with nothing linked, so they don't re-render for nothing. */
-const NO_MODIFIERS: SceneModifiers = { twists: [], etches: [], patterns: [], linked: false }
+const NO_MODIFIERS: SceneModifiers = {
+  twists: [],
+  etches: [],
+  textures: [],
+  patterns: [],
+  linked: false,
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** What a right-click was on. */
 type MenuTarget = { kind: 'scene' | ModifierKind; id: string } | null
+
+/** What was copied (⌘C, or the right-click menu): kept for the session, so it pastes into
+ *  this canvas again after switching pages. */
+type Copied = { kind: 'scene'; node: SceneNode } | { kind: 'modifier'; node: ModifierNode }
+let copied: Copied | null = null
 
 interface CanvasPageProps {
   /** The page dropdown, floating at the canvas's top left. */
@@ -104,6 +115,20 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     [scenes, modifiers, links, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
+
+  // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
+  // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
+  const content = useMemo(() => ({ scenes, modifiers, links }), [scenes, modifiers, links])
+  const history = useUndo(content, (state) => {
+    setScenes(state.scenes)
+    setModifiers(state.modifiers)
+    setLinks(state.links)
+    setPending(null)
+    // Deselect a node that's gone.
+    setSelectedId((id) =>
+      id && [...state.scenes, ...state.modifiers].some((node) => node.id === id) ? id : null,
+    )
+  })
 
   // The view and links, for pointer handlers (canvas px from window px; picking links up).
   const viewRef = useRef(view)
@@ -261,6 +286,81 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setSelectedId(id)
   }
 
+  // Copy and paste (⌘C / ⌘V; ⌘D duplicates): a copy is independent (its own name and id),
+  // without links, placed at the pointer or just beside the original.
+  const [hasCopy, setHasCopy] = useState(copied !== null)
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+  const copyNode = (id: string) => {
+    const scene = scenes.find((node) => node.id === id)
+    const modifier = modifiers.find((node) => node.id === id)
+    copied = scene
+      ? { kind: 'scene', node: structuredClone(scene) }
+      : modifier
+        ? { kind: 'modifier', node: structuredClone(modifier) }
+        : null
+    setHasCopy(copied !== null)
+  }
+  /** Paste `entry` with its top-left at `at` (canvas px), or beside the original. */
+  const pasteCopy = (at: { x: number; y: number } | null, entry: Copied | null = copied) => {
+    if (!entry) return
+    const copy = structuredClone(entry)
+    const kind = copy.kind === 'scene' ? 'scene' : copy.node.kind
+    const count = inserted[kind] + 1
+    setInserted((current) => ({ ...current, [kind]: Math.max(current[kind], count) }))
+    const offset = 40 / view.zoom
+    const place = at ?? { x: copy.node.x + offset, y: copy.node.y + offset }
+    const id = `${kind}-${count}`
+    const name = `${kind} ${count}`
+    if (copy.kind === 'scene') {
+      const node: SceneNode = { ...copy.node, id, name, ...place, animateRevolve: false }
+      setScenes((list) => [...list, node])
+    } else {
+      const node = { ...copy.node, id, name, ...place } as ModifierNode
+      setModifiers((list) => [...list, node])
+    }
+    setSelectedId(id)
+  }
+  /** A copy of a node beside it (what was copied stays). */
+  const duplicateNode = (id: string) => {
+    const scene = scenes.find((node) => node.id === id)
+    const modifier = modifiers.find((node) => node.id === id)
+    if (scene) pasteCopy(null, { kind: 'scene', node: scene })
+    else if (modifier) pasteCopy(null, { kind: 'modifier', node: modifier })
+  }
+  // The keys, with this render's state (re-subscribed each render, as it changes). Not while
+  // typing: a text field keeps its own undo and clipboard.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const { target } = e
+      if (target instanceof Element && target.closest('textarea, input, select, [contenteditable]'))
+        return
+      const key = e.key.toLowerCase()
+      // ⌘Z undoes, ⇧⌘Z (or Ctrl+Y) redoes. Stopped here (captured on the window) so no other
+      // page's shortcuts see it.
+      if (key === 'z' || (key === 'y' && e.ctrlKey && !e.metaKey)) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (key === 'z' && !e.shiftKey) history.undo()
+        else history.redo()
+        return
+      }
+      if (e.shiftKey) return
+      if (key === 'c' && selectedId) {
+        e.preventDefault()
+        copyNode(selectedId)
+      } else if (key === 'v' && copied) {
+        e.preventDefault()
+        pasteCopy(pointer.current)
+      } else if (key === 'd' && selectedId) {
+        e.preventDefault()
+        duplicateNode(selectedId)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  })
+
   // Delete/Backspace removes the selected node (unless typing); Escape deselects.
   useEffect(() => {
     if (!selectedId) return
@@ -342,6 +442,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       ? linkPath(outputPort(pendingSource, view.zoom), pending, view.zoom)
       : null
 
+  /** A point of the canvas element (px) in canvas px. */
+  const toCanvasAt = (x: number, y: number) => ({
+    x: (x - view.x) / view.zoom,
+    y: (y - view.y) / view.zoom,
+  })
   const menuItems: ContextMenuItem[] = []
   if (menu) {
     const { x, y, target } = menu
@@ -349,13 +454,22 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     menuItems.push({ label: 'insert twist', onSelect: () => insertModifier('twist', x, y) })
     menuItems.push({ label: 'insert etch', onSelect: () => insertModifier('etch', x, y) })
     menuItems.push({ label: 'insert pattern', onSelect: () => insertModifier('pattern', x, y) })
+    menuItems.push({ label: 'insert texture', onSelect: () => insertModifier('texture', x, y) })
     if (target?.kind === 'scene' && links.some((link) => link.to === target.id)) {
       menuItems.push({
         label: 'disconnect inputs',
         onSelect: () => setLinks((current) => current.filter((link) => link.to !== target.id)),
       })
     }
+    if (hasCopy) {
+      menuItems.push({ label: 'paste', onSelect: () => pasteCopy(toCanvasAt(x, y)) })
+    }
     if (target) {
+      menuItems.push({ label: `copy ${target.kind}`, onSelect: () => copyNode(target.id) })
+      menuItems.push({
+        label: `duplicate ${target.kind}`,
+        onSelect: () => duplicateNode(target.id),
+      })
       menuItems.push({ label: `delete ${target.kind}`, onSelect: () => deleteNode(target.id) })
     }
   }
@@ -378,6 +492,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           ) {
             setSelectedId(null)
           }
+        }}
+        onPointerMove={(e) => {
+          pointer.current = toCanvas(e.clientX, e.clientY)
+        }}
+        onPointerLeave={() => {
+          pointer.current = null
         }}
         onContextMenu={(e) => {
           const target = e.target as Element

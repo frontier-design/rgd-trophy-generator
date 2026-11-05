@@ -1,12 +1,14 @@
 import type { CSSProperties, Ref } from 'react'
 import type { LineReveal } from '../../rag'
-import type { LineBox, LineMeasure, Settings, ShapeExtent } from '../../types'
+import type { LineBox, LineMeasure, Settings, ShapeExtent, TextAlign } from '../../types'
 
 interface RagEditorProps {
   /** The editor's root element (the outline's origin is its top-left corner). */
   ref?: Ref<HTMLDivElement>
   settings: Settings
   lines: LineMeasure[]
+  /** Lines left-aligned or centered (the mirror's too). */
+  align?: TextAlign
   /** One box per line (rag/lineBoxes). They also decide the rag shape (PaperCanvas). */
   boxes: LineBox[]
   /** Each line's baseline in px from the top (rag/lineBaseline), drawn as guides. */
@@ -40,6 +42,7 @@ export function RagEditor({
   ref,
   settings,
   lines,
+  align = 'left',
   boxes,
   baselines,
   extent,
@@ -102,6 +105,7 @@ export function RagEditor({
       style={vars}
       data-debug={debug ? 'on' : 'off'}
       data-revealing={reveals ? 'on' : undefined}
+      data-align={align}
     >
       <textarea
         className="rag-text"
@@ -160,7 +164,12 @@ export function RagEditor({
           <span
             key={line.index}
             className="rag-label"
-            style={{ '--line-index': line.index } as CSSProperties}
+            style={
+              {
+                '--line-index': line.index,
+                '--line-start': `${align === 'center' ? Math.max(0, (settings.columnWidth - line.width) / 2) : 0}px`,
+              } as CSSProperties
+            }
           >
             {line.width.toFixed(1)}px
           </span>

@@ -64,9 +64,9 @@ describe('buildPatternMap', () => {
     expect(sample.width).toBeGreaterThan(sample.height)
   })
 
-  it('repeat: the image itself, the strip’s height (fold around: mirrored pairs)', () => {
+  it('repeat: the image at its own resolution, never upscaled (fold around: mirrored pairs)', () => {
     const plain = buildPatternMap(sample, { ...DEFAULT_PATTERN, mode: 'repeat', fold: 'none' }).map
-    expect(plain?.height).toBe(192)
+    expect(plain?.height).toBe(sample.height)
     const folded = buildPatternMap(sample, {
       ...DEFAULT_PATTERN,
       mode: 'repeat',
@@ -75,8 +75,23 @@ describe('buildPatternMap', () => {
     expect(folded?.width).toBe((plain?.width ?? 0) * 2)
     // Seamless: the pair's two ends match.
     const row = (m: typeof folded, y: number) => m?.data.subarray(y * m.width, (y + 1) * m.width)
-    const r = row(folded, 96)
+    const r = row(folded, Math.floor((folded?.height ?? 0) / 2))
     expect(r?.[0]).toBe(r?.[(folded?.width ?? 1) - 1])
+  })
+
+  it('repeat: large images keep up to 512 px across the strip (4096 around)', () => {
+    const big = gray(1200, 3000)
+    for (let y = 0; y < 3000; y++)
+      for (let x = 100; x < 1100; x++) big.data[y * 1200 + x] = (x * y) % 7 ? 200 : 0
+    const map = buildPatternMap(big, {
+      ...DEFAULT_PATTERN,
+      mode: 'repeat',
+      fold: 'none',
+      softness: 0,
+    }).map
+    // Turned to run around: 3000 × 1000 → 512 tall would be 1536 wide.
+    expect(map?.height).toBe(512)
+    expect(map?.width).toBeLessThanOrEqual(4096)
   })
 
   it('generate: a new map in the image’s style, folded', () => {
@@ -94,5 +109,36 @@ describe('buildPatternMap', () => {
     // Cells × 6 px, doubled by the fold around.
     expect(map?.width).toBe(12 * 6 * 2)
     expect(map?.height).toBe(8 * 6)
+  })
+})
+
+describe('image mode', () => {
+  it('uses the image as is: no cropping, turning or contrast (its brightness the height)', () => {
+    // A tall image with dark margins and a soft gradient: kept exactly.
+    const image = gray(
+      4,
+      8,
+      Uint8Array.from({ length: 32 }, (_, i) => i * 8),
+    )
+    const { map, message } = buildPatternMap(image, {
+      ...DEFAULT_PATTERN,
+      mode: 'image',
+      softness: 0,
+    })
+    expect([map?.width, map?.height]).toEqual([4, 8])
+    expect([...(map?.data ?? [])]).toEqual([...image.data])
+    expect(message).toMatch(/as is/)
+  })
+
+  it('inverts and fits large images to a texture', () => {
+    const big = gray(4096, 1024, new Uint8Array(4096 * 1024).fill(10))
+    const { map } = buildPatternMap(big, {
+      ...DEFAULT_PATTERN,
+      mode: 'image',
+      invert: true,
+      softness: 0,
+    })
+    expect([map?.width, map?.height]).toEqual([2048, 512])
+    expect(map?.data[0]).toBe(245)
   })
 })

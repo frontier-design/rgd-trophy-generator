@@ -185,9 +185,11 @@ export function revealedBoxes(
     const reveal = reveals[i]
     if (!reveal?.shown) return []
     const typed = reveal.extent !== undefined
-    const width = typed ? (reveal.extent ?? 0) : line.width
+    // Typed, the line's start (centered text) and padding grow in with its first letter.
+    const start = options.offsets?.[line.index] ?? 0
+    const width = typed ? start * reveal.settle + (reveal.extent ?? 0) : start + line.width
     const padX = typed ? options.padX * reveal.settle : options.padX
-    return lineBoxes([{ ...line, width }], { ...options, padX }).map((box) => ({
+    return lineBoxes([{ ...line, width }], { ...options, padX, offsets: undefined }).map((box) => ({
       ...box,
       x: box.x + reveal.offset,
     }))

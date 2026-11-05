@@ -6,6 +6,7 @@ import { measurePrefixWidths, measureTextWidth } from '../measure'
 import {
   fillExtent,
   lineBaseline,
+  alignOffsets,
   lineBoxes,
   revealedBoxes,
   revealFill,
@@ -38,6 +39,8 @@ export interface BannerText {
 /** What a scene shows, as the composition's layers need it (SceneArtboard draws it). */
 export interface SceneModel {
   lines: LineMeasure[]
+  /** Where each line starts in the column (px, by line index): 0, or centered. */
+  lineStarts: number[]
   metrics: FontMetrics
   fontReady: boolean
   /** Where the banner's parts go, in artboard px. */
@@ -118,10 +121,16 @@ export function useSceneModel(
   // by the margin (so trophy → banner = banner → frame edge).
   const bottomClearance =
     scene.banner && bannerPosition === 'bottom' ? banner.clearance : ARTBOARD.padding
+  // Centered, each line starts in from the column's left; its box still starts at the text's
+  // left side and reaches to where the line ends.
+  const lineStarts = useMemo(
+    () => alignOffsets(lines, columnWidth, scene.textAlign),
+    [lines, columnWidth, scene.textAlign],
+  )
   // The boxes decide the rag shape (shape2d/) and so the revolved solid.
   const boxes = useMemo(
-    () => lineBoxes(lines, { lineHeight, ...lineBox }),
-    [lines, lineHeight, lineBox],
+    () => lineBoxes(lines, { lineHeight, ...lineBox, offsets: lineStarts }),
+    [lines, lineHeight, lineBox, lineStarts],
   )
   // While the text reveals (reveal < 100%), only what has appeared carves: stacking in, each
   // line moved with its line as it slides into place; typed, each line as far as its
@@ -176,8 +185,11 @@ export function useSceneModel(
   const topCornerRadius =
     (scene.roundTop ? scene.topRadius : 0) * (reveals ? (reveals[0]?.settle ?? 0) : 1)
   const carvingBoxes = useMemo(
-    () => (reveals ? revealedBoxes(lines, reveals, { lineHeight, ...lineBox }) : boxes),
-    [reveals, lines, lineHeight, lineBox, boxes],
+    () =>
+      reveals
+        ? revealedBoxes(lines, reveals, { lineHeight, ...lineBox, offsets: lineStarts })
+        : boxes,
+    [reveals, lines, lineHeight, lineBox, lineStarts, boxes],
   )
   // Where the shape fills: from the text's left side, top band down to the last baseline.
   // From all the text, shown or not, so the shape's bounds hold still while it stacks in.
@@ -235,6 +247,7 @@ export function useSceneModel(
 
   return {
     lines,
+    lineStarts,
     metrics,
     fontReady,
     banner,

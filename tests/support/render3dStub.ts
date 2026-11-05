@@ -12,6 +12,7 @@ export function createThreeScene(): ThreeScene {
     setMirror: () => {},
     setTwists: () => {},
     setEtches: () => {},
+    setTextures: () => {},
     setPatterns: () => {},
     playRevolve: () => {},
     resize: () => {},

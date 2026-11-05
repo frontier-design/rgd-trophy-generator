@@ -5,7 +5,7 @@ export {
   type FrameRect,
   type ShapeExtentOptions,
 } from './extent'
-export { lineBoxes, type LineBoxOptions } from './lineBoxes'
+export { alignOffsets, lineBoxes, type LineBoxOptions } from './lineBoxes'
 export {
   lineWidthsToRagPoints,
   ragPointsToNegativeSpacePolygon,

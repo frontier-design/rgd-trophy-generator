@@ -3,7 +3,7 @@
 import type { PatternParams } from '../types'
 
 /** At most this many pattern nodes on one solid (one texture each in the shader). */
-export const MAX_PATTERNS = 2
+export const MAX_PATTERNS = 4
 
 /** A height map: `width × height` values 0–255 (255 = ornament), seamless across. */
 export interface HeightMap {
@@ -36,6 +36,10 @@ export function patternPlacement(params: PatternParams) {
     repeats: Math.max(1, Math.round(params.repeats / scale)),
     /** The ornament's size against the strip (1 = it fills the strip's height). */
     scale,
+    /** The pattern spun around the trophy's axis (radians). */
+    spin: (params.spin * Math.PI) / 180,
+    /** The ornament's turn on the trophy (radians). */
+    angle: (params.angle * Math.PI) / 180,
     /** 1 = following the surface (proportions kept, rows), 0 = stretched over the strip. */
     surface: params.mapping === 'surface' ? 1 : 0,
     /** Each motif's size in its own cell (1 = it fills it). */

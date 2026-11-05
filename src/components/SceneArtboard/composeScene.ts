@@ -2,7 +2,7 @@ import { BANNER_LOGO_URL, type BannerLayout } from '../../banner'
 import type { Composition, PlacedImage, TextLayer } from '../../export'
 import type { BannerText } from '../../hooks/useSceneModel'
 import { toCanvasFont } from '../../measure'
-import type { LineReveal } from '../../rag'
+import { alignOffsets, type LineReveal } from '../../rag'
 import type { ThreeScene } from '../../render3d'
 import type { PaperScene } from '../../shape2d'
 import type { LineMeasure, SceneParams, Settings } from '../../types'
@@ -63,6 +63,9 @@ export function composeScene(l: SceneLayers): Composition {
   // the letters that have appeared, each at its place plus the spacing still closing.
   const shown = lines.map((line) => (!reveals || reveals[line.index]?.shown ? line.text : ''))
   const offsets = lines.map((line) => reveals?.[line.index]?.offset ?? 0)
+  // Centered, each line starts in from the column's sides (the mirror's too).
+  const starts = alignOffsets(lines, settings.columnWidth, scene.textAlign)
+  const lineStart = (i: number) => starts[lines[i]?.index ?? i] ?? 0
   const glyphs = lines.map((line) => {
     const letters = reveals?.[line.index]?.letters
     const widths = prefixWidths?.[line.index]
@@ -91,21 +94,23 @@ export function composeScene(l: SceneLayers): Composition {
       lines: shown,
       baselines: lineBaselines,
       x: anchor.x,
-      offsets,
+      offsets: offsets.map((offset, i) => offset + lineStart(i)),
       glyphs,
       align: 'left',
       font,
       color,
     },
   ]
-  // The mirror: right-aligned in the column's reflection across the edge.
+  // The mirror: right-aligned (or centered) in the column's reflection across the edge.
   if (scene.mirror) {
     text.push({
       lines: shown.map((line) => line.trimEnd()),
       baselines: lineBaselines,
       x: anchor.x + 2 * settings.columnWidth,
       // Typed, the letters end at the column's reflected edge: they start `extent` in.
-      offsets: offsets.map((offset, i) => (glyphs[i] ? -(extents[i] ?? 0) : -offset)),
+      offsets: offsets.map(
+        (offset, i) => (glyphs[i] ? -(extents[i] ?? 0) : -offset) - lineStart(i),
+      ),
       glyphs,
       align: 'right',
       font,

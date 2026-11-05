@@ -24,6 +24,33 @@ describe('RagEditor', () => {
   })
 })
 
+describe('RagEditor align', () => {
+  it('centers the text and its mirror; each box still starts at the text’s left', async () => {
+    const { container } = render(
+      <SettingsProvider initialSettings={{ ...DEFAULT_SETTINGS, text: 'RGD\nBRANDING' }}>
+        <App />
+      </SettingsProvider>,
+    )
+    await waitFor(() => expect(container.querySelectorAll('.rag-line-box')).toHaveLength(2), {
+      timeout: 5000,
+    })
+    const widths = () =>
+      [...container.querySelectorAll<HTMLElement>('.rag-line-box')].map((box) =>
+        Number(box.style.getPropertyValue('--box-w')),
+      )
+    const [shortLeft] = widths()
+    fireEvent.change(screen.getByRole('combobox', { name: 'align' }), {
+      target: { value: 'center' },
+    })
+    expect(container.querySelector('.rag-editor')).toHaveAttribute('data-align', 'center')
+    // The shorter line starts further in, so its box reaches further (to where it ends).
+    const [shortCentered] = widths()
+    expect(shortCentered).toBeGreaterThan(shortLeft ?? Infinity)
+    const label = container.querySelector<HTMLElement>('.rag-label')
+    expect(parseFloat(label?.style.getPropertyValue('--line-start') ?? '0')).toBeGreaterThan(0)
+  })
+})
+
 describe('RagEditor reveal', () => {
   it('stacks lines in from the bottom while revealing, and carves only those', async () => {
     const { container } = render(

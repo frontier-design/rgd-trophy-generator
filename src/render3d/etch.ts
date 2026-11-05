@@ -4,7 +4,7 @@
 import type { EtchLayout, EtchParams } from '../types'
 
 /** At most this many etch nodes on one solid (the shader's uniform array size). */
-export const MAX_ETCHES = 4
+export const MAX_ETCHES = 8
 /** At most this many lines in a bundle (the shader's loop). */
 export const MAX_ETCH_LINES = 8
 
