@@ -8,6 +8,7 @@ import {
   lineBaseline,
   alignOffsets,
   lineBoxes,
+  shapeLeft,
   revealedBoxes,
   revealFill,
   shapeExtent,
@@ -191,12 +192,6 @@ export function useSceneModel(
         : boxes,
     [reveals, lines, lineHeight, lineBox, lineStarts, boxes],
   )
-  // Where the shape fills: from the text's left side, top band down to the last baseline.
-  // From all the text, shown or not, so the shape's bounds hold still while it stacks in.
-  const extent = useMemo(
-    () => shapeExtent(boxes, lines, { lineHeight, topHeight, overshoot, metrics }),
-    [boxes, lines, lineHeight, topHeight, overshoot, metrics],
-  )
   // The text block's top-left in the frame, so the frame's edges are known in the shape's
   // coordinates. Re-read after every commit (a layout change can move the text).
   const [anchor, setAnchor] = useState({ x: 0, y: 0 })
@@ -212,6 +207,28 @@ export function useSceneModel(
     anchorRef.current = next
     setAnchor(next)
   })
+  // Where the shape fills: from the text's left side (centered: just past the column's
+  // middle), top band down to the last baseline. From all the text, shown or not, so the
+  // shape's bounds hold still while it stacks in. With no text, a full block from the
+  // frame's top margin to the (empty) text block's bottom: an uncarved cylinder filling
+  // the frame's margins.
+  const rows = Math.max(1, lines.length + (settings.text.endsWith('\n') ? 1 : 0))
+  const left = shapeLeft(columnWidth, scene.textAlign, lineBox.padX)
+  // (Only with no text, so a moving text block doesn't rebuild the shape otherwise.)
+  const emptyTop = lines.length === 0 ? ARTBOARD.padding - anchor.y : 0
+  const emptyBottom = rows * lineHeight
+  const extent = useMemo(
+    () =>
+      shapeExtent(boxes, lines, {
+        lineHeight,
+        topHeight,
+        overshoot,
+        metrics,
+        left,
+        whenEmpty: { top: emptyTop, bottom: emptyBottom },
+      }),
+    [boxes, lines, lineHeight, topHeight, overshoot, metrics, left, emptyTop, emptyBottom],
+  )
   // With fill on, the uncarved trophy starts out covering the frame and eases back to its
   // extent as the text stacks in; the boxes carve it the same either way.
   const fill = (scene.revealFill / 100) * revealFill(reveal / 100)
@@ -235,7 +252,6 @@ export function useSceneModel(
   // The text block's bottom padding that puts the trophy's bottom (the last baseline plus
   // the overshoot, not the text box's bottom, which includes the descenders) exactly
   // `bottomClearance` from the frame's bottom, the same margin as the sides.
-  const rows = Math.max(1, lines.length + (settings.text.endsWith('\n') ? 1 : 0))
   const bottomInset = extent
     ? Math.max(0, bottomClearance + extent.bottom - rows * lineHeight)
     : bottomClearance

@@ -1,4 +1,4 @@
-import { fillExtent, lineBaseline, lineBoxes, shapeExtent } from '../../src/rag'
+import { fillExtent, lineBaseline, lineBoxes, shapeExtent, shapeLeft } from '../../src/rag'
 
 const metrics = { ascent: 30, descent: 10 } // content area 40px
 
@@ -79,5 +79,27 @@ describe('fillExtent', () => {
   it('never shrinks a side already past the frame', () => {
     const big = { left: -100, top: -100, bottom: 600 }
     expect(fillExtent(big, frame, 440, 1)).toEqual(big)
+  })
+})
+
+describe('shapeExtent without text, and centered', () => {
+  const options = { lineHeight: 10, topHeight: 0, metrics: { ascent: 8, descent: 2 } }
+
+  it('is a full block with no text (given one), else nothing', () => {
+    expect(shapeExtent([], [], options)).toBeNull()
+    expect(shapeExtent([], [], { ...options, whenEmpty: { top: -500, bottom: 10 } })).toEqual({
+      left: 0,
+      top: -500,
+      bandBottom: -500,
+      bottom: 10,
+    })
+  })
+
+  it('starts centered text half a gap past the column’s middle', () => {
+    expect(shapeLeft(400, 'left', 20)).toBe(0)
+    expect(shapeLeft(400, 'center', 20)).toBe(210)
+    const lines = [{ index: 0, text: 'RGD', width: 30 }]
+    const boxes = lineBoxes(lines, { lineHeight: 10, padX: 0, padY: 0, radius: 0 })
+    expect(shapeExtent(boxes, lines, { ...options, left: 210 })?.left).toBe(210)
   })
 })

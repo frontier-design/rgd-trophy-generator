@@ -19,6 +19,12 @@ export interface ShapeExtentOptions {
    *  edge exactly on the baseline reads as sitting slightly too high. */
   overshoot?: number
   metrics: FontMetrics
+  /** Where the shape starts on the left (default 0, the text's left side; centered text:
+   *  shapeLeft). */
+  left?: number
+  /** With no text: the shape is this full block (top to bottom, from `left` to the edge),
+   *  an uncarved cylinder once revolved. Omitted: no shape. */
+  whenEmpty?: { top: number; bottom: number }
 }
 
 /**
@@ -27,18 +33,21 @@ export interface ShapeExtentOptions {
  * - top: the highest box top, raised by the top band,
  * - bottom: the last line's baseline plus `overshoot`, so the shape sits on the type like
  *   a base and reads as optically aligned with it.
- * Null when there's no text.
+ * With no text, `whenEmpty`'s block (no top band), or null.
  */
 export function shapeExtent(
   boxes: LineBox[],
   lines: LineMeasure[],
-  { lineHeight, topHeight, overshoot = 0, metrics }: ShapeExtentOptions,
+  { lineHeight, topHeight, overshoot = 0, metrics, left = 0, whenEmpty }: ShapeExtentOptions,
 ): ShapeExtent | null {
   const last = lines.at(-1)
-  if (!last || boxes.length === 0) return null
+  if (!last || boxes.length === 0) {
+    if (!whenEmpty || !(whenEmpty.bottom > whenEmpty.top)) return null
+    return { left, top: whenEmpty.top, bandBottom: whenEmpty.top, bottom: whenEmpty.bottom }
+  }
   const bandBottom = Math.min(...boxes.map((b) => b.y))
   return {
-    left: 0,
+    left,
     top: bandBottom - Math.max(0, topHeight),
     bandBottom,
     bottom: lineBaseline(last.index, lineHeight, metrics) + overshoot,

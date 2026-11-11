@@ -156,7 +156,7 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   positions relative to the canvas), so the shape and solid can extend past the text block
   (padding, top band). The artboard clips everything at its border.
 - **The shape's extent** (`rag/shapeExtent`, a `ShapeExtent`): left = the text's left side
-  (x = 0, never the padded boxes' left); top = the first box's top raised by `topHeight` (the
+  (x = 0, never the padded boxes' left; centered text: see Align); top = the first box's top raised by `topHeight` (the
   top band: no words, so full width, revolving into a full-width top section); bottom = the
   last line's baseline plus `overshoot` (default 3px, sidebar slider), so the shape sits on
   the type and reads as optically aligned with it (a flat edge exactly on the baseline
@@ -223,7 +223,13 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   start grows in with the line's first letter, `revealedBoxes`). The textarea, the reveal
   lines and the mirror center with CSS (`.rag-editor[data-align='center']`; the mirror's
   reveal offsets work unchanged), width labels move with their line (`--line-start`), and
-  exports add the starts to the text layers' offsets (`composeScene`).
+  exports add the starts to the text layers' offsets (`composeScene`). Centered, the shape
+  starts half a gap (`padX`) past the column's middle (`rag/shapeLeft`, `ShapeExtent.left`),
+  not at the text's left side: two copies of the graphic side by side then leave a full gap
+  between their trophies, as between the letters and the trophy.
+- **No text** (`shapeExtent`'s `whenEmpty`): an empty text block gives a full, uncarved
+  block from the frame's top margin to the (empty) text block's bottom, which sits on the
+  bottom margin: a cylinder filling the frame's margins, instead of no shape.
 - **Line order** (sidebar **line order**, `revealOrder`, animatable): which line reveals
   first, bottom (default, the RGD reference) or top, for both styles (`from` in
   `stackReveal` / `typeReveal`).

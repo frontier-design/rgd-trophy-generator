@@ -23,6 +23,16 @@ export function alignOffsets(
 }
 
 /**
+ * Where the shape starts on the left (px from the column's left): left-aligned, the text's
+ * left side (0); centered, half a gap (`padX`, the space between letters and the trophy)
+ * past the column's middle, so two copies of the graphic side by side leave a full gap
+ * between their trophies, the same as between the letters and the trophy.
+ */
+export function shapeLeft(columnWidth: number, align: TextAlign, padX: number): number {
+  return align === 'center' ? (columnWidth + Math.max(0, padX)) / 2 : 0
+}
+
+/**
  * One box per measured line: the line's measured box (width × line height) grown by
  * padX/padY on each side (negative shrinks, never below zero size). A line that starts in
  * from the column's left (`offsets`, centered text) still has its box start at the text's left
