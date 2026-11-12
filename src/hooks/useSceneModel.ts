@@ -214,8 +214,9 @@ export function useSceneModel(
   // the frame's margins.
   const rows = Math.max(1, lines.length + (settings.text.endsWith('\n') ? 1 : 0))
   const left = shapeLeft(columnWidth, scene.textAlign, lineBox.padX)
-  // (Only with no text, so a moving text block doesn't rebuild the shape otherwise.)
-  const emptyTop = lines.length === 0 ? ARTBOARD.padding - anchor.y : 0
+  // The trophy's top sits on the frame's top margin, with or without text, so adding lines
+  // never moves it (the top band fills down to the first line).
+  const frameTop = ARTBOARD.padding - anchor.y
   const emptyBottom = rows * lineHeight
   const extent = useMemo(
     () =>
@@ -225,9 +226,10 @@ export function useSceneModel(
         overshoot,
         metrics,
         left,
-        whenEmpty: { top: emptyTop, bottom: emptyBottom },
+        top: frameTop,
+        whenEmpty: { top: frameTop, bottom: emptyBottom },
       }),
-    [boxes, lines, lineHeight, topHeight, overshoot, metrics, left, emptyTop, emptyBottom],
+    [boxes, lines, lineHeight, topHeight, overshoot, metrics, left, frameTop, emptyBottom],
   )
   // With fill on, the uncarved trophy starts out covering the frame and eases back to its
   // extent as the text stacks in; the boxes carve it the same either way.

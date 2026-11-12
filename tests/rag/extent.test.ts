@@ -103,3 +103,18 @@ describe('shapeExtent without text, and centered', () => {
     expect(shapeExtent(boxes, lines, { ...options, left: 210 })?.left).toBe(210)
   })
 })
+
+describe('shapeExtent pinned to the frame’s top', () => {
+  const options = { lineHeight: 10, topHeight: 50, metrics: { ascent: 8, descent: 2 } }
+  const extent = (count: number) => {
+    const lines = Array.from({ length: count }, (_, index) => ({ index, text: 'x', width: 10 }))
+    const boxes = lineBoxes(lines, { lineHeight: 10, padX: 0, padY: 0, radius: 0 })
+    return shapeExtent(boxes, lines, { ...options, top: -200 })
+  }
+
+  it('keeps the top where it is pinned however many lines there are (top height ignored)', () => {
+    expect(extent(1)?.top).toBe(-200)
+    expect(extent(5)?.top).toBe(-200)
+    expect(extent(5)?.bandBottom).toBe(0)
+  })
+})

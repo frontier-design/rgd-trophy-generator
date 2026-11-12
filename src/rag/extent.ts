@@ -19,6 +19,10 @@ export interface ShapeExtentOptions {
    *  edge exactly on the baseline reads as sitting slightly too high. */
   overshoot?: number
   metrics: FontMetrics
+  /** Pins the shape's top here (the frame's top margin), whatever the text: the top band
+   *  fills down to the first line, so adding lines never moves the top (never below the
+   *  first line's box). Omitted: the first box's top raised by `topHeight`. */
+  top?: number
   /** Where the shape starts on the left (default 0, the text's left side; centered text:
    *  shapeLeft). */
   left?: number
@@ -30,7 +34,8 @@ export interface ShapeExtentOptions {
 /**
  * The region the rag shape fills before the line boxes carve it:
  * - left: the text's left side (x = 0), not the padded boxes' left,
- * - top: the highest box top, raised by the top band,
+ * - top: `top` (pinned, e.g. to the frame's top margin), or the highest box top raised by
+ *   the top band,
  * - bottom: the last line's baseline plus `overshoot`, so the shape sits on the type like
  *   a base and reads as optically aligned with it.
  * With no text, `whenEmpty`'s block (no top band), or null.
@@ -38,7 +43,7 @@ export interface ShapeExtentOptions {
 export function shapeExtent(
   boxes: LineBox[],
   lines: LineMeasure[],
-  { lineHeight, topHeight, overshoot = 0, metrics, left = 0, whenEmpty }: ShapeExtentOptions,
+  { lineHeight, topHeight, overshoot = 0, metrics, left = 0, top, whenEmpty }: ShapeExtentOptions,
 ): ShapeExtent | null {
   const last = lines.at(-1)
   if (!last || boxes.length === 0) {
@@ -48,7 +53,7 @@ export function shapeExtent(
   const bandBottom = Math.min(...boxes.map((b) => b.y))
   return {
     left,
-    top: bandBottom - Math.max(0, topHeight),
+    top: top !== undefined ? Math.min(top, bandBottom) : bandBottom - Math.max(0, topHeight),
     bandBottom,
     bottom: lineBaseline(last.index, lineHeight, metrics) + overshoot,
   }

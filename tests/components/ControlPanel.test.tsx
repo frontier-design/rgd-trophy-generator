@@ -110,19 +110,10 @@ describe('ControlPanel', () => {
     expect(button).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('top slider adds a band above the text and stretches the edge guide over it', async () => {
-    const { container } = renderApp()
-    const slider = screen.getByRole('slider', { name: 'top' })
-    expect(slider).toHaveAttribute('max', '1000')
-
-    fireEvent.change(slider, { target: { value: '120' } })
-    const editor = container.querySelector<HTMLElement>('.rag-editor')
-    // The shape's extent exists once lines are measured (after the font is ready).
-    // The band sits on the first box's top (raised by pad y).
-    const top = -(DEFAULT_LINE_BOX_STYLE.padY + 120)
-    await waitFor(() => expect(editor?.style.getPropertyValue('--edge-top')).toBe(`${top}px`), {
-      timeout: 5000,
-    })
+  it('has no top height slider (the trophy’s top sits on the frame’s top margin)', () => {
+    renderApp()
+    expect(screen.queryByRole('slider', { name: 'top height' })).toBeNull()
+    expect(screen.getByRole('switch', { name: 'round top' })).toBeInTheDocument()
   })
 
   it('material controls update the store', () => {

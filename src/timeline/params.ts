@@ -166,7 +166,12 @@ export function toTimelineValues(p: AnimatedParams): TimelineValues {
       spacing: p.revealSpacing,
     },
     shape: { edge: p.columnWidth, mirror: p.mirror, overshoot: p.overshoot },
-    top: { height: p.topHeight, roundTop: p.roundTop, radius: p.topRadius, taper: p.taper },
+    top: {
+      height: p.topHeight,
+      roundTop: p.roundTop,
+      radius: p.topRadius,
+      taper: p.taper,
+    },
     lineBoxes: {
       padX: p.lineBox.padX,
       padY: p.lineBox.padY,

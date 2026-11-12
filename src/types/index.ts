@@ -196,7 +196,8 @@ export interface SceneParams {
   mirror: boolean
   /** How far the shape's bottom extends below the last baseline (px). */
   overshoot: number
-  /** Height of the full-width band on top of the shape (px). */
+  /** Unused (the top is pinned to the frame's top margin). Kept so saved
+   *  projects and the timeline still load. */
   topHeight: number
   /** Round the top band's bottom-left corner, with topRadius (px). */
   roundTop: boolean

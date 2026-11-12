@@ -156,8 +156,12 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   positions relative to the canvas), so the shape and solid can extend past the text block
   (padding, top band). The artboard clips everything at its border.
 - **The shape's extent** (`rag/shapeExtent`, a `ShapeExtent`): left = the text's left side
-  (x = 0, never the padded boxes' left; centered text: see Align); top = the first box's top raised by `topHeight` (the
-  top band: no words, so full width, revolving into a full-width top section); bottom = the
+  (x = 0, never the padded boxes' left; centered text: see Align); top = the frame's top
+  margin, always (`ShapeExtent` option `top`, `ARTBOARD.padding` minus where the text sits;
+  never below the first box), so adding lines never moves the trophy's top: the top band
+  (no words, so full width, revolving into a full-width top section) fills down to the first
+  line. `topHeight` is kept in the params (and timeline) but no longer used: there's no top
+  height slider; bottom = the
   last line's baseline plus `overshoot` (default 3px, sidebar slider), so the shape sits on
   the type and reads as optically aligned with it (a flat edge exactly on the baseline
   looks slightly high). The baseline uses the font's

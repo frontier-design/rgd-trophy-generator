@@ -360,14 +360,6 @@ export function ControlPanel({
         />
       </ControlSection>
       <ControlSection {...sectionProps('top')}>
-        <RangeField
-          label="top"
-          value={params.topHeight}
-          min={0}
-          max={1000}
-          keyframe={keyframe?.('top.height')}
-          onChange={(topHeight) => onParamsChange({ topHeight })}
-        />
         <ToggleField
           label="round top"
           checked={params.roundTop}
