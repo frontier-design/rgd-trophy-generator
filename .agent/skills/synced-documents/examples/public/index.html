@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Synced list</title>
+<body>
+	<input id="text" placeholder="add an item" />
+	<button id="undo">undo</button> <button id="redo">redo</button> <span id="status"></span>
+	<ul id="list"></ul>
+	<script type="module">
+		import { connect } from "/client.js";
+		const doc = connect("me");
+		const $ = (id) => document.getElementById(id);
+		doc.subscribe(({ document: d, status }) => {
+			$("status").textContent = status;
+			$("list").replaceChildren(
+				...Object.entries(d?.items ?? {}).map(([id, item]) => {
+					const li = Object.assign(document.createElement("li"), { textContent: item.text + " ×" });
+					li.onclick = () => doc.transact("remove item", [{ type: "remove", path: ["items", id] }]);
+					return li;
+				})
+			);
+		});
+		$("text").onkeydown = (event) => {
+			if (event.key !== "Enter" || !event.target.value) return;
+			doc.transact("add item", [{ type: "insert", path: ["items", crypto.randomUUID()], value: { text: event.target.value } }]);
+			event.target.value = "";
+		};
+		$("undo").onclick = doc.undo;
+		$("redo").onclick = doc.redo;
+	</script>
+</body>
