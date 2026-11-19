@@ -51,6 +51,45 @@ describe('ThreeCanvas under StrictMode', () => {
     expect(container.querySelector('canvas')).toBeNull()
   })
 
+  it('draws visual changes and anchor movement, but not unrelated commits', () => {
+    const anchor = document.createElement('div')
+    let left = 10
+    vi.spyOn(anchor, 'getBoundingClientRect').mockImplementation(
+      () => ({ left, top: 20, width: 100, height: 100 }) as DOMRect,
+    )
+    const anchorRef = { current: anchor }
+    const outline = { contours: [] }
+    const props = {
+      outline,
+      axisX: 100,
+      anchorRef,
+      look: DEFAULT_MATERIAL,
+      mirror: false,
+      animateIn: false,
+      pixelRatio: 1,
+    }
+    const { rerender } = render(<ThreeCanvas {...props} />)
+    scene.render.mockClear()
+    rerender(<ThreeCanvas {...props} />)
+    expect(scene.render).not.toHaveBeenCalled()
+
+    rerender(<ThreeCanvas {...props} projection="perspective" />)
+    expect(scene.render).toHaveBeenCalledTimes(1)
+    expect(scene.setProjection).toHaveBeenLastCalledWith('perspective')
+    scene.render.mockClear()
+    const nextOutline = { contours: [] }
+    rerender(<ThreeCanvas {...props} outline={nextOutline} />)
+    expect(scene.render).toHaveBeenCalledTimes(1)
+    scene.render.mockClear()
+    left = 30
+    rerender(<ThreeCanvas {...props} outline={nextOutline} />)
+    expect(scene.setAnchor).toHaveBeenLastCalledWith(30, 20)
+    expect(scene.render).toHaveBeenCalledTimes(1)
+    scene.render.mockClear()
+    rerender(<ThreeCanvas {...props} outline={nextOutline} />)
+    expect(scene.render).not.toHaveBeenCalled()
+  })
+
   it('shows the finished solid without a sweep unless animating in', () => {
     vi.clearAllMocks()
     render(

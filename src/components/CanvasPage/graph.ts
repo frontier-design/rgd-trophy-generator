@@ -47,35 +47,36 @@ export interface NodeLink {
   to: string
 }
 
-/** A new twist: soft lobes turning a sixth of a turn evenly down the whole trophy. */
+/** A new twist (tuned to how twists get used): many shallow, straight lobes on a band in
+ *  the lower body. */
 export const DEFAULT_TWIST: TwistParams = {
-  flutes: 14,
-  depth: 12,
-  twist: 60,
+  flutes: 32,
+  depth: 1.5,
+  twist: 0,
   sharpness: 50,
   rotate: 0,
-  from: 0,
-  to: 100,
+  from: 55,
+  to: 70,
   ends: 'fade',
   endSize: 0,
   curve: 0,
   section: 'lobes',
 }
 
-/** A new etch: a crosshatched strip around the bowl (the top third), bundles of four fine
- *  cut lines winding a quarter of the way around, like an engraved lattice. */
+/** A new etch (tuned to how etches get used): rings of two bold cut lines, two bundles
+ *  across a band in the lower body. */
 export const DEFAULT_ETCH: EtchParams = {
-  from: 4,
-  to: 32,
-  bundles: 8,
-  lines: 4,
+  from: 55,
+  to: 75,
+  bundles: 2,
+  lines: 2,
   gap: 4,
-  width: 1.2,
+  width: 5.2,
   slant: 90,
   cross: true,
   style: 'cut',
-  strength: 85,
-  layout: 'diagonal',
+  strength: 45,
+  layout: 'horizontal',
   waves: 3,
   fade: 10,
   depthTop: 100,
@@ -85,18 +86,19 @@ export const DEFAULT_ETCH: EtchParams = {
 /** The pattern node's starting image (the scrollwork border it was designed with). */
 export const SAMPLE_IMAGE = '/images/ornament-sample.png'
 
-/** A new pattern: the sample image repeated around a band on the bowl, every other repeat
- *  mirrored (seamless), raised, fading into the surface at the band's edges. */
+/** A new pattern (tuned to how patterns get used): the sample image repeated around a band
+ *  in the lower body, following the surface, every other repeat mirrored (seamless), raised,
+ *  with crisp band edges (no fade). */
 export const DEFAULT_PATTERN: PatternParams = {
   image: SAMPLE_IMAGE,
   mode: 'repeat',
-  from: 6,
-  to: 30,
+  from: 60,
+  to: 70,
   repeats: 3,
   scale: 100,
   angle: 0,
   spin: 0,
-  mapping: 'strip',
+  mapping: 'surface',
   shapeScale: 100,
   detail: 16,
   length: 40,
@@ -107,7 +109,7 @@ export const DEFAULT_PATTERN: PatternParams = {
   threshold: 45,
   invert: false,
   softness: 1,
-  fade: 25,
+  fade: 0,
   depthTop: 100,
   depthBottom: 100,
   style: 'raised',
@@ -235,4 +237,64 @@ export function modifiersByScene(
     out.set(link.to, current)
   }
   return out
+}
+
+/** A workspace-local resolver. Inputs must be updated immutably: params and height maps
+ *  are compared by identity. Card presentation and unrelated nodes/maps are ignored. */
+export function createSceneModifiersResolver() {
+  type Input = { id: string; kind: ModifierKind; params: ModifierNode['params']; map?: HeightMap }
+  let previous = new Map<string, SceneModifiers>()
+  let previousInputs = new Map<string, Input[]>()
+
+  return (
+    links: readonly NodeLink[],
+    nodes: readonly ModifierNode[],
+    maps: ReadonlyMap<string, HeightMap> = new Map(),
+  ): Map<string, SceneModifiers> => {
+    const byId = new Map(nodes.map((node) => [node.id, node]))
+    const inputs = new Map<string, Input[]>()
+    const sceneLinks = new Map<string, NodeLink[]>()
+    for (const link of links) {
+      const node = byId.get(link.from)
+      if (!node) continue
+      const entries = inputs.get(link.to) ?? []
+      entries.push({
+        id: node.id,
+        kind: node.kind,
+        params: node.params,
+        map: node.kind === 'pattern' ? maps.get(node.id) : undefined,
+      })
+      inputs.set(link.to, entries)
+      const groupedLinks = sceneLinks.get(link.to) ?? []
+      groupedLinks.push(link)
+      sceneLinks.set(link.to, groupedLinks)
+    }
+    const next = new Map<string, SceneModifiers>()
+    for (const [scene, entries] of inputs) {
+      const old = previousInputs.get(scene)
+      const unchanged =
+        old?.length === entries.length &&
+        entries.every((entry, i) => {
+          const prior = old[i]!
+          return (
+            entry.id === prior.id &&
+            entry.kind === prior.kind &&
+            entry.params === prior.params &&
+            entry.map === prior.map
+          )
+        })
+      const resolved = unchanged ? previous.get(scene) : undefined
+      next.set(scene, resolved ?? modifiersByScene(sceneLinks.get(scene)!, nodes, maps).get(scene)!)
+    }
+    const priorEntries = [...previous]
+    const same =
+      next.size === previous.size &&
+      [...next].every(([scene, value], i) => {
+        const prior = priorEntries[i]
+        return prior?.[0] === scene && prior[1] === value
+      })
+    previousInputs = inputs
+    if (!same) previous = next
+    return previous
+  }
 }

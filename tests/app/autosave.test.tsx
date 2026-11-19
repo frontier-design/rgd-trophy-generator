@@ -1,8 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import App from '../../src/App'
 import { CanvasPage } from '../../src/components/CanvasPage'
 import { SaveControls } from '../../src/components/SaveControls'
-import { readSaved, SettingsProvider } from '../../src/state'
+import { readSaved } from '../../src/state'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
 vi.mock('../../src/timeline', () => import('../support/timelineStub'))
@@ -48,25 +47,6 @@ describe('autosave', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('keeps the generator’s text and banner', () => {
-    const renderApp = () =>
-      render(
-        <SettingsProvider>
-          <App />
-        </SettingsProvider>,
-      )
-    const first = renderApp()
-    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'MY\nTROPHY' } })
-    fireEvent.change(screen.getByRole('textbox', { name: 'headline' }), {
-      target: { value: 'Deadline soon' },
-    })
-    first.unmount()
-
-    renderApp()
-    expect(screen.getByLabelText('Text')).toHaveValue('MY\nTROPHY')
-    expect(screen.getByRole('textbox', { name: 'headline' })).toHaveValue('Deadline soon')
   })
 })
 

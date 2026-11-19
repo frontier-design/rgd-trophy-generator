@@ -16,6 +16,8 @@ export interface UndoHistory {
   undo(): void
   /** Forward one step, after an undo. */
   redo(): void
+  /** End a transaction immediately, separating it from adjacent changes. */
+  checkpoint(): void
 }
 
 /**
@@ -86,5 +88,5 @@ export function useUndo<T extends object>(state: T, restore: (state: T) => void)
   )
   const undo = useCallback(() => go(past, future), [go])
   const redo = useCallback(() => go(future, past), [go])
-  return { undo, redo }
+  return { undo, redo, checkpoint: record }
 }

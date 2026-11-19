@@ -3,7 +3,15 @@ import { buildLathe } from '../../src/render3d/lathe'
 import { twistDeform, twistScale, twistShape } from '../../src/render3d/twist'
 import type { TwistParams } from '../../src/types'
 
-const params: TwistParams = { ...DEFAULT_TWIST, flutes: 8, depth: 20, twist: 90, sharpness: 50 }
+const params: TwistParams = {
+  ...DEFAULT_TWIST,
+  from: 0,
+  to: 100,
+  flutes: 8,
+  depth: 20,
+  twist: 90,
+  sharpness: 50,
+}
 const TOP = 100
 const HEIGHT = 200
 const shape = (patch: Partial<TwistParams> = {}) => twistShape({ ...params, ...patch })

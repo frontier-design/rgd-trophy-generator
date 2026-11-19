@@ -15,6 +15,14 @@ import {
   type ModifierNode,
   type NodeLink,
 } from './graph'
+import {
+  createMasterNode,
+  DEFAULT_MASTER_PARAMS,
+  masterFromScene,
+  withMaster,
+  type MasterNode,
+  type MasterParams,
+} from './master'
 import { DEFAULT_FRAME, DEFAULT_IMAGE_EXPORT, type SceneNode } from './sceneNode'
 
 /** Everything on the canvas page, as autosaved and put in project files. */
@@ -24,6 +32,8 @@ export interface CanvasDocument {
   /** Twist and etch nodes. */
   modifiers: ModifierNode[]
   links: NodeLink[]
+  /** The settings every scene shares (applied to all of them). */
+  master: MasterNode
   /** Nodes inserted so far of each kind (their names and ids continue from here). */
   inserted: { scene: number; twist: number; etch: number; pattern: number; texture: number }
   /** Where the canvas was looking. */
@@ -35,6 +45,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   scenes: [],
   modifiers: [],
   links: [],
+  master: createMasterNode(),
   inserted: { scene: 0, twist: 0, etch: 0, pattern: 0, texture: 0 },
   view: null,
 }
@@ -146,6 +157,39 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
   return null
 }
 
+/** Where a master node goes on a canvas that had none: left of the scenes' top-left. */
+const MASTER_OFFSET = 320
+
+/**
+ * The saved master node, its params over the defaults. A canvas saved before there was one
+ * starts it from its first scene's values (they were the same in every scene in practice), so
+ * nothing changes when it's applied.
+ */
+function parseMaster(value: unknown, scenes: readonly SceneNode[]): MasterNode {
+  if (isObject(value) && isObject(value.params)) {
+    const params = { ...DEFAULT_MASTER_PARAMS }
+    for (const key of Object.keys(params) as (keyof MasterParams)[]) {
+      const saved = value.params[key]
+      if (typeof saved === typeof params[key]) (params as Record<string, unknown>)[key] = saved
+    }
+    return {
+      ...createMasterNode(
+        isFiniteNumber(value.x) ? value.x : 0,
+        isFiniteNumber(value.y) ? value.y : 0,
+        params,
+      ),
+      ...(value.collapsed === true ? { collapsed: true } : {}),
+    }
+  }
+  const first = scenes[0]
+  if (!first) return createMasterNode()
+  return createMasterNode(
+    Math.min(...scenes.map((scene) => scene.x)) - MASTER_OFFSET,
+    Math.min(...scenes.map((scene) => scene.y)),
+    masterFromScene(first),
+  )
+}
+
 /** The highest number ending an id (scene-3 → 3), 0 if none. */
 function highestId(nodes: readonly { id: string }[], prefix: string): number {
   return Math.max(
@@ -160,7 +204,9 @@ function highestId(nodes: readonly { id: string }[], prefix: string): number {
 export function parseCanvasDocument(value: unknown): CanvasDocument {
   if (!isObject(value)) return EMPTY_CANVAS
   const list = (key: string) => (Array.isArray(value[key]) ? (value[key] as unknown[]) : [])
-  const scenes = list('scenes').flatMap((item) => parseScene(item) ?? [])
+  const parsed = list('scenes').flatMap((item) => parseScene(item) ?? [])
+  const master = parseMaster(value.master, parsed)
+  const scenes = parsed.map((scene) => withMaster(scene, master.params))
   const modifiers = [
     ...list('twists').flatMap((item) => parseModifier(item, 'twist') ?? []),
     ...list('modifiers').flatMap((item) => parseModifier(item) ?? []),
@@ -182,6 +228,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     scenes,
     modifiers,
     links,
+    master,
     // Never reuse an id: past every id's number.
     inserted: {
       scene: Math.max(

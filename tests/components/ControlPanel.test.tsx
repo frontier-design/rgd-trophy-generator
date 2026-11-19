@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import App from '../../src/App'
+import App from '../support/ControlPanelScene'
 import { MAX_STOPS, PALETTES } from '../../src/material'
 import { DEFAULT_LINE_BOX_STYLE, DEFAULT_SETTINGS, SettingsProvider } from '../../src/state'
 
@@ -243,7 +243,6 @@ describe('ControlPanel', () => {
       'banner',
       'view',
       'image',
-      'timeline',
     ]
     expect(screen.getAllByRole('heading').map((h) => h.textContent?.replace(/[+−]$/, ''))).toEqual(
       names,
@@ -299,10 +298,7 @@ describe('ControlPanel', () => {
     const all = screen.getByRole('button', { name: 'collapse all' })
     fireEvent.click(all)
     expect(screen.getByRole('button', { name: 'type' })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button', { name: 'timeline' })).toHaveAttribute(
-      'aria-expanded',
-      'false',
-    )
+    expect(screen.getByRole('button', { name: 'image' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('slider', { name: 'size' })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'expand all' }))
@@ -310,16 +306,11 @@ describe('ControlPanel', () => {
     expect(screen.getByRole('button', { name: 'collapse all' })).toBeInTheDocument()
   })
 
-  it('gives every param a keyframe button, and the timeline section its export', () => {
+  it('omits keyframes and video transport without a timeline', () => {
     renderApp()
-    for (const name of ['size', 'mirror', 'shading', 'background', 'color 1', 'join radius']) {
-      expect(screen.getByRole('button', { name: `keyframe ${name}` })).toHaveAttribute(
-        'aria-pressed',
-        'false',
-      )
-    }
-    expect(screen.getByRole('button', { name: 'export 4K MP4' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'play' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'keyframe size' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'export 4K MP4' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'play' })).toBeNull()
   })
 
   it('collapses and expands a section from its header', () => {
@@ -423,7 +414,7 @@ describe('ControlPanel', () => {
   })
 })
 
-describe('image export (generator)', () => {
+describe('image export controls', () => {
   it('offers PNG (optionally transparent) or JPEG at ×1–×5', () => {
     render(
       <SettingsProvider>

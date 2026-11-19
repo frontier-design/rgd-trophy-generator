@@ -13,7 +13,7 @@ import { downloadBlob, maxImageScale } from '../../export'
 import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled, useUndo } from '../../hooks'
 import type { HeightMap } from '../../render3d'
 import { ARTBOARD } from '../../state'
-import { ControlPanel } from '../ControlPanel'
+import { ControlPanel, type HideableField } from '../ControlPanel'
 import { loadCanvasDocument, storeCanvasDocument, type CanvasDocument } from './canvasDocument'
 import { CanvasScene, type SceneExporter } from './CanvasScene'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -25,7 +25,7 @@ import {
   inputPort,
   linkPath,
   outputPort,
-  modifiersByScene,
+  createSceneModifiersResolver,
   type NodeLink,
   type ModifierKind,
   type ModifierNode,
@@ -42,7 +42,25 @@ import {
   withParams,
   type SceneNode,
 } from './sceneNode'
+import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './master'
 import { NodeCard, type ParamsPatch } from './NodeCard'
+import {
+  createNodePositionStore,
+  NodeDragContext,
+  useNodePosition,
+  type NodePosition,
+} from './nodeDrag'
+import {
+  clearSelection,
+  copySelection,
+  pasteSelection,
+  pickSelection,
+  pruneSelection,
+  replaceSelection,
+  type Selection,
+  type CopiedSubgraph,
+} from './selection'
+import { SelectionMarquee } from './SelectionMarquee'
 
 /** Grid spacing at 100% (px): fine lines, and a heavier line every MAJOR of them. */
 const GRID = 24
@@ -65,6 +83,27 @@ const NO_MODIFIERS: SceneModifiers = {
   linked: false,
 }
 
+/** The scene panel leaves out what the master node sets for every scene. */
+const MASTER_FIELDS: ReadonlySet<HideableField> = new Set<HideableField>([
+  'align',
+  'mirror',
+  'overshoot',
+  'roundTop',
+  'taper',
+  'smoothJoins',
+  'shading',
+  'banding',
+  'gradientScale',
+  'tilt',
+  'wobble',
+  'edgeHue',
+  'ledge',
+  'grain',
+  'grainSize',
+  'background',
+  'view',
+])
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** What a right-click was on. */
@@ -72,8 +111,7 @@ type MenuTarget = { kind: 'scene' | ModifierKind; id: string } | null
 
 /** What was copied (⌘C, or the right-click menu): kept for the session, so it pastes into
  *  this canvas again after switching pages. */
-type Copied = { kind: 'scene'; node: SceneNode } | { kind: 'modifier'; node: ModifierNode }
-let copied: Copied | null = null
+let copied: CopiedSubgraph | null = null
 
 interface CanvasPageProps {
   /** The page dropdown, floating at the canvas's top left. */
@@ -101,34 +139,128 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const [scenes, setScenes] = useState<SceneNode[]>(saved.scenes)
   const [modifiers, setModifiers] = useState<ModifierNode[]>(saved.modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [master, setMaster] = useState<MasterNode>(saved.master)
+  // The master's settings, for updates made in callbacks (every scene keeps them).
+  const masterRef = useRef(master.params)
+  useEffect(() => {
+    masterRef.current = master.params
+  })
+  const [selection, updateSelection] = useState<Selection>(clearSelection)
+  // Drag start needs event-time selection before React commits the pointer-down update.
+  const selectionRef = useRef(selection)
+  const setSelection = useCallback((next: Selection | ((current: Selection) => Selection)) => {
+    const value = typeof next === 'function' ? next(selectionRef.current) : next
+    selectionRef.current = value
+    updateSelection(value)
+  }, [])
+  const selectNode = useCallback(
+    (id: string, additive = false, preserveGroup = true) => {
+      setSelection((current) =>
+        !additive && !preserveGroup ? replaceSelection([id]) : pickSelection(current, id, additive),
+      )
+    },
+    [setSelection],
+  )
+  const selectOnly = useCallback(
+    (id: string) => setSelection(replaceSelection([id])),
+    [setSelection],
+  )
+  const clearSelected = useCallback(() => setSelection(clearSelection()), [setSelection])
+  const addSelected = useCallback(
+    (ids: string[]) => {
+      setSelection((current) =>
+        replaceSelection([...current.ids, ...ids], ids.at(-1) ?? current.activeId),
+      )
+    },
+    [setSelection],
+  )
+  const selectedIds = useMemo(() => new Set(selection.ids), [selection.ids])
   /** The right-click menu: where it was opened (canvas element px) and on what. */
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null)
   /** Nodes inserted so far of each kind, for their names and ids. */
   const [inserted, setInserted] = useState(saved.inserted)
+  const insertedRef = useRef(inserted)
+  const reserveCount = (kind: keyof typeof inserted) => {
+    const count = insertedRef.current[kind] + 1
+    insertedRef.current = { ...insertedRef.current, [kind]: count }
+    setInserted(insertedRef.current)
+    return count
+  }
   /** A link being dragged from a node's output, its loose end at the pointer (canvas px). */
   const [pending, setPending] = useState<{ from: string; x: number; y: number } | null>(null)
 
   // Autosaved shortly after every change (and when leaving the page or closing the tab).
   const autosaved = useMemo<CanvasDocument>(
-    () => ({ version: 1, scenes, modifiers, links, inserted, view }),
-    [scenes, modifiers, links, inserted, view],
+    () => ({ version: 1, scenes, modifiers, links, master, inserted, view }),
+    [scenes, modifiers, links, master, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
 
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
-  const content = useMemo(() => ({ scenes, modifiers, links }), [scenes, modifiers, links])
+  const content = useMemo(
+    () => ({ scenes, modifiers, links, master }),
+    [scenes, modifiers, links, master],
+  )
   const history = useUndo(content, (state) => {
     setScenes(state.scenes)
     setModifiers(state.modifiers)
     setLinks(state.links)
+    setMaster(state.master)
+    masterRef.current = state.master.params
     setPending(null)
-    // Deselect a node that's gone.
-    setSelectedId((id) =>
-      id && [...state.scenes, ...state.modifiers].some((node) => node.id === id) ? id : null,
+    // Selection is view state: prune missing nodes, never restore it from undo.
+    setSelection((current) =>
+      pruneSelection(current, [
+        MASTER_ID,
+        ...state.scenes.map((node) => node.id),
+        ...state.modifiers.map((node) => node.id),
+      ]),
     )
   })
+
+  const { checkpoint } = history
+  // A drag's one document update closes its own undo step after useUndo sees the commit.
+  const moveCommitted = useRef(false)
+  useEffect(() => {
+    if (!moveCommitted.current) return
+    moveCommitted.current = false
+    checkpoint()
+  }, [content, checkpoint])
+
+  const positions = useMemo(() => createNodePositionStore(), [])
+  const boardNodes = useRef(new Map<string, NodePosition & { id: string }>())
+  useEffect(() => {
+    boardNodes.current = new Map([...scenes, ...modifiers, master].map((node) => [node.id, node]))
+  }, [scenes, modifiers, master])
+  const participants = useCallback((id: string) => {
+    const ids = selectionRef.current.ids.includes(id) ? selectionRef.current.ids : [id]
+    return ids.flatMap((key) => {
+      const node = boardNodes.current.get(key)
+      return node ? [{ id: node.id, x: node.x, y: node.y }] : []
+    })
+  }, [])
+  const commitMoves = useCallback((moves: ReadonlyMap<string, NodePosition>) => {
+    moveCommitted.current = true
+    setScenes((current) =>
+      current.some((node) => moves.has(node.id))
+        ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
+        : current,
+    )
+    setModifiers((current) =>
+      current.some((node) => moves.has(node.id))
+        ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
+        : current,
+    )
+    setMaster((current) =>
+      moves.has(MASTER_ID) ? { ...current, ...moves.get(MASTER_ID)! } : current,
+    )
+  }, [])
+  const dragController = useMemo(
+    () => ({ positions, checkpoint, participants, commit: commitMoves, onTap: selectOnly }),
+    [positions, checkpoint, participants, commitMoves, selectOnly],
+  )
+  useEffect(() => () => positions.dispose(), [positions])
 
   // The view and links, for pointer handlers (canvas px from window px; picking links up).
   const viewRef = useRef(view)
@@ -156,13 +288,28 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     }
   }, [])
 
+  // Every update keeps the master's settings (e.g. fitting to a frame turns the mirror on).
   const updateScene = useCallback(
     (id: string, update: (node: SceneNode) => SceneNode) =>
-      setScenes((current) => current.map((node) => (node.id === id ? update(node) : node))),
+      setScenes((current) =>
+        current.map((node) =>
+          node.id === id ? withMaster(update(node), masterRef.current) : node,
+        ),
+      ),
     [],
   )
+  /** A master node edit: applied to every scene. */
+  const setMasterParams = useCallback((patch: Partial<MasterParams>) => {
+    const params = { ...masterRef.current, ...patch }
+    masterRef.current = params
+    setMaster((current) => ({ ...current, params }))
+    setScenes((current) => current.map((node) => withMaster(node, params)))
+  }, [])
   const moveScene = useCallback(
-    (id: string, x: number, y: number) => updateScene(id, (node) => ({ ...node, x, y })),
+    (id: string, x: number, y: number) => {
+      moveCommitted.current = true
+      updateScene(id, (node) => ({ ...node, x, y }))
+    },
     [updateScene],
   )
   // A resize handle's drag: the new frame (the text and trophy fitted to it, live).
@@ -182,32 +329,62 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
   const updateModifier = useCallback(
     (id: string, update: (node: ModifierNode) => ModifierNode) =>
-      setModifiers((current) => current.map((node) => (node.id === id ? update(node) : node))),
+      setModifiers((current) => {
+        const next = current.map((node) => (node.id === id ? update(node) : node))
+        return next.every((node, index) => node === current[index]) ? current : next
+      }),
     [],
   )
   const moveModifier = useCallback(
-    (id: string, x: number, y: number) => updateModifier(id, (node) => ({ ...node, x, y })),
+    (id: string, x: number, y: number) => {
+      moveCommitted.current = true
+      if (id === MASTER_ID) setMaster((current) => ({ ...current, x, y }))
+      else updateModifier(id, (node) => ({ ...node, x, y }))
+    },
     [updateModifier],
   )
   const setModifierCollapsed = useCallback(
-    (id: string, collapsed: boolean) => updateModifier(id, (node) => ({ ...node, collapsed })),
+    (id: string, collapsed: boolean) =>
+      id === MASTER_ID
+        ? setMaster((current) => ({ ...current, collapsed }))
+        : updateModifier(id, (node) => ({ ...node, collapsed })),
     [updateModifier],
   )
   const setModifierParams = useCallback(
     (id: string, patch: ParamsPatch) =>
-      updateModifier(
-        id,
-        (node) => ({ ...node, params: { ...node.params, ...patch } }) as ModifierNode,
-      ),
-    [updateModifier],
+      id === MASTER_ID
+        ? setMasterParams(patch as Partial<MasterParams>)
+        : updateModifier(id, (node) =>
+            Object.entries(patch as Record<string, unknown>).every(
+              ([key, value]) => node.params[key as keyof typeof node.params] === value,
+            )
+              ? node
+              : ({ ...node, params: { ...node.params, ...patch } } as ModifierNode),
+          ),
+    [updateModifier, setMasterParams],
   )
-  /** Remove a node (scene or modifier) and its links. */
-  const deleteNode = useCallback((id: string) => {
-    setScenes((current) => current.filter((node) => node.id !== id))
-    setModifiers((current) => current.filter((node) => node.id !== id))
-    setLinks((current) => current.filter((link) => link.from !== id && link.to !== id))
-    setSelectedId((current) => (current === id ? null : current))
-  }, [])
+  /** Remove selected nodes and incident links; the master is movable but never deleted. */
+  const deleteNodes = useCallback(
+    (ids: readonly string[]) => {
+      const removed = new Set(ids.filter((id) => id !== MASTER_ID))
+      if (!removed.size) return
+      positions.dispose()
+      checkpoint()
+      moveCommitted.current = true
+      setScenes((current) => current.filter((node) => !removed.has(node.id)))
+      setModifiers((current) => current.filter((node) => !removed.has(node.id)))
+      setLinks((current) =>
+        current.filter((link) => !removed.has(link.from) && !removed.has(link.to)),
+      )
+      setSelection((current) =>
+        replaceSelection(
+          current.ids.filter((id) => !removed.has(id)),
+          current.activeId,
+        ),
+      )
+    },
+    [positions, checkpoint, setSelection],
+  )
   const closeMenu = useCallback(() => setMenu(null), [])
 
   // Dragging a link: a node's output starts one; a linked input picks its last one up.
@@ -217,7 +394,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
   const pickUpLink = useCallback(
     (sceneId: string, e: ReactPointerEvent) => {
-      setSelectedId(sceneId)
+      selectOnly(sceneId)
       const last = linksRef.current.findLast((link) => link.to === sceneId)
       if (!last) return
       setLinks((current) =>
@@ -225,7 +402,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       )
       setPending({ from: last.from, ...toCanvas(e.clientX, e.clientY) })
     },
-    [toCanvas],
+    [toCanvas, selectOnly],
   )
   const pendingFrom = pending?.from
   useEffect(() => {
@@ -253,27 +430,28 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   /** A new scene centered on a point of the canvas element (px), selected. Its layout is
    *  fitted to the frame, from its text measured once the font has loaded. */
   const insertScene = async (x: number, y: number) => {
-    const count = inserted.scene + 1
-    setInserted((current) => ({ ...current, scene: count }))
+    const count = reserveCount('scene')
     const centerX = (x - view.x) / view.zoom
     const centerY = (y - view.y) / view.zoom
     const measure = await measureDefaultText()
     const id = `scene-${count}`
-    const node = createSceneNode(
-      id,
-      `scene ${count}`,
-      centerX - ARTBOARD.width / 2,
-      centerY - ARTBOARD.height / 2,
-      measure,
+    const node = withMaster(
+      createSceneNode(
+        id,
+        `scene ${count}`,
+        centerX - ARTBOARD.width / 2,
+        centerY - ARTBOARD.height / 2,
+        measure,
+      ),
+      master.params,
     )
     setScenes((current) => [...current, node])
-    setSelectedId(id)
+    selectOnly(id)
   }
 
   /** A new modifier node, its top-left at a point of the canvas element (px), selected. */
   const insertModifier = (kind: ModifierKind, x: number, y: number) => {
-    const count = inserted[kind] + 1
-    setInserted((current) => ({ ...current, [kind]: count }))
+    const count = reserveCount(kind)
     const id = `${kind}-${count}`
     const node = createModifier(
       kind,
@@ -283,49 +461,40 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       (y - view.y) / view.zoom,
     )
     setModifiers((current) => [...current, node])
-    setSelectedId(id)
+    selectOnly(id)
   }
 
-  // Copy and paste (⌘C / ⌘V; ⌘D duplicates): a copy is independent (its own name and id),
-  // without links, placed at the pointer or just beside the original.
+  // Clipboard snapshots keep relative positions and only the selected subgraph's links.
   const [hasCopy, setHasCopy] = useState(copied !== null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
-  const copyNode = (id: string) => {
-    const scene = scenes.find((node) => node.id === id)
-    const modifier = modifiers.find((node) => node.id === id)
-    copied = scene
-      ? { kind: 'scene', node: structuredClone(scene) }
-      : modifier
-        ? { kind: 'modifier', node: structuredClone(modifier) }
-        : null
+  const copyNodes = (selected: Selection = selectionRef.current) => {
+    const snapshot = copySelection(selected, scenes, modifiers, links)
+    copied = snapshot.ids.length ? snapshot : null
     setHasCopy(copied !== null)
   }
-  /** Paste `entry` with its top-left at `at` (canvas px), or beside the original. */
-  const pasteCopy = (at: { x: number; y: number } | null, entry: Copied | null = copied) => {
-    if (!entry) return
-    const copy = structuredClone(entry)
-    const kind = copy.kind === 'scene' ? 'scene' : copy.node.kind
-    const count = inserted[kind] + 1
-    setInserted((current) => ({ ...current, [kind]: Math.max(current[kind], count) }))
-    const offset = 40 / view.zoom
-    const place = at ?? { x: copy.node.x + offset, y: copy.node.y + offset }
-    const id = `${kind}-${count}`
-    const name = `${kind} ${count}`
-    if (copy.kind === 'scene') {
-      const node: SceneNode = { ...copy.node, id, name, ...place, animateRevolve: false }
-      setScenes((list) => [...list, node])
-    } else {
-      const node = { ...copy.node, id, name, ...place } as ModifierNode
-      setModifiers((list) => [...list, node])
-    }
-    setSelectedId(id)
+  const pasteCopy = (at: NodePosition | null, entry: CopiedSubgraph | null = copied) => {
+    if (!entry?.ids.length) return
+    positions.dispose()
+    checkpoint()
+    const offset = 40 / viewRef.current.zoom
+    const pasted = pasteSelection(
+      entry,
+      insertedRef.current,
+      at ? { at } : { offset: { x: offset, y: offset } },
+    )
+    insertedRef.current = pasted.inserted
+    setInserted(pasted.inserted)
+    moveCommitted.current = true
+    setScenes((current) => [
+      ...current,
+      ...pasted.scenes.map((node) => withMaster(node, masterRef.current)),
+    ])
+    setModifiers((current) => [...current, ...pasted.modifiers])
+    setLinks((current) => [...current, ...pasted.links])
+    setSelection(replaceSelection(pasted.ids, pasted.activeId))
   }
-  /** A copy of a node beside it (what was copied stays). */
-  const duplicateNode = (id: string) => {
-    const scene = scenes.find((node) => node.id === id)
-    const modifier = modifiers.find((node) => node.id === id)
-    if (scene) pasteCopy(null, { kind: 'scene', node: scene })
-    else if (modifier) pasteCopy(null, { kind: 'modifier', node: modifier })
+  const duplicateNodes = (selected: Selection = selectionRef.current) => {
+    pasteCopy(null, copySelection(selected, scenes, modifiers, links))
   }
   // The keys, with this render's state (re-subscribed each render, as it changes). Not while
   // typing: a text field keeps its own undo and clipboard.
@@ -341,43 +510,45 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       if (key === 'z' || (key === 'y' && e.ctrlKey && !e.metaKey)) {
         e.preventDefault()
         e.stopPropagation()
+        positions.dispose()
         if (key === 'z' && !e.shiftKey) history.undo()
         else history.redo()
         return
       }
       if (e.shiftKey) return
-      if (key === 'c' && selectedId) {
+      if (key === 'c' && selectionRef.current.ids.length) {
         e.preventDefault()
-        copyNode(selectedId)
+        copyNodes()
       } else if (key === 'v' && copied) {
         e.preventDefault()
         pasteCopy(pointer.current)
-      } else if (key === 'd' && selectedId) {
+      } else if (key === 'd' && selectionRef.current.ids.length) {
         e.preventDefault()
-        duplicateNode(selectedId)
+        duplicateNodes()
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   })
 
-  // Delete/Backspace removes the selected node (unless typing); Escape deselects.
+  // Selection remains view state; text fields keep their own editing shortcuts.
   useEffect(() => {
-    if (!selectedId) return
     const onKeyDown = (e: KeyboardEvent) => {
       const { target } = e
       if (target instanceof Element && target.closest('textarea, input, select, [contenteditable]'))
         return
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (!selectionRef.current.ids.length) return
         e.preventDefault()
-        deleteNode(selectedId)
+        deleteNodes(selectionRef.current.ids)
       } else if (e.key === 'Escape') {
-        setSelectedId(null)
+        positions.dispose()
+        clearSelected()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [selectedId, deleteNode])
+  }, [deleteNodes, positions, clearSelected])
 
   // Pattern nodes' height maps, built in the background.
   const patternNodes = useMemo(
@@ -390,12 +561,25 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     for (const [id, status] of patternStatuses) if (status.map) maps.set(id, status.map)
     return maps
   }, [patternStatuses])
-  // Each scene's modifiers, as arrays that only change when its nodes do.
+  // Position/name/fold changes don't invalidate artwork, and unrelated scenes keep their inputs.
+  const resolveModifiers = useMemo(() => createSceneModifiersResolver(), [])
   const sceneModifiers = useMemo(
-    () => modifiersByScene(links, modifiers, patternMaps),
-    [links, modifiers, patternMaps],
+    () => resolveModifiers(links, modifiers, patternMaps),
+    [resolveModifiers, links, modifiers, patternMaps],
   )
   const linkedNodes = useMemo(() => new Set(links.map((link) => link.from)), [links])
+  // Every selected modifier keeps its handles, even when a scene/another node is active.
+  const rangeModifiersByScene = useMemo(() => {
+    const selected = new Map(
+      modifiers.filter((node) => selectedIds.has(node.id)).map((node) => [node.id, node]),
+    )
+    const grouped = new Map<string, ModifierNode[]>()
+    for (const link of links) {
+      const modifier = selected.get(link.from)
+      if (modifier) grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
+    }
+    return grouped
+  }, [modifiers, selectedIds, links])
 
   // Zoomed out far, node cards show only their headers (they're small, and it's less to draw).
   const compactCards = cardScale(view.zoom) < CARD_COMPACT_SCALE
@@ -409,22 +593,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   } as CSSProperties
 
   // The selected scene's controls sit just right of it, top-aligned, kept on screen.
-  const selected = scenes.find((node) => node.id === selectedId)
-  let controlsStyle: CSSProperties | undefined
-  if (selected) {
-    const { width, gap, inset, minHeight } = CONTROLS
-    const left = clamp(
-      view.x + (selected.x + selected.frame.width) * view.zoom + gap,
-      inset,
-      Math.max(inset, size.width - width - inset),
-    )
-    const top = clamp(
-      view.y + selected.y * view.zoom,
-      inset,
-      Math.max(inset, size.height - minHeight - inset),
-    )
-    controlsStyle = { left, top, width, maxHeight: Math.max(0, size.height - top - inset) }
-  }
+  const selected = scenes.find((node) => node.id === selection.activeId)
 
   // The links' curves, from each node's output to each scene's input.
   const scenesById = new Map(scenes.map((node) => [node.id, node]))
@@ -434,7 +603,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     const to = scenesById.get(link.to)
     if (!from || !to) return []
     const key = `${link.from}→${link.to}`
-    return [{ key, d: linkPath(outputPort(from, view.zoom), inputPort(to), view.zoom) }]
+    return [{ key, from, to }]
   })
   const pendingSource = pending ? nodesById.get(pending.from) : undefined
   const pendingPath =
@@ -447,165 +616,230 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     x: (x - view.x) / view.zoom,
     y: (y - view.y) / view.zoom,
   })
-  const menuItems: ContextMenuItem[] = []
-  if (menu) {
-    const { x, y, target } = menu
-    menuItems.push({ label: 'insert scene', onSelect: () => void insertScene(x, y) })
-    menuItems.push({ label: 'insert twist', onSelect: () => insertModifier('twist', x, y) })
-    menuItems.push({ label: 'insert etch', onSelect: () => insertModifier('etch', x, y) })
-    menuItems.push({ label: 'insert pattern', onSelect: () => insertModifier('pattern', x, y) })
-    menuItems.push({ label: 'insert texture', onSelect: () => insertModifier('texture', x, y) })
-    if (target?.kind === 'scene' && links.some((link) => link.to === target.id)) {
-      menuItems.push({
-        label: 'disconnect inputs',
-        onSelect: () => setLinks((current) => current.filter((link) => link.to !== target.id)),
-      })
-    }
-    if (hasCopy) {
-      menuItems.push({ label: 'paste', onSelect: () => pasteCopy(toCanvasAt(x, y)) })
-    }
-    if (target) {
-      menuItems.push({ label: `copy ${target.kind}`, onSelect: () => copyNode(target.id) })
-      menuItems.push({
-        label: `duplicate ${target.kind}`,
-        onSelect: () => duplicateNode(target.id),
-      })
-      menuItems.push({ label: `delete ${target.kind}`, onSelect: () => deleteNode(target.id) })
-    }
-  }
+  const subject = selection.ids.length > 1 ? 'selection' : menu?.target?.kind
+  const disconnectTarget = menu?.target?.kind === 'scene' ? menu.target.id : null
+  const menuItems: ContextMenuItem[] = menu
+    ? [
+        { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
+        { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
+        { label: 'insert etch', onSelect: () => insertModifier('etch', menu.x, menu.y) },
+        { label: 'insert pattern', onSelect: () => insertModifier('pattern', menu.x, menu.y) },
+        { label: 'insert texture', onSelect: () => insertModifier('texture', menu.x, menu.y) },
+        ...(disconnectTarget && links.some((link) => link.to === disconnectTarget)
+          ? [
+              {
+                label: 'disconnect inputs',
+                onSelect: () =>
+                  setLinks((current) => current.filter((link) => link.to !== disconnectTarget)),
+              },
+            ]
+          : []),
+        ...(hasCopy
+          ? [{ label: 'paste', onSelect: () => pasteCopy(toCanvasAt(menu.x, menu.y)) }]
+          : []),
+        ...(subject
+          ? [
+              { label: `copy ${subject}`, onSelect: () => copyNodes() },
+              { label: `duplicate ${subject}`, onSelect: () => duplicateNodes() },
+              { label: `delete ${subject}`, onSelect: () => deleteNodes(selectionRef.current.ids) },
+            ]
+          : []),
+      ]
+    : []
 
   return (
-    <main className="canvas-page">
-      <section
-        ref={canvasRef}
-        className="infinite-canvas"
-        aria-label="Canvas"
-        style={grid}
-        data-linking={pending ? 'on' : undefined}
-        onPointerDown={(e) => {
-          // A press on the empty canvas deselects.
-          const target = e.target as Element
-          if (
-            !target.closest(
-              '[data-scene-node], [data-canvas-node], [data-scene-controls], .context-menu',
-            )
-          ) {
-            setSelectedId(null)
-          }
-        }}
-        onPointerMove={(e) => {
-          pointer.current = toCanvas(e.clientX, e.clientY)
-        }}
-        onPointerLeave={() => {
-          pointer.current = null
-        }}
-        onContextMenu={(e) => {
-          const target = e.target as Element
-          if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
-          e.preventDefault()
-          const rect = e.currentTarget.getBoundingClientRect()
-          const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
-          const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
-          const nodeId = nodeElement?.dataset.nodeId
-          const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
-          const menuTarget: MenuTarget = sceneId
-            ? { kind: 'scene', id: sceneId }
-            : nodeId && nodeKind
-              ? { kind: nodeKind, id: nodeId }
-              : null
-          if (menuTarget) setSelectedId(menuTarget.id)
-          setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
-        }}
-      >
-        <div
-          className="infinite-canvas-world"
-          style={
-            {
-              transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-              '--zoom': view.zoom,
-              '--card-scale': cardScale(view.zoom),
-            } as CSSProperties
-          }
+    <NodeDragContext.Provider value={dragController}>
+      <main className="canvas-page">
+        <section
+          ref={canvasRef}
+          className="infinite-canvas"
+          aria-label="Canvas"
+          style={grid}
+          data-linking={pending ? 'on' : undefined}
+          onPointerMove={(e) => {
+            pointer.current = toCanvas(e.clientX, e.clientY)
+          }}
+          onPointerLeave={() => {
+            pointer.current = null
+          }}
+          onContextMenu={(e) => {
+            const target = e.target as Element
+            if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
+            const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
+            const nodeId = nodeElement?.dataset.nodeId
+            const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
+            const menuTarget: MenuTarget = sceneId
+              ? { kind: 'scene', id: sceneId }
+              : nodeId && nodeKind && nodeId !== MASTER_ID
+                ? { kind: nodeKind, id: nodeId }
+                : null
+            if (menuTarget) selectNode(menuTarget.id)
+            else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
+            setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
+          }}
         >
-          {scenes.map((node) => (
-            <CanvasScene
-              key={node.id}
-              node={node}
-              selected={node.id === selectedId}
-              getZoom={getZoom}
-              renderZoom={renderZoom}
-              modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
-              onSelect={setSelectedId}
-              onInputDown={pickUpLink}
-              onMove={moveScene}
-              onTextChange={setSceneText}
-              onExporter={setExporter}
-              onResize={resizeScene}
-            />
-          ))}
-          <svg className="node-links" aria-hidden="true">
-            {linkPaths.map(({ key, d }) => (
-              <path key={key} d={d} />
+          <div
+            className="infinite-canvas-world"
+            style={
+              {
+                transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+                '--zoom': view.zoom,
+                '--card-scale': cardScale(view.zoom),
+              } as CSSProperties
+            }
+          >
+            {scenes.map((node) => (
+              <CanvasScene
+                key={node.id}
+                node={node}
+                selected={selectedIds.has(node.id)}
+                getZoom={getZoom}
+                renderZoom={renderZoom}
+                modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
+                rangeModifiers={rangeModifiersByScene.get(node.id)}
+                onRangeChange={setModifierParams}
+                onRangeBoundary={checkpoint}
+                onSelect={selectNode}
+                onInputDown={pickUpLink}
+                onMove={moveScene}
+                onTextChange={setSceneText}
+                onExporter={setExporter}
+                onResize={resizeScene}
+              />
             ))}
-            {pendingPath && <path d={pendingPath} data-pending />}
-          </svg>
-          {modifiers.map((node) => (
+            <svg className="node-links" aria-hidden="true">
+              {linkPaths.map(({ key, from, to }) => (
+                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} />
+              ))}
+              {pendingPath && <path d={pendingPath} data-pending />}
+            </svg>
             <NodeCard
-              key={node.id}
-              node={node}
-              selected={node.id === selectedId}
+              node={master}
+              selected={selectedIds.has(MASTER_ID)}
               getZoom={getZoom}
-              connected={linkedNodes.has(node.id)}
-              pattern={patternStatuses.get(node.id)}
+              connected={false}
               compact={compactCards}
               onCollapsedChange={setModifierCollapsed}
-              onSelect={setSelectedId}
+              onSelect={selectNode}
               onMove={moveModifier}
               onParamsChange={setModifierParams}
               onOutputDown={startLink}
             />
-          ))}
-        </div>
-        {scenes.length === 0 && modifiers.length === 0 && (
-          <p className="canvas-hint">Right-click to insert a scene</p>
-        )}
-        {selected && (
-          <div
-            className="scene-controls"
-            data-scene-controls
-            data-no-pan
-            data-own-wheel
-            style={controlsStyle}
-          >
-            <SceneControls
-              key={selected.id}
-              node={selected}
-              onChange={updateScene}
-              exporter={getExporter}
-            />
+            {modifiers.map((node) => (
+              <NodeCard
+                key={node.id}
+                node={node}
+                selected={selectedIds.has(node.id)}
+                getZoom={getZoom}
+                connected={linkedNodes.has(node.id)}
+                pattern={patternStatuses.get(node.id)}
+                compact={compactCards}
+                onCollapsedChange={setModifierCollapsed}
+                onSelect={selectNode}
+                onMove={moveModifier}
+                onParamsChange={setModifierParams}
+                onOutputDown={startLink}
+              />
+            ))}
           </div>
-        )}
-        {menu && (
-          <ContextMenu
-            x={clamp(menu.x, 0, Math.max(0, size.width - MENU_SIZE.width))}
-            y={clamp(menu.y, 0, Math.max(0, size.height - MENU_SIZE.height))}
-            items={menuItems}
-            onClose={closeMenu}
-          />
-        )}
-        <div className="canvas-page-tools" data-no-pan>
-          {tools}
-        </div>
-        <div className="view-tools" data-no-pan>
-          <output className="view-zoom" aria-label="Zoom">
-            {Math.round(view.zoom * 100)}%
-          </output>
-          <button type="button" className="control-button" onClick={reset}>
-            reset
-          </button>
-        </div>
-      </section>
-    </main>
+          <SelectionMarquee canvasRef={canvasRef} onSelect={addSelected} onClear={clearSelected} />
+          {scenes.length === 0 && modifiers.length === 0 && (
+            <p className="canvas-hint">Right-click to insert a scene</p>
+          )}
+          {selected && (
+            <PositionedSceneControls node={selected} view={view} size={size}>
+              <SceneControls
+                key={selected.id}
+                node={selected}
+                onChange={updateScene}
+                exporter={getExporter}
+              />
+            </PositionedSceneControls>
+          )}
+          {menu && (
+            <ContextMenu
+              x={clamp(menu.x, 0, Math.max(0, size.width - MENU_SIZE.width))}
+              y={clamp(menu.y, 0, Math.max(0, size.height - MENU_SIZE.height))}
+              items={menuItems}
+              onClose={closeMenu}
+            />
+          )}
+          <div className="canvas-page-tools" data-no-pan>
+            {tools}
+          </div>
+          <div className="view-tools" data-no-pan>
+            <output className="view-zoom" aria-label="Zoom">
+              {Math.round(view.zoom * 100)}%
+            </output>
+            <button type="button" className="control-button" onClick={reset}>
+              reset
+            </button>
+          </div>
+        </section>
+      </main>
+    </NodeDragContext.Provider>
+  )
+}
+
+/** Edge previews subscribe only to their endpoints, not the entire canvas document. */
+const NodeLinkPath = memo(function NodeLinkPath({
+  from,
+  to,
+  zoom,
+}: {
+  from: ModifierNode
+  to: SceneNode
+  zoom: number
+}) {
+  const source = useNodePosition(from.id, from)
+  const destination = useNodePosition(to.id, to)
+  return (
+    <path
+      d={linkPath(
+        outputPort({ ...from, ...source }, zoom),
+        inputPort({ ...to, ...destination }),
+        zoom,
+      )}
+    />
+  )
+})
+
+function PositionedSceneControls({
+  node,
+  view,
+  size,
+  children,
+}: {
+  node: SceneNode
+  view: { x: number; y: number; zoom: number }
+  size: { width: number; height: number }
+  children: ReactNode
+}) {
+  const position = useNodePosition(node.id, node)
+  const { width, gap, inset, minHeight } = CONTROLS
+  const left = clamp(
+    view.x + (position.x + node.frame.width) * view.zoom + gap,
+    inset,
+    Math.max(inset, size.width - width - inset),
+  )
+  const top = clamp(
+    view.y + position.y * view.zoom,
+    inset,
+    Math.max(inset, size.height - minHeight - inset),
+  )
+  return (
+    <div
+      className="scene-controls"
+      data-scene-controls
+      data-no-pan
+      data-own-wheel
+      style={{ left, top, width, maxHeight: Math.max(0, size.height - top - inset) }}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -655,6 +889,7 @@ const SceneControls = memo(function SceneControls({
       params={sceneParams(node)}
       onParamsChange={(patch) => update((current) => withParams(current, patch))}
       revealControls={false}
+      hidden={MASTER_FIELDS}
       frame={{
         width: frame.width,
         height: frame.height,

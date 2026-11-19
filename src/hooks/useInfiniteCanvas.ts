@@ -78,6 +78,8 @@ export function useInfiniteCanvas(
 
     let pan: { id: number; x: number; y: number } | null = null
     const onPointerDown = (e: PointerEvent) => {
+      // Shift + primary drag belongs to the selection marquee, never to panning.
+      if (e.button === 0 && e.shiftKey) return
       const onControl = (e.target as Element | null)?.closest(INTERACTIVE)
       if (!(e.button === 1 || (e.button === 0 && !onControl))) return
       e.preventDefault()

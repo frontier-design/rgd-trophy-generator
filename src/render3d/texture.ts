@@ -1,6 +1,7 @@
 // Pure math for the texture node: its fields in the units the trophy's shader uses
 // (trophyMaterial.ts, surfaceTextureAt, which draws it).
 import type { TextureParams, TextureStyle } from '../types'
+import { modifierRange } from './modifierRange'
 
 /** At most this many texture nodes on one solid (the shader's uniform array size). */
 export const MAX_TEXTURES = 4
@@ -37,8 +38,6 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 /** A texture node's fields as TextureShape. */
 export function textureShape(params: TextureParams): TextureShape {
-  const a = clamp(params.from / 100, 0, 1)
-  const b = clamp(params.to / 100, 0, 1)
   return {
     style: TEXTURE_STYLES[params.style] ?? 0,
     scale: Math.max(MIN_SCALE, params.scale),
@@ -46,8 +45,7 @@ export function textureShape(params: TextureParams): TextureShape {
     angle: (params.angle * Math.PI) / 180,
     // Few enough to keep float precision in the shader (shifted by up to a few thousand cells).
     seed: ((Math.round(params.seed) % 256) + 256) % 256,
-    from: Math.min(a, b),
-    to: Math.max(a, b),
+    ...modifierRange(params.from, params.to),
     fade: clamp(params.fade / 100, 0, 0.5),
     depthTop: clamp(params.depthTop / 100, 0, 1),
     depthBottom: clamp(params.depthBottom / 100, 0, 1),

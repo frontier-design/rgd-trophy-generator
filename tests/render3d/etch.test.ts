@@ -1,4 +1,17 @@
-import { DEFAULT_ETCH } from '../../src/components/CanvasPage/graph'
+import { DEFAULT_ETCH as NEW_ETCH } from '../../src/components/CanvasPage/graph'
+
+// The math's fixtures: a diagonal, crosshatched strip on the bowl (independent of the node's
+// defaults, which follow how etches get used).
+const DEFAULT_ETCH = {
+  ...NEW_ETCH,
+  from: 4,
+  to: 32,
+  bundles: 8,
+  lines: 4,
+  width: 1.2,
+  strength: 85,
+  layout: 'diagonal',
+} satisfies typeof NEW_ETCH
 import { etchDistance, etchShape, MAX_ETCH_LINES } from '../../src/render3d/etch'
 import type { EtchParams } from '../../src/types'
 
@@ -100,7 +113,8 @@ describe('etchDistance', () => {
 describe('patternPlacement', () => {
   it('maps a pattern node’s fields to the shader’s units', async () => {
     const { patternPlacement } = await import('../../src/render3d/pattern')
-    const { DEFAULT_PATTERN } = await import('../../src/components/CanvasPage/graph')
+    const { DEFAULT_PATTERN: NEW_PATTERN } = await import('../../src/components/CanvasPage/graph')
+    const DEFAULT_PATTERN = { ...NEW_PATTERN, from: 6, to: 30, mapping: 'strip', fade: 25 } as const
     expect(
       patternPlacement({
         ...DEFAULT_PATTERN,
@@ -136,7 +150,8 @@ describe('patternPlacement', () => {
 describe('pattern scale', () => {
   it('keeps whole repeats around at any scale', async () => {
     const { patternPlacement } = await import('../../src/render3d/pattern')
-    const { DEFAULT_PATTERN } = await import('../../src/components/CanvasPage/graph')
+    const { DEFAULT_PATTERN: NEW_PATTERN } = await import('../../src/components/CanvasPage/graph')
+    const DEFAULT_PATTERN = { ...NEW_PATTERN, from: 6, to: 30, mapping: 'strip', fade: 25 } as const
     const at = (scale: number) =>
       patternPlacement({ ...DEFAULT_PATTERN, repeats: 3, scale }).repeats
     expect(at(100)).toBe(3)

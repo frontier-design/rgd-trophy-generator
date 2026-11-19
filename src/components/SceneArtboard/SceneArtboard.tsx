@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useCallback, useState, type CSSProperties } from 'react'
 import type { BannerText, SceneModel, SceneRefs } from '../../hooks/useSceneModel'
 import type { SolidPattern, ThreeScene } from '../../render3d'
 import type { PaperScene } from '../../shape2d'
@@ -41,6 +41,8 @@ interface SceneArtboardProps extends SceneRefs {
   /** Pattern nodes' ornament (canvas page). */
   patterns?: readonly SolidPattern[]
   onTextChange: (text: string) => void
+  /** Observe the exact flattened outline used by the 3D renderer. */
+  onOutline?: (outline: Outline2D) => void
   /** Receive the scenes (for video export); referentially stable. */
   onPaperScene?: (scene: PaperScene | null) => void
   onThreeScene?: (scene: ThreeScene | null) => void
@@ -68,10 +70,18 @@ export function SceneArtboard({
   textures,
   patterns,
   onTextChange,
+  onOutline,
   onPaperScene,
   onThreeScene,
 }: SceneArtboardProps) {
   const [outline, setOutline] = useState<Outline2D>(EMPTY_OUTLINE)
+  const receiveOutline = useCallback(
+    (next: Outline2D) => {
+      setOutline(next)
+      onOutline?.(next)
+    },
+    [onOutline],
+  )
   const { columnWidth, material } = settings
   const { mirror, canvasColors } = scene
 
@@ -99,7 +109,7 @@ export function SceneArtboard({
         joinRadius={scene.smoothJoins ? scene.joinRadius : 0}
         mirror={mirror}
         look={material}
-        onOutline={setOutline}
+        onOutline={receiveOutline}
         onScene={onPaperScene}
         visible={!revolve}
       />

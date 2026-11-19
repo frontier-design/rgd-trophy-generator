@@ -60,6 +60,8 @@ export interface SceneModel {
   extent: ShapeExtent | null
   /** The extent, grown out toward the frame's edges by the reveal fill. */
   shapeBounds: ShapeExtent | null
+  /** Text/outline origin in artboard coordinates. */
+  anchor: { x: number; y: number }
   topCornerRadius: number
   /** Each line's baseline, below the text's top (px). */
   baselines: number[]
@@ -276,6 +278,7 @@ export function useSceneModel(
     carvingBoxes,
     extent,
     shapeBounds,
+    anchor,
     topCornerRadius,
     baselines,
   }

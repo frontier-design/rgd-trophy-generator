@@ -1,6 +1,7 @@
 // The pattern node's height map on the solid: settings in the shader's units (the map itself
 // is built in pattern/, and uploaded as a texture by trophyMaterial.ts).
 import type { PatternParams } from '../types'
+import { modifierRange } from './modifierRange'
 
 /** At most this many pattern nodes on one solid (one texture each in the shader). */
 export const MAX_PATTERNS = 4
@@ -27,11 +28,8 @@ export const PATTERN_STYLES = { raised: 0, cut: 1, bright: 2, dark: 3 } as const
 export function patternPlacement(params: PatternParams) {
   const clamp = (v: number) => Math.min(Math.max(v, 0), 1)
   const scale = Math.min(Math.max(params.scale / 100, 0.05), 20)
-  const a = clamp(params.from / 100)
-  const b = clamp(params.to / 100)
   return {
-    from: Math.min(a, b),
-    to: Math.max(a, b),
+    ...modifierRange(params.from, params.to),
     // Whole repeats around, so the ornament meets itself seamlessly at any scale.
     repeats: Math.max(1, Math.round(params.repeats / scale)),
     /** The ornament's size against the strip (1 = it fills the strip's height). */

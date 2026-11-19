@@ -1,1 +1,0 @@
-export { PageSwitch } from './PageSwitch'

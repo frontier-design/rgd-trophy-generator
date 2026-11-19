@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import App from '../../src/App'
+import App from '../support/ControlPanelScene'
 import { DEFAULT_SETTINGS, SettingsProvider } from '../../src/state'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))

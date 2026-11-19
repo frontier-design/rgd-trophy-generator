@@ -2,6 +2,7 @@ import {
   cardScale,
   connect,
   createModifier,
+  createSceneModifiersResolver,
   DEFAULT_ETCH,
   DEFAULT_TEXTURE,
   DEFAULT_TWIST,
@@ -96,5 +97,51 @@ describe('node cards', () => {
       x: NODE_CARD.width * 2,
       y: NODE_CARD.header,
     })
+  })
+})
+
+describe('memoized scene modifiers', () => {
+  it('ignores card presentation and invalidates only scenes with changed inputs', () => {
+    const resolve = createSceneModifiersResolver()
+    const a = createModifier('twist', 'a', 'A', 0, 0)
+    const b = createModifier('etch', 'b', 'B', 0, 0)
+    const links = [
+      { from: 'a', to: 's1' },
+      { from: 'b', to: 's2' },
+    ]
+    const first = resolve(links, [a, b])
+    expect(resolve([...links], [{ ...a, x: 50, y: 20, collapsed: true, name: 'renamed' }, b])).toBe(
+      first,
+    )
+    const changed = resolve(links, [{ ...a, params: { ...a.params } } as typeof a, b])
+    expect(changed).not.toBe(first)
+    expect(changed.get('s1')).not.toBe(first.get('s1'))
+    expect(changed.get('s2')).toBe(first.get('s2'))
+  })
+
+  it('tracks pattern map identity and link membership/order, including pending patterns', () => {
+    const resolve = createSceneModifiersResolver()
+    const a = createModifier('pattern', 'a', 'A', 0, 0)
+    const b = createModifier('pattern', 'b', 'B', 0, 0)
+    const links = [
+      { from: 'a', to: 's1' },
+      { from: 'b', to: 's1' },
+      { from: 'b', to: 's2' },
+    ]
+    const map = { data: new Uint8Array(4), width: 2, height: 2 }
+    const pending = resolve(links, [a, b])
+    const ready = resolve(links, [a, b], new Map([['a', map]]))
+    expect(ready.get('s1')?.patterns).toEqual([{ map, params: a.params }])
+    expect(ready.get('s2')).toBe(pending.get('s2'))
+    expect(resolve(links, [a, b], new Map([['a', map]]))).toBe(ready)
+    const reordered = resolve([links[1]!, links[0]!, links[2]!], [a, b], new Map([['a', map]]))
+    expect(reordered.get('s1')).not.toBe(ready.get('s1'))
+    expect(reordered.get('s2')).toBe(ready.get('s2'))
+    const removed = resolve([links[0]!, links[2]!], [a, b], new Map([['a', map]]))
+    expect(removed.get('s1')).not.toBe(reordered.get('s1'))
+    expect(removed.get('s2')).toBe(reordered.get('s2'))
+    const replaced = resolve([links[0]!, links[2]!], [a, b], new Map([['a', { ...map }]]))
+    expect(replaced.get('s1')).not.toBe(removed.get('s1'))
+    expect(replaced.get('s2')).toBe(removed.get('s2'))
   })
 })

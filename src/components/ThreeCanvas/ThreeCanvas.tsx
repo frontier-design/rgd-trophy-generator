@@ -80,6 +80,8 @@ export function ThreeCanvas({
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<ThreeScene | null>(null)
   const animateOnMount = useRef(animateIn)
+  const anchorPosition = useRef<{ x: number; y: number } | null>(null)
+  const dirty = useRef(false)
 
   useLayoutEffect(() => {
     const host = hostRef.current
@@ -89,6 +91,7 @@ export function ThreeCanvas({
     host.appendChild(canvas)
     const scene = createThreeScene(canvas)
     sceneRef.current = scene
+    anchorPosition.current = null
 
     const stopObservingHost = observeSize(host, (w, h) => scene.resize(w, h))
     // (The [mirror] effect below runs in this same commit, before the first frame, so a
@@ -113,59 +116,69 @@ export function ThreeCanvas({
     const anchor = anchorRef.current
     const scene = sceneRef.current
     if (!host || !anchor || !scene) return
-    return observeAnchor(anchor, host, (x, y) => scene.setAnchor(x, y))
+    return observeAnchor(anchor, host, (x, y) => {
+      anchorPosition.current = { x, y }
+      scene.setAnchor(x, y)
+    })
   }, [anchorRef, onScene])
 
   // Declared after the mount effect so it runs after the scene exists.
   useLayoutEffect(() => {
-    const host = hostRef.current
-    const scene = sceneRef.current
-    if (!host || !scene) return
-    scene.setOutline(outline, { axisX })
-    const anchor = anchorRef.current
-    if (anchor) {
-      const { x, y } = relativePosition(anchor, host)
-      scene.setAnchor(x, y)
-    }
-  }, [outline, axisX, anchorRef])
+    sceneRef.current?.setOutline(outline, { axisX })
+  }, [outline, axisX, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setProjection(projection)
-  }, [projection])
+  }, [projection, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setLook(look)
-  }, [look])
+  }, [look, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setMirror(mirror)
-  }, [mirror])
+  }, [mirror, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setPixelRatio(pixelRatio)
-  }, [pixelRatio])
+  }, [pixelRatio, onScene])
 
   // (The scene skips twists equal to the last ones, so a new array each render is cheap.)
   useLayoutEffect(() => {
     sceneRef.current?.setTwists(twists)
-  }, [twists])
+  }, [twists, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setEtches(etches)
-  }, [etches])
+  }, [etches, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setTextures(textures)
-  }, [textures])
+  }, [textures, onScene])
 
   useLayoutEffect(() => {
     sceneRef.current?.setPatterns(patterns)
-  }, [patterns])
+  }, [patterns, onScene])
 
-  // Last: render this commit's updates now, before the browser paints, so the solid shows
-  // in the same frame as the text (otherwise it'd only be drawn on the next animation frame). The
-  // anchor is re-read first: a layout change (e.g. a bottom banner's padding) can move the
-  // text without resizing anything the observers watch.
+  // Mark visual commits dirty, then draw once after all scene setters have run.
+  useLayoutEffect(() => {
+    dirty.current = true
+  }, [
+    outline,
+    axisX,
+    projection,
+    look,
+    mirror,
+    pixelRatio,
+    twists,
+    etches,
+    textures,
+    patterns,
+    onScene,
+  ])
+
+  // Layout can move the editor without resizing either observed element (e.g. banner
+  // padding). Measure after every commit, but only redraw if it moved or inputs changed.
   useLayoutEffect(() => {
     const host = hostRef.current
     const anchor = anchorRef.current
@@ -173,9 +186,16 @@ export function ThreeCanvas({
     if (!scene) return
     if (host && anchor) {
       const { x, y } = relativePosition(anchor, host)
-      scene.setAnchor(x, y)
+      if (x !== anchorPosition.current?.x || y !== anchorPosition.current?.y) {
+        anchorPosition.current = { x, y }
+        scene.setAnchor(x, y)
+        dirty.current = true
+      }
     }
-    scene.render()
+    if (dirty.current) {
+      dirty.current = false
+      scene.render()
+    }
   })
 
   return <div ref={hostRef} className="three-view" aria-label="3D view" data-testid="three-view" />

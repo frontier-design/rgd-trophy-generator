@@ -34,6 +34,35 @@ describe('CanvasPage', () => {
     expect(within(panel).queryByRole('button', { name: /^keyframe/ })).toBeNull()
   })
 
+  it('the master node sets the shared settings of every scene; scene panels leave them out', async () => {
+    render(<CanvasPage tools={null} />)
+    const first = await insertScene()
+    fireEvent.pointerDown(canvas())
+    fireEvent.contextMenu(canvas(), { clientX: 900, clientY: 700 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert scene' }))
+    const second = await screen.findByLabelText('scene 2')
+
+    const panel = screen.getByRole('complementary', { name: 'Control panel' })
+    for (const name of ['taper', 'overshoot', 'grain', 'wobble']) {
+      expect(within(panel).queryByRole('slider', { name })).toBeNull()
+    }
+    expect(within(panel).queryByRole('button', { name: 'debug' })).toBeNull()
+    expect(within(panel).getByRole('slider', { name: 'light angle' })).toBeInTheDocument()
+
+    const master = screen.getByRole('group', { name: 'master' })
+    // No output port: it applies to every scene without links.
+    expect(within(master).queryByLabelText('master output')).toBeNull()
+    fireEvent.click(within(master).getByRole('switch', { name: 'mirror' }))
+    for (const scene of [first, second]) {
+      expect(scene.querySelector('.artboard')).toHaveAttribute('data-mirror', 'off')
+    }
+
+    // It can't be deleted.
+    fireEvent.pointerDown(master)
+    fireEvent.keyDown(window, { key: 'Delete' })
+    expect(screen.getByRole('group', { name: 'master' })).toBeInTheDocument()
+  })
+
   it('edits only the selected scene', async () => {
     render(<CanvasPage tools={null} />)
     const first = await insertScene()
@@ -56,6 +85,7 @@ describe('CanvasPage', () => {
     const scene = await insertScene()
 
     fireEvent.pointerDown(canvas())
+    fireEvent.pointerUp(canvas())
     expect(scene).not.toHaveAttribute('data-selected')
     expect(screen.queryByRole('complementary', { name: 'Control panel' })).toBeNull()
 
@@ -188,7 +218,7 @@ describe('CanvasPage', () => {
     expect(within(pattern).getByRole('button', { name: 'load image' })).toBeInTheDocument()
     // Repeat (the image itself) by default: the WFC fields don't apply.
     expect(within(pattern).getByRole('combobox', { name: 'mode' })).toHaveValue('repeat')
-    expect(within(pattern).getByRole('combobox', { name: 'mapping' })).toHaveValue('strip')
+    expect(within(pattern).getByRole('combobox', { name: 'mapping' })).toHaveValue('surface')
     for (const name of [
       'fade',
       'top depth',
@@ -295,7 +325,7 @@ describe('CanvasPage', () => {
     fireEvent.keyDown(layout(), { key: 'z', metaKey: true })
     expect(layout()).toHaveValue('wave')
     fireEvent.keyDown(window, { key: 'z', metaKey: true })
-    expect(layout()).toHaveValue('diagonal')
+    expect(layout()).toHaveValue('horizontal')
     fireEvent.keyDown(window, { key: 'z', metaKey: true })
     expect(screen.queryByRole('group', { name: 'etch 1' })).toBeNull()
     fireEvent.keyDown(window, { key: 'Z', metaKey: true, shiftKey: true })
@@ -348,8 +378,9 @@ describe('CanvasPage', () => {
     // The frame fields follow.
     const frame = screen.getByRole('region', { name: 'frame' })
     expect(within(frame).getByRole('spinbutton', { name: 'width' })).toHaveValue(1080)
-    // Deselected: no handles.
+    // A background click deselects; a background drag would keep selection while panning.
     fireEvent.pointerDown(canvas())
+    fireEvent.pointerUp(canvas())
     expect(within(scene).queryByRole('slider', { name: 'resize right' })).toBeNull()
   })
 })

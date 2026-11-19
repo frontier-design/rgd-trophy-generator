@@ -2,6 +2,7 @@
 // shader (trophyMaterial.ts, etchAt) draws them, cut as grooves or inlaid; etchDistance
 // mirrors its pattern so it can be unit tested (keep them in sync).
 import type { EtchLayout, EtchParams } from '../types'
+import { modifierRange } from './modifierRange'
 
 /** At most this many etch nodes on one solid (the shader's uniform array size). */
 export const MAX_ETCHES = 8
@@ -53,11 +54,8 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 /** An etch node's fields as EtchShape. */
 export function etchShape(params: EtchParams): EtchShape {
-  const a = clamp(params.from / 100, 0, 1)
-  const b = clamp(params.to / 100, 0, 1)
   return {
-    from: Math.min(a, b),
-    to: Math.max(a, b),
+    ...modifierRange(params.from, params.to),
     bundles: Math.max(1, Math.round(params.bundles)),
     lines: clamp(Math.round(params.lines), 1, MAX_ETCH_LINES),
     gap: clamp(params.gap / 100, 0, 1),

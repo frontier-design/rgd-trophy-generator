@@ -1064,6 +1064,38 @@ body {
   padding: 12px 14px;
 }
 
+/* The master node: inverted header (it applies to every scene, with no output port). */
+.canvas-node[data-kind='master'] .node-card-header {
+  color: var(--color-panel-bg);
+  background: var(--color-text);
+}
+
+.canvas-node[data-kind='master'] .node-card-fold {
+  color: var(--color-text);
+  background: var(--color-panel-bg);
+}
+
+.node-card-note {
+  margin-left: auto;
+  font-weight: 400;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+/* A group's heading inside a card's fields. */
+.node-card-group {
+  grid-column: 1 / -1;
+  padding-top: 6px;
+  font-weight: 700;
+  text-transform: capitalize;
+  border-top: 1px solid var(--color-panel-border);
+}
+
+.node-card-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
 /* Ports: circles on a node's edge, filled when linked. Kept at screen size. */
 .node-port {
   position: absolute;

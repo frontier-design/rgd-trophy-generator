@@ -2,6 +2,7 @@
 // No Three.js here, so it's easy to unit test; lathe.ts applies it to the vertices and
 // trophyMaterial.ts mirrors twistScale() in GLSL (keep them in sync).
 import type { TwistParams } from '../types'
+import { modifierRange } from './modifierRange'
 
 /** Scales the solid's radius around the axis: at angle φ (the lathe's) and height y, the
  *  radius is r · m(φ, y). */
@@ -58,16 +59,13 @@ export function twistShape(params: TwistParams): TwistShape {
   const sharpness = clamp(params.sharpness / 100, 0, 1)
   const grooves = params.section === 'grooves'
   const range = grooves ? EXPONENT.grooves : EXPONENT.lobes
-  const a = clamp(params.from / 100, 0, 1)
-  const b = clamp(params.to / 100, 0, 1)
   return {
     flutes: Math.max(1, Math.round(params.flutes)),
     depth: clamp(params.depth / 100, 0, 0.95),
     turn: (params.twist * Math.PI) / 180,
     rotate: (params.rotate * Math.PI) / 180,
     exponent: range.smooth + (range.sharp - range.smooth) * sharpness,
-    from: Math.min(a, b),
-    to: Math.max(a, b),
+    ...modifierRange(params.from, params.to),
     round: params.ends === 'round' ? 1 : 0,
     endSize: clamp(params.endSize / 100, 0, 1),
     curve: clamp(params.curve / 100, -1, 1),

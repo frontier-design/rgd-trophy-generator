@@ -105,6 +105,26 @@ export interface ImageExportControls {
   onExport: () => void
 }
 
+/** Fields a panel can leave out (the canvas sets these once, on its master node). */
+export type HideableField =
+  | 'align'
+  | 'mirror'
+  | 'overshoot'
+  | 'roundTop'
+  | 'taper'
+  | 'smoothJoins'
+  | 'shading'
+  | 'banding'
+  | 'gradientScale'
+  | 'tilt'
+  | 'wobble'
+  | 'edgeHue'
+  | 'ledge'
+  | 'grain'
+  | 'grainSize'
+  | 'background'
+  | 'view'
+
 /** The banner's placement and text (not animated). */
 export interface BannerControls {
   position: BannerPosition
@@ -125,6 +145,8 @@ interface ControlPanelProps {
   keyframe?: (path: ParamPath) => KeyframeControl
   transport?: TransportControls
   banner?: BannerControls
+  /** Fields to leave out (set elsewhere, e.g. on the canvas's master node). */
+  hidden?: ReadonlySet<HideableField>
   /** Show the reveal's fields (the text's and the banner's): they're for animating. */
   revealControls?: boolean
   /** The frame's size (canvas scenes). */
@@ -149,6 +171,7 @@ export function ControlPanel({
   keyframe,
   transport,
   banner,
+  hidden,
   revealControls = true,
   frame,
   imageExport,
@@ -173,6 +196,7 @@ export function ControlPanel({
       }),
   })
 
+  const shown = (field: HideableField) => !hidden?.has(field)
   const { material, lineBox, canvasColors } = params
   const lit = material.shading === 'lit'
   const setLineBox = (patch: Partial<LineBoxStyle>) =>
@@ -235,14 +259,18 @@ export function ControlPanel({
           keyframe={keyframe?.('type.leading')}
           onChange={(lineHeight) => onParamsChange({ lineHeight })}
         />
-        {/* Left (the rag on the right) or centered lines; the mirror follows. */}
-        <SelectField
-          label="align"
-          value={params.textAlign}
-          options={TEXT_ALIGNS}
-          keyframe={keyframe?.('type.align')}
-          onChange={(textAlign) => onParamsChange({ textAlign })}
-        />
+        {shown('align') && (
+          <>
+            {/* Left (the rag on the right) or centered lines; the mirror follows. */}
+            <SelectField
+              label="align"
+              value={params.textAlign}
+              options={TEXT_ALIGNS}
+              keyframe={keyframe?.('type.align')}
+              onChange={(textAlign) => onParamsChange({ textAlign })}
+            />
+          </>
+        )}
         {revealControls && (
           <>
             {/* Reveals the text; only what has appeared carves the shape, so at 0% it's uncarved
@@ -340,32 +368,42 @@ export function ControlPanel({
           keyframe={keyframe?.('shape.edge')}
           onChange={(columnWidth) => onParamsChange({ columnWidth })}
         />
-        {/* Reflect the text across the edge: the trophy sits between two text blocks. */}
-        <ToggleField
-          label="mirror"
-          checked={params.mirror}
-          keyframe={keyframe?.('shape.mirror')}
-          onChange={(mirror) => onParamsChange({ mirror })}
-        />
-        {/* How far the shape's bottom extends below the last baseline (optical alignment). */}
-        <RangeField
-          label="overshoot"
-          value={params.overshoot}
-          min={0}
-          max={20}
-          step={0.5}
-          digits={1}
-          keyframe={keyframe?.('shape.overshoot')}
-          onChange={(overshoot) => onParamsChange({ overshoot })}
-        />
+        {shown('mirror') && (
+          <>
+            {/* Reflect the text across the edge: the trophy sits between two text blocks. */}
+            <ToggleField
+              label="mirror"
+              checked={params.mirror}
+              keyframe={keyframe?.('shape.mirror')}
+              onChange={(mirror) => onParamsChange({ mirror })}
+            />
+          </>
+        )}
+        {shown('overshoot') && (
+          <>
+            {/* How far the shape's bottom extends below the last baseline (optical alignment). */}
+            <RangeField
+              label="overshoot"
+              value={params.overshoot}
+              min={0}
+              max={20}
+              step={0.5}
+              digits={1}
+              keyframe={keyframe?.('shape.overshoot')}
+              onChange={(overshoot) => onParamsChange({ overshoot })}
+            />
+          </>
+        )}
       </ControlSection>
       <ControlSection {...sectionProps('top')}>
-        <ToggleField
-          label="round top"
-          checked={params.roundTop}
-          keyframe={keyframe?.('top.roundTop')}
-          onChange={(roundTop) => onParamsChange({ roundTop })}
-        />
+        {shown('roundTop') && (
+          <ToggleField
+            label="round top"
+            checked={params.roundTop}
+            keyframe={keyframe?.('top.roundTop')}
+            onChange={(roundTop) => onParamsChange({ roundTop })}
+          />
+        )}
         <RangeField
           label="top radius"
           value={params.topRadius}
@@ -375,15 +413,17 @@ export function ControlPanel({
           keyframe={keyframe?.('top.radius')}
           onChange={(topRadius) => onParamsChange({ topRadius })}
         />
-        <RangeField
-          label="taper"
-          value={params.taper}
-          min={0}
-          max={90}
-          unit="%"
-          keyframe={keyframe?.('top.taper')}
-          onChange={(taper) => onParamsChange({ taper })}
-        />
+        {shown('taper') && (
+          <RangeField
+            label="taper"
+            value={params.taper}
+            min={0}
+            max={90}
+            unit="%"
+            keyframe={keyframe?.('top.taper')}
+            onChange={(taper) => onParamsChange({ taper })}
+          />
+        )}
       </ControlSection>
       <ControlSection {...sectionProps('line boxes')}>
         <RangeField
@@ -412,12 +452,14 @@ export function ControlPanel({
         />
         {/* Rounds the sharp corners where one line's box meets the next (e.g. RGD over
             BRANDING): on the trophy, a smooth fillet between the rims. */}
-        <ToggleField
-          label="smooth joins"
-          checked={params.smoothJoins}
-          keyframe={keyframe?.('lineBoxes.smoothJoins')}
-          onChange={(smoothJoins) => onParamsChange({ smoothJoins })}
-        />
+        {shown('smoothJoins') && (
+          <ToggleField
+            label="smooth joins"
+            checked={params.smoothJoins}
+            keyframe={keyframe?.('lineBoxes.smoothJoins')}
+            onChange={(smoothJoins) => onParamsChange({ smoothJoins })}
+          />
+        )}
         <RangeField
           label="join radius"
           value={params.joinRadius}
@@ -429,13 +471,15 @@ export function ControlPanel({
         />
       </ControlSection>
       <ControlSection {...sectionProps('material')}>
-        <SelectField
-          label="shading"
-          value={material.shading}
-          options={SHADINGS}
-          keyframe={keyframe?.('material.shading')}
-          onChange={(shading) => setMaterial({ shading })}
-        />
+        {shown('shading') && (
+          <SelectField
+            label="shading"
+            value={material.shading}
+            options={SHADINGS}
+            keyframe={keyframe?.('material.shading')}
+            onChange={(shading) => setMaterial({ shading })}
+          />
+        )}
         <SelectField
           label="palette"
           value={material.palette}
@@ -464,17 +508,19 @@ export function ControlPanel({
           keyframe={keyframe ? colorKeyframe : undefined}
           onChange={(customColors) => setMaterial({ palette: 'custom', customColors })}
         />
-        <RangeField
-          label="banding"
-          value={material.banding}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          keyframe={keyframe?.('material.banding')}
-          onChange={(banding) => setMaterial({ banding })}
-        />
+        {shown('banding') && (
+          <RangeField
+            label="banding"
+            value={material.banding}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            keyframe={keyframe?.('material.banding')}
+            onChange={(banding) => setMaterial({ banding })}
+          />
+        )}
         <RangeField
           label="offset"
           value={material.gradientOffset}
@@ -486,40 +532,46 @@ export function ControlPanel({
           keyframe={keyframe?.('material.offset')}
           onChange={(gradientOffset) => setMaterial({ gradientOffset })}
         />
-        <RangeField
-          label="scale"
-          value={material.gradientScale}
-          min={0.25}
-          max={3}
-          step={0.05}
-          digits={2}
-          unit="×"
-          keyframe={keyframe?.('material.scale')}
-          onChange={(gradientScale) => setMaterial({ gradientScale })}
-        />
-        <RangeField
-          label="tilt"
-          value={material.tilt}
-          min={-1}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          disabled={lit}
-          keyframe={keyframe?.('material.tilt')}
-          onChange={(tilt) => setMaterial({ tilt })}
-        />
-        <RangeField
-          label="wobble"
-          value={material.wobble}
-          min={0}
-          max={5}
-          step={0.01}
-          digits={2}
-          unit=""
-          keyframe={keyframe?.('material.wobble')}
-          onChange={(wobble) => setMaterial({ wobble })}
-        />
+        {shown('gradientScale') && (
+          <RangeField
+            label="scale"
+            value={material.gradientScale}
+            min={0.25}
+            max={3}
+            step={0.05}
+            digits={2}
+            unit="×"
+            keyframe={keyframe?.('material.scale')}
+            onChange={(gradientScale) => setMaterial({ gradientScale })}
+          />
+        )}
+        {shown('tilt') && (
+          <RangeField
+            label="tilt"
+            value={material.tilt}
+            min={-1}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            disabled={lit}
+            keyframe={keyframe?.('material.tilt')}
+            onChange={(tilt) => setMaterial({ tilt })}
+          />
+        )}
+        {shown('wobble') && (
+          <RangeField
+            label="wobble"
+            value={material.wobble}
+            min={0}
+            max={5}
+            step={0.01}
+            digits={2}
+            unit=""
+            keyframe={keyframe?.('material.wobble')}
+            onChange={(wobble) => setMaterial({ wobble })}
+          />
+        )}
         <RangeField
           label="edge depth"
           value={material.edgeDepth}
@@ -531,49 +583,59 @@ export function ControlPanel({
           keyframe={keyframe?.('material.edgeDepth')}
           onChange={(edgeDepth) => setMaterial({ edgeDepth })}
         />
-        <RangeField
-          label="edge hue"
-          value={material.edgeHue}
-          min={-90}
-          max={90}
-          unit="°"
-          disabled={lit}
-          keyframe={keyframe?.('material.edgeHue')}
-          onChange={(edgeHue) => setMaterial({ edgeHue })}
-        />
-        <RangeField
-          label="ledge"
-          value={material.ledgeShadow}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          keyframe={keyframe?.('material.ledge')}
-          onChange={(ledgeShadow) => setMaterial({ ledgeShadow })}
-        />
-        <RangeField
-          label="grain"
-          value={material.grain}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          keyframe={keyframe?.('material.grain')}
-          onChange={(grain) => setMaterial({ grain })}
-        />
-        {/* In frame px: 0.5 is one pixel of the 4K export (crisp); larger is softer, clumpier. */}
-        <RangeField
-          label="grain size"
-          value={material.grainSize}
-          min={0.25}
-          max={3}
-          step={0.05}
-          digits={2}
-          keyframe={keyframe?.('material.grainSize')}
-          onChange={(grainSize) => setMaterial({ grainSize })}
-        />
+        {shown('edgeHue') && (
+          <RangeField
+            label="edge hue"
+            value={material.edgeHue}
+            min={-90}
+            max={90}
+            unit="°"
+            disabled={lit}
+            keyframe={keyframe?.('material.edgeHue')}
+            onChange={(edgeHue) => setMaterial({ edgeHue })}
+          />
+        )}
+        {shown('ledge') && (
+          <RangeField
+            label="ledge"
+            value={material.ledgeShadow}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            keyframe={keyframe?.('material.ledge')}
+            onChange={(ledgeShadow) => setMaterial({ ledgeShadow })}
+          />
+        )}
+        {shown('grain') && (
+          <RangeField
+            label="grain"
+            value={material.grain}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            keyframe={keyframe?.('material.grain')}
+            onChange={(grain) => setMaterial({ grain })}
+          />
+        )}
+        {shown('grainSize') && (
+          <>
+            {/* In frame px: 0.5 is one pixel of the 4K export (crisp); larger is softer, clumpier. */}
+            <RangeField
+              label="grain size"
+              value={material.grainSize}
+              min={0.25}
+              max={3}
+              step={0.05}
+              digits={2}
+              keyframe={keyframe?.('material.grainSize')}
+              onChange={(grainSize) => setMaterial({ grainSize })}
+            />
+          </>
+        )}
       </ControlSection>
       {/* Lit mode's key light and highlight, like Illustrator's 3D shading options. */}
       <ControlSection {...sectionProps('lighting')}>
@@ -647,14 +709,16 @@ export function ControlPanel({
         />
       </ControlSection>
       <ControlSection {...sectionProps('canvas')}>
-        <ColorField
-          label="background"
-          value={canvasColors.background}
-          keyframe={keyframe?.('canvas.background')}
-          onChange={(background) =>
-            onParamsChange({ canvasColors: { ...canvasColors, background } })
-          }
-        />
+        {shown('background') && (
+          <ColorField
+            label="background"
+            value={canvasColors.background}
+            keyframe={keyframe?.('canvas.background')}
+            onChange={(background) =>
+              onParamsChange({ canvasColors: { ...canvasColors, background } })
+            }
+          />
+        )}
         <ColorField
           label="text"
           value={canvasColors.text}
@@ -732,35 +796,37 @@ export function ControlPanel({
           </div>
         </ControlSection>
       )}
-      <ControlSection {...sectionProps('view')}>
-        <div className="control-actions">
-          {/* The view starts in 3D; this flips to the flat 2D sketch (and back, with the sweep). */}
-          <button
-            type="button"
-            className="control-button"
-            aria-pressed={!revolve}
-            onClick={() => onRevolveChange(!revolve)}
-          >
-            2D sketch
-          </button>
-          <button
-            type="button"
-            className="control-button"
-            aria-pressed={perspective}
-            onClick={() => onPerspectiveChange(!perspective)}
-          >
-            perspective
-          </button>
-          <button
-            type="button"
-            className="control-button"
-            aria-pressed={debug}
-            onClick={() => onDebugChange(!debug)}
-          >
-            debug
-          </button>
-        </div>
-      </ControlSection>
+      {shown('view') && (
+        <ControlSection {...sectionProps('view')}>
+          <div className="control-actions">
+            {/* The view starts in 3D; this flips to the flat 2D sketch (and back, with the sweep). */}
+            <button
+              type="button"
+              className="control-button"
+              aria-pressed={!revolve}
+              onClick={() => onRevolveChange(!revolve)}
+            >
+              2D sketch
+            </button>
+            <button
+              type="button"
+              className="control-button"
+              aria-pressed={perspective}
+              onClick={() => onPerspectiveChange(!perspective)}
+            >
+              perspective
+            </button>
+            <button
+              type="button"
+              className="control-button"
+              aria-pressed={debug}
+              onClick={() => onDebugChange(!debug)}
+            >
+              debug
+            </button>
+          </div>
+        </ControlSection>
+      )}
       {imageExport && (
         <ControlSection {...sectionProps('image')}>
           {/* A still of the frame as it is: PNG (optionally with a transparent background) or
