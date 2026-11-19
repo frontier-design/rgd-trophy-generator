@@ -2,11 +2,21 @@
 
 Measure the rag of a block of text, turn it into 2D vector shapes, and render it in 3D.
 
-**Status:** early. Type directly into the text block; it's mirrored on the other side of
-the edge, and the shape between the line boxes and the edge is revolved around it into a
-3D trophy (Three.js; drag to orbit) that sits between the two text blocks. The page opens
-in 3D; **2D Sketch** shows the flat Paper.js shape. The sidebar tunes the type, the shape
-and the trophy's gradient material.
+The app opens on an infinite canvas at `/` (`/canvas` remains compatible). Right-click to
+insert a scene, then edit its text directly and select it to tune its typography, shape,
+material, frame size, and PNG/JPEG export. Connect twist, etch, pattern, and texture nodes
+to scenes to modify their trophies. **2D sketch** shows the flat Paper.js profile.
+
+Click to select a node; Shift-click toggles membership. Shift-drag empty space to add
+intersecting nodes to the selection. Drag a selected node to move the group; ordinary
+background dragging pans. Copy/paste and duplicate preserve the selected graph's internal
+connections. All selected modifiers keep their editable range lines on linked artboards.
+Click empty space or press Escape to clear selection.
+
+Work autosaves in the browser; **save** / **open** use portable JSON project files.
+The standalone generator page has been removed. Animation/video modules and legacy
+project data are retained, but timeline, reveal, and banner editing aren't exposed on the
+canvas yet.
 
 ```
 text + settings → line widths (Pretext) → rag points → 2D path (Paper.js) → 3D mesh (Three.js)
