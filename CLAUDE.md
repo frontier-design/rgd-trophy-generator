@@ -20,9 +20,11 @@ Settings (text, font, size, column width, line height)          state/
                     render3d/trophyMaterial.ts)
 ```
 
-Around it: every sidebar param can be keyframed on a timeline (`timeline/`, Theatre.js), and
-the animation exported as a 4K MP4 (`export/`): frame by frame, the live 3D/2D layers plus the
-text are composited at 3840 × 2160 and encoded with WebCodecs (mediabunny).
+The canvas is now the only page, served at `/` (legacy `/canvas` URLs also work).
+The standalone generator and page picker were removed. Its animation/video modules
+(`timeline/`, Theatre.js, `export/video.ts`) remain available for future integration,
+but timeline, manual reveal, and banner editing aren't exposed on the canvas.
+Legacy generator/timeline save data is retained for project-file compatibility.
 
 `Outline2D` (plain `{ contours: Point2[][] }`) is the hand-off between Paper.js and
 Three.js, so `render3d/` never imports Paper and `shape2d/` never imports Three.
@@ -32,16 +34,9 @@ Shared types live in `src/types/index.ts`.
 
 ```
 src/
-  main.tsx, Root.tsx   entry; Root picks the page from the URL (`usePage`): the generator
-                       (App) at `/` or the canvas (CanvasPage) at `/canvas`
-  App.tsx              App (the generator) wires the pipeline and lays out the page: ControlPanel
-                       sidebar (left); right column: the artboard (1920 × 1080, scaled to fit)
-                       holding PaperCanvas, ThreeCanvas and RagEditor (text at its bottom
-                       left), and the TimelineSlot below it. State: Settings (store) +
-                       SceneParams (align, mirror, overshoot, top height, round top + top radius,
-                       taper, line box style, smooth joins + join radius, canvas colors) =
-                       AnimatedParams; view toggles (revolve: starts 3D, "2D sketch" flips it;
-                       debug; perspective); export fps. Also builds export frames (compose).
+  main.tsx, Root.tsx   entry; Root renders CanvasPage with shared save/open controls.
+                       CanvasPage owns scenes, modifier nodes, links and workspace state.
+                       Selected scenes expose ControlPanel; CanvasScene renders SceneArtboard.
   state/               Settings via React context + useReducer (useSettings, SettingsProvider)
   measure/             Pretext wrapper + font loading (no React)
   banner/              pure math: the banner's layout (scaled from RGD's 2000 px artwork) and
@@ -80,8 +75,8 @@ src/
                        radius, smooth joins + join radius; material incl. SeedColorField + ColorStops; canvas colors;
                        2D sketch, perspective, debug; timeline: play, to start, length, fps,
                        export 4K MP4)
-  hooks/               usePage (URL ⇄ page), useInfiniteCanvas (the canvas page's pan/zoom),
-                       useSceneModel (one scene's composition, shared by both pages),
+  hooks/               useInfiniteCanvas (workspace pan/zoom),
+                       useSceneModel (one scene's composition),
                        useAutosave + useSaveStatus (saving), useUndo (the canvas's undo / redo), usePatternMaps (pattern nodes'
                        maps, in a worker),
                        useFontLoaded, useRagMeasure, usePanZoom, useTimeline (params ⇄
@@ -93,6 +88,14 @@ src/
 tests/                 Vitest tests mirroring src/
 public/fonts/          local font files (declare them with @font-face in src/styles/global.css)
 ```
+
+Selecting a twist, etch, pattern or texture node shows its `from` and `to` handles on
+all linked 3D scene artboards. Every selected modifier keeps its handles, even alongside
+selected scenes/other modifiers. Source-named tags occupy separate horizontal columns so
+coincident ranges remain editable. They edit the source node, not a scene-local copy.
+The track uses the actual lathe profile's vertical bounds projected
+at the axis (z = 0), and supports keyboard adjustment as well as pointer dragging. Handles
+are editor overlays and are not included in exports.
 
 ### Rules
 
@@ -109,7 +112,8 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   or on unmount. Three does not free GPU memory when objects are removed.
 - **The 3D view renders on demand** (`threeScene`): no per-frame loop (each scene is a
   full-frame canvas with a heavy shader; several idling at 60 fps made the canvas page lag).
-  Changes in a React commit are drawn by ThreeCanvas's `render()`; others (resizes,
+  Visual changes in a React commit are drawn by ThreeCanvas's `render()` (unrelated
+  commits do not redraw; anchor movement is checked separately); others (resizes,
   observers, pixel ratio) via `requestRender` (one coalesced animation frame). Only the
   sweep runs a loop, stopped when it ends. Canvas scenes and node cards read the zoom through
   a getter for drags and render at a settled, quarter-step zoom (`useSettled`, 200 ms), so
@@ -118,10 +122,18 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   its groove): the canvas wrappers create their scene and apply every update in
   `useLayoutEffect` (so before paint; PaperCanvas's outline → App state → ThreeCanvas is
   re-rendered synchronously), Paper draws at once (`view.update()`), ThreeCanvas calls
-  `ThreeScene.render()` after each commit, and `useTimeline` applies Theatre's playback
+  `ThreeScene.render()` after visual commits, and `useTimeline` applies Theatre's playback
   values with `flushSync`. Only the anchor observers are passive effects: the editor (the
   anchor) renders after the canvases, so its ref isn't attached during their layout
   effects. PaperCanvas skips painting while hidden behind the 3D view (`visible`).
+- **Board movement is not an artwork edit.** `CanvasPage/nodeDrag.ts` holds transient
+  positions in a workspace-local external store. Pointer samples coalesce to one animation
+  frame; only the moved wrapper, incident edges and its floating panel subscribe. Wrappers
+  preview via CSS transforms, commit one document/undo update on release, and discard previews
+  on pointer cancel/lost capture/unmount. `CanvasScene` separates this lightweight wrapper
+  from memoized `SceneArtwork`; keep board position/selection out of artwork inputs. Node-card
+  fields are memoized separately. `createSceneModifiersResolver` preserves per-scene modifier
+  identities across card moves/folds, so presentation changes don't invalidate linked trophies.
 - **Canvas wrappers** (`PaperCanvas`, `ThreeCanvas`) create a fresh `<canvas>` inside
   a layout effect and remove it in cleanup, so React StrictMode's double mount gets a clean
   canvas, scope and WebGL context each time. Reusing one canvas breaks Three.js, because
@@ -301,13 +313,26 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   every 5; fine lines fade out when too dense); the world layer (`.infinite-canvas-world`,
   `--zoom`) is transformed with the view and holds the scenes. `data-no-pan` elements don't
   start a pan; over `data-own-wheel` ones (the controls) the wheel scrolls them.
+- **Selection** (`CanvasPage/selection.ts`): view-only selected IDs plus an active ID; never
+  saved or recorded in undo. Click selects one (a press on an already-selected node defers
+  collapsing the group until a tap, so dragging moves the group); Shift-click toggles.
+  Shift-primary drag on empty canvas reserves a screen-space additive marquee before pan
+  handling (`SelectionMarquee`, rAF-local preview). It intersects scene/card DOM bounds,
+  including the master and compact cards. Plain background drags pan without clearing;
+  background click/Escape clears. All selected scenes retain resize handles; all selected
+  linked modifiers retain range handles. Only the active scene's control panel is shown.
+  Text/field clicks select one; range edits and frame resizing remain single-source edits.
+  Group moves preview through the position store and commit together as one undo step.
+  Delete removes the group and incident links except the undeletable master. Copy/paste and
+  duplicate clone scenes/modifiers with internal links, preserving relative placement and
+  allocating fresh IDs; the master is not cloned. Each paste/duplicate is one undo step.
 - **Canvas scenes, node-style** (`CanvasPage`, `CanvasScene`, `sceneNode.ts`): right-click
   → **insert scene** (`ContextMenu`) centers a 1920 × 1080 scene on the click; each has its
   own state (`SceneNode`: settings, scene params, view toggles, position), no timeline.
   Pressing a scene selects it (raised, outlined) and its controls float beside it (the
   sidebar's `ControlPanel` with no keyframes, no timeline, no banner section and
   `revealControls={false}`), kept on screen; dragging it (not its text) moves it; its text
-  edits as in the generator; a press on the empty canvas deselects; Delete/Backspace
+  edits as in the generator; a click on the empty canvas deselects; Delete/Backspace
   (unless typing) or right-click → **delete scene** removes it. **Copy / paste**: right-click
   a scene or node → **copy** / **duplicate** (beside it), right-click anywhere → **paste**
   (at the click); ⌘/Ctrl C, V (at the pointer), D (not while typing). The clipboard is the
@@ -461,7 +486,19 @@ public/fonts/          local font files (declare them with @font-face in src/sty
   `NodeCard` is the shared card, `TwistFields` / `EtchFields` / `PatternFields` /
   `TextureFields` the fields): one link model, `modifiersByScene` groups each scene's
   twists, etches, textures and patterns in link order. Saved under `modifiers` (saves from
-  before etch, with `twists` only, still load).
+  before etch, with `twists` only, still load). New nodes' defaults (`DEFAULT_TWIST`,
+  `DEFAULT_ETCH`, `DEFAULT_PATTERN`) follow how nodes were actually used in saved projects
+  (shallow straight lobes; bold horizontal rings; surface-mapped bands with no fade, all on a
+  band in the lower body); the render3d math tests pin their own fixtures instead.
+- **Master node** (`master.ts`, `MasterFields`; one per canvas, `MASTER_ID`, saved under
+  `master`): the settings every scene shares (align, mirror, overshoot, round top, taper,
+  smooth joins; shading, banding, gradient scale, tilt, wobble, edge hue, ledge, grain, grain
+  size; background; 2D sketch, perspective, debug). It has no output port: `withMaster`
+  writes its params into every scene (on edit, insert, paste, load, and inside
+  `updateScene`, so fitting to a frame can't override them), so scenes keep their own copy
+  and everything downstream is unchanged. Scene panels leave these fields out
+  (`ControlPanel` `hidden`, `MASTER_FIELDS`). It can't be deleted, copied or duplicated;
+  undo covers it. A canvas saved without one starts it from its first scene's values.
 - **Saving** (`state/persist.ts`, `hooks/useAutosave`, `components/SaveControls`):
   - **Autosave**: each page writes its document to localStorage (`rgd-generator:canvas`,
     `rgd-generator:generator`) 400 ms after a change (not the value it loaded with, and
@@ -595,7 +632,7 @@ The revolved trophy uses a custom shader with two **shading** modes. Its look li
 
 Every palette (presets, custom, generated) works in both modes.
 
-**Palettes:** six presets (`material/palettes.ts`) or `'custom'`, which uses
+**Palettes:** seven presets, the RGD scenes' color sets (studio, slate, gold, silver, bronze, rose, pewter; `material/palettes.ts`; saves using a removed preset load it as a custom palette of its colors, `migratePalette`) or `'custom'`, which uses
 `MaterialSettings.customColors` (`#rrggbb`, top → bottom). The sidebar always shows the
 current palette's colors (`ColorStops`); editing, adding or removing one switches to
 `'custom'` seeded from what was shown. Custom colors persist while browsing presets. Colors
