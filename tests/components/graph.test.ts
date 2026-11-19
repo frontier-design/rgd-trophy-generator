@@ -11,6 +11,7 @@ import {
   NODE_CARD,
   outputPort,
   modifiersByScene,
+  rayTarget,
 } from '../../src/components/CanvasPage/graph'
 
 describe('node graph', () => {
@@ -21,7 +22,10 @@ describe('node graph', () => {
     a.params.text = 'first'
     b.params.text = 'second'
     const resolve = createSceneModifiersResolver()
-    const links = [{ from: 'a', to: 's' }, { from: 'b', to: 's' }]
+    const links = [
+      { from: 'a', to: 's' },
+      { from: 'b', to: 's' },
+    ]
     expect(resolve(links, [a, b]).get('s')?.text).toBe('second')
     expect(resolve([links[0]!, { ...links[1]!, muted: true }], [a, b]).get('s')?.text).toBe('first')
     expect(resolve(links, [a, b]).get('s')?.text).toBe('second')
@@ -172,5 +176,34 @@ describe('memoized scene modifiers', () => {
     const replaced = resolve([links[0]!, links[2]!], [a, b], new Map([['a', { ...map }]]))
     expect(replaced.get('s1')).not.toBe(removed.get('s1'))
     expect(replaced.get('s2')).toBe(removed.get('s2'))
+  })
+})
+
+describe('rayTarget', () => {
+  const targets = [
+    { id: 'near', x: 300, y: 0, width: 100, height: 100 },
+    { id: 'far', x: 600, y: 0, width: 100, height: 100 },
+    { id: 'above', x: 300, y: -400, width: 100, height: 100 },
+  ]
+
+  it('finds the first target the line from the outlet through the drop goes on to hit', () => {
+    expect(rayTarget({ x: 0, y: 50 }, { x: 100, y: 50 }, targets)).toBe('near')
+    expect(rayTarget({ x: 0, y: 50 }, { x: 100, y: 50 }, targets.slice(1))).toBe('far')
+    // Aimed up and right.
+    expect(rayTarget({ x: 0, y: 50 }, { x: 70, y: -50 }, targets)).toBe('above')
+  })
+
+  it('counts a drop inside a target, and ignores targets behind the outlet', () => {
+    expect(rayTarget({ x: 0, y: 50 }, { x: 350, y: 50 }, targets)).toBe('near')
+    expect(rayTarget({ x: 500, y: 50 }, { x: 550, y: 50 }, targets)).toBe('far')
+  })
+
+  it('skips a target the outlet sits over', () => {
+    expect(rayTarget({ x: 350, y: 50 }, { x: 360, y: 50 }, targets)).toBe('far')
+  })
+
+  it('misses when nothing is in line, or the drop is on the outlet', () => {
+    expect(rayTarget({ x: 0, y: 50 }, { x: 100, y: 300 }, targets)).toBeNull()
+    expect(rayTarget({ x: 0, y: 50 }, { x: 0, y: 50 }, targets)).toBeNull()
   })
 })

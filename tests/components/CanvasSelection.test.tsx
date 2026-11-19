@@ -137,6 +137,50 @@ describe('CanvasPage multiselection', () => {
     expect(container.querySelectorAll('.node-links path')).toHaveLength(2)
   })
 
+  it('Option-drag leaves the node and drops a copy where it was dragged to', () => {
+    render(<CanvasPage tools={null} />)
+    const twist = insertModifier('twist')
+    const left = () => parseFloat(node('twist 1').parentElement!.style.left)
+    const before = left()
+
+    fireEvent.pointerDown(twist, {
+      button: 0,
+      pointerId: 7,
+      clientX: 10,
+      clientY: 10,
+      altKey: true,
+    })
+    fireEvent.pointerMove(twist, { pointerId: 7, clientX: 70, clientY: 30, altKey: true })
+    fireEvent.pointerUp(twist, { pointerId: 7, altKey: true })
+
+    expect(left()).toBeCloseTo(before)
+    const copy = node('twist 2').parentElement!
+    expect(parseFloat(copy.style.left)).toBeCloseTo(before + 60)
+    expect(copy).toHaveAttribute('data-selected')
+  })
+
+  it('⌘C / ⌘V work after using a slider (focus left on it), but not while typing', () => {
+    render(<CanvasPage tools={null} />)
+    const twist = insertModifier('twist')
+    const slider = within(twist).getByRole('slider', { name: 'flutes' })
+    slider.focus()
+    fireEvent.keyDown(slider, { key: 'c', metaKey: true })
+    fireEvent.keyDown(slider, { key: 'v', metaKey: true })
+    expect(node('twist 2')).toBeInTheDocument()
+
+    // Pressing a node lets go of a text field focused elsewhere.
+    insertModifier('etch')
+    const etch = node('etch 1')
+    const text = document.createElement('textarea')
+    document.body.append(text)
+    text.focus()
+    fireEvent.keyDown(text, { key: 'v', metaKey: true })
+    expect(screen.queryByRole('group', { name: 'twist 3' })).toBeNull()
+    clickNode(etch)
+    expect(document.activeElement).not.toBe(text)
+    text.remove()
+  })
+
   it('copy/paste preserves relative positions and internal links, and allocates fresh IDs after undo', async () => {
     const { container } = render(<CanvasPage tools={null} />)
     const scene = await insertScene(200, 150)

@@ -28,6 +28,7 @@ import {
   inputPort,
   linkPath,
   outputPort,
+  rayTarget,
   createSceneModifiersResolver,
   type NodeLink,
   type ModifierKind,
@@ -113,6 +114,24 @@ const MASTER_AND_LIGHTING_FIELDS: ReadonlySet<HideableField> = new Set<HideableF
   ...MASTER_FIELDS,
   'lighting',
 ])
+
+/** Inputs that take typing (they keep their own clipboard, undo and Backspace). */
+const TEXT_INPUT =
+  'input:not([type]), input[type="text"], input[type="number"], input[type="search"], input[type="email"], input[type="url"], input[type="password"]'
+
+/**
+ * Whether a key event belongs to a field being typed in. Sliders, switches, color pickers and
+ * buttons don't count: pressing a node keeps focus on the last control used (the press is
+ * preventDefault'ed), and the canvas's shortcuts must still work then.
+ */
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(
+      `textarea, select, [contenteditable]:not([contenteditable="false"]), ${TEXT_INPUT}`,
+    ) !== null
+  )
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
@@ -278,9 +297,22 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       moves.has(MASTER_ID) ? { ...current, ...moves.get(MASTER_ID)! } : current,
     )
   }, [])
+  // Option-drag duplicates (set below, once the clipboard's paste exists).
+  const duplicateMovesRef = useRef<(ids: readonly string[], offset: NodePosition) => void>(() => {})
+  const duplicateMoves = useCallback(
+    (ids: readonly string[], offset: NodePosition) => duplicateMovesRef.current(ids, offset),
+    [],
+  )
   const dragController = useMemo(
-    () => ({ positions, checkpoint, participants, commit: commitMoves, onTap: selectOnly }),
-    [positions, checkpoint, participants, commitMoves, selectOnly],
+    () => ({
+      positions,
+      checkpoint,
+      participants,
+      commit: commitMoves,
+      duplicate: duplicateMoves,
+      onTap: selectOnly,
+    }),
+    [positions, checkpoint, participants, commitMoves, duplicateMoves, selectOnly],
   )
   useEffect(() => () => positions.dispose(), [positions])
 
@@ -449,12 +481,27 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     if (!pendingFrom) return
     const onMove = (e: PointerEvent) =>
       setPending((current) => current && { ...current, ...toCanvas(e.clientX, e.clientY) })
-    // Dropped on a scene's input: linked. Anywhere else: dropped.
+    // Dropped on an input: linked. Dropped short: linked to the first scene (or, from a
+    // scene, composition) the line from the outlet through the drop point goes on to hit.
+    // Otherwise dropped.
     const onUp = (e: PointerEvent) => {
       const under = document.elementFromPoint?.(e.clientX, e.clientY) ?? e.target
       const port = under instanceof Element ? under.closest<HTMLElement>('[data-port="in"]') : null
-      const to = port?.dataset.sceneId
       const sourceIsScene = scenes.some((node) => node.id === pendingFrom)
+      const source =
+        scenes.find((node) => node.id === pendingFrom) ??
+        modifiers.find((node) => node.id === pendingFrom)
+      const to =
+        port?.dataset.sceneId ??
+        (source
+          ? (rayTarget(
+              sourcePort(source, viewRef.current.zoom),
+              toCanvas(e.clientX, e.clientY),
+              (sourceIsScene ? compositions : scenes)
+                .filter((node) => node.id !== pendingFrom)
+                .map((node) => ({ id: node.id, x: node.x, y: node.y, ...node.frame })),
+            ) ?? undefined)
+          : undefined)
       const targetIsComposition = compositions.some((node) => node.id === to)
       const valid =
         to &&
@@ -586,15 +633,19 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     copied = snapshot.ids.length ? snapshot : null
     setHasCopy(copied !== null)
   }
-  const pasteCopy = (at: NodePosition | null, entry: CopiedSubgraph | null = copied) => {
+  const pasteCopy = (
+    at: NodePosition | null,
+    entry: CopiedSubgraph | null = copied,
+    offset?: NodePosition,
+  ) => {
     if (!entry?.ids.length) return
     positions.dispose()
     checkpoint()
-    const offset = 40 / viewRef.current.zoom
+    const nudge = 40 / viewRef.current.zoom
     const pasted = pasteSelection(
       entry,
       insertedRef.current,
-      at ? { at } : { offset: { x: offset, y: offset } },
+      at ? { at } : { offset: offset ?? { x: nudge, y: nudge } },
     )
     insertedRef.current = pasted.inserted
     setInserted(pasted.inserted)
@@ -611,14 +662,21 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const duplicateNodes = (selected: Selection = selectionRef.current) => {
     pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions))
   }
+  useEffect(() => {
+    duplicateMovesRef.current = (ids, offset) =>
+      pasteCopy(
+        null,
+        copySelection(replaceSelection(ids), scenes, modifiers, links, compositions),
+        offset,
+      )
+  })
   // The keys, with this render's state (re-subscribed each render, as it changes). Not while
   // typing: a text field keeps its own undo and clipboard.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return
       const { target } = e
-      if (target instanceof Element && target.closest('textarea, input, select, [contenteditable]'))
-        return
+      if (isTyping(target)) return
       const key = e.key.toLowerCase()
       // ⌘Z undoes, ⇧⌘Z (or Ctrl+Y) redoes. Stopped here (captured on the window) so no other
       // page's shortcuts see it.
@@ -650,8 +708,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const { target } = e
-      if (target instanceof Element && target.closest('textarea, input, select, [contenteditable]'))
-        return
+      if (isTyping(target)) return
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (!selectionRef.current.ids.length) return
         e.preventDefault()

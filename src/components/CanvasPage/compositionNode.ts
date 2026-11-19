@@ -16,7 +16,9 @@ export interface CompositionNode {
 export const IMAGE_CORNERS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const
 export type ImageCorner = (typeof IMAGE_CORNERS)[number]
 
-/** Resize around the opposite corner, keeping dimensions positive. */
+/** Resize around the opposite corner, always keeping the image's aspect ratio: the scale
+ *  follows the drag projected onto the image's diagonal (so pulling either side, in or out,
+ *  resizes it). */
 export function resizeCompositionImage(
   start: CompositionImageRect,
   corner: ImageCorner,
@@ -25,8 +27,15 @@ export function resizeCompositionImage(
 ): CompositionImageRect {
   const left = corner.endsWith('left')
   const top = corner.startsWith('top')
-  const width = Math.max(1, start.width + (left ? -dx : dx))
-  const height = Math.max(1, start.height + (top ? -dy : dy))
+  // The drag outward from the corner, along each side.
+  const outX = left ? -dx : dx
+  const outY = top ? -dy : dy
+  const { width: w, height: h } = start
+  const projected = 1 + (outX * w + outY * h) / (w * w + h * h)
+  // At least 1 px on the shorter side.
+  const scale = Math.max(1 / Math.min(w, h), projected)
+  const width = start.width * scale
+  const height = start.height * scale
   return {
     x: left ? start.x + start.width - width : start.x,
     y: top ? start.y + start.height - height : start.y,

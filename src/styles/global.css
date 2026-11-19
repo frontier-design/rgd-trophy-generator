@@ -1247,6 +1247,29 @@ body {
   resize: vertical;
 }
 
+/* The text node: white on black. Its colors are re-pointed for the whole card, so its
+   header, labels, field, buttons and ports follow (labels and buttons a dark gray). */
+.canvas-node[data-kind='text'] .node-card {
+  --color-text: #ffffff;
+  --color-panel-bg: #000000;
+  --color-panel-border: #333333;
+  --color-label-bg: #2b2b2b;
+
+  color: var(--color-text);
+  background: var(--color-panel-bg);
+}
+
+/* (Its selection outline stays dark, to show on the canvas.) */
+.canvas-node[data-kind='text'][data-selected] .node-card {
+  outline-color: #111111;
+  outline-offset: 2px;
+}
+
+.canvas-node[data-kind='text'] .text-node-input {
+  color: var(--color-text);
+  caret-color: var(--color-text);
+}
+
 /* The pattern's height map, white ornament on black. */
 .pattern-preview {
   width: 100%;

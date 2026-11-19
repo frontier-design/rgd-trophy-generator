@@ -274,6 +274,50 @@ export function linkPath(
   return `M ${from.x} ${from.y} C ${from.x + handle} ${from.y}, ${to.x - handle} ${to.y}, ${to.x} ${to.y}`
 }
 
+/**
+ * Where a link dropped short is headed: the first of `targets` hit by the ray from the
+ * outlet (`from`) through the drop point (`through`), going on past it. Null if the ray
+ * misses them all (or the drop is on the outlet itself). Targets the outlet is over (a card
+ * on top of a scene) are skipped.
+ */
+export function rayTarget(
+  from: { x: number; y: number },
+  through: { x: number; y: number },
+  targets: readonly { id: string; x: number; y: number; width: number; height: number }[],
+): string | null {
+  const dx = through.x - from.x
+  const dy = through.y - from.y
+  if (Math.hypot(dx, dy) < 1e-6) return null
+  let best: { id: string; t: number } | null = null
+  for (const rect of targets) {
+    // Not one the outlet sits over (a card on top of a scene): drop on its port instead.
+    const inside =
+      from.x >= rect.x &&
+      from.x <= rect.x + rect.width &&
+      from.y >= rect.y &&
+      from.y <= rect.y + rect.height
+    if (inside) continue
+    // Slab test: the ray's parameter range inside the rect on each axis.
+    let near = 0
+    let far = Infinity
+    for (const [origin, dir, min, max] of [
+      [from.x, dx, rect.x, rect.x + rect.width],
+      [from.y, dy, rect.y, rect.y + rect.height],
+    ] as const) {
+      if (Math.abs(dir) < 1e-12) {
+        if (origin < min || origin > max) near = Infinity
+        continue
+      }
+      const t1 = (min - origin) / dir
+      const t2 = (max - origin) / dir
+      near = Math.max(near, Math.min(t1, t2))
+      far = Math.min(far, Math.max(t1, t2))
+    }
+    if (near <= far && (!best || near < best.t)) best = { id: rect.id, t: near }
+  }
+  return best?.id ?? null
+}
+
 /** `links` with from → to added (once). */
 export function connect(links: readonly NodeLink[], from: string, to: string): NodeLink[] {
   if (links.some((link) => link.from === from && link.to === to)) return [...links]

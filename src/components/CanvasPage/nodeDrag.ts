@@ -79,6 +79,8 @@ export const NodeDragContext = createContext<{
   checkpoint: () => void
   participants?: (id: string) => readonly (NodePosition & { id: string })[]
   commit?: (moves: ReadonlyMap<string, NodePosition>) => void
+  /** Option/Alt-drag: copies of the dragged nodes, moved by `offset`; the originals stay. */
+  duplicate?: (ids: readonly string[], offset: NodePosition) => void
   onTap?: (id: string) => void
 } | null>(null)
 
@@ -110,6 +112,8 @@ export function useNodeDrag(
     participants: readonly (NodePosition & { id: string })[]
     revision: number | undefined
     moved: boolean
+    /** Option/Alt was held at the press. */
+    duplicate: boolean
   } | null>(null)
   const { id, x, y } = node
   useEffect(
@@ -135,16 +139,26 @@ export function useNodeDrag(
       controller?.onTap?.(id)
       return
     }
-    if (changes.size && controller?.commit) controller.commit(changes)
-    else {
-      const last = changes.get(id)
-      if (last) onMove(id, last.x, last.y)
+    // Option/Alt (at the press or the drop): the originals go back, copies land here.
+    const last = changes.get(id)
+    if ((start.duplicate || event.altKey) && controller?.duplicate && last) {
+      controller.duplicate(
+        start.participants.map((node) => node.id),
+        { x: last.x - start.origin.x, y: last.y - start.origin.y },
+      )
+      return
     }
+    if (changes.size && controller?.commit) controller.commit(changes)
+    else if (last) onMove(id, last.x, last.y)
   }
   return {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0) return
       event.preventDefault()
+      // The press doesn't move focus (preventDefault): let go of a field focused elsewhere,
+      // so the canvas's shortcuts (⌘C, ⌘V, Delete) apply to the pressed node.
+      const active = document.activeElement
+      if (active instanceof HTMLElement && !event.currentTarget.contains(active)) active.blur()
       controller?.checkpoint()
       drag.current = {
         pointer: event.pointerId,
@@ -154,6 +168,7 @@ export function useNodeDrag(
         participants: controller?.participants?.(id) ?? [{ id, x, y }],
         revision: controller?.positions.revision(),
         moved: false,
+        duplicate: event.altKey,
       }
       try {
         event.currentTarget.setPointerCapture?.(event.pointerId)

@@ -74,12 +74,12 @@ describe('CanvasComposition', () => {
     const handle = screen.getByRole('slider', { name: 'resize image top-left' })
     fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 100, clientY: 100 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 140, clientY: 120 })
-    expect(props.onImageChange).toHaveBeenCalledWith(node.id, {
-      x: 30,
-      y: 30,
-      width: 280,
-      height: 190,
-    })
+    // Its ratio kept, the bottom-right corner where it was.
+    const [, image] = vi.mocked(props.onImageChange).mock.calls[0]!
+    expect(image.width / image.height).toBeCloseTo(node.image.width / node.image.height)
+    expect(image.width).toBeLessThan(node.image.width)
+    expect(image.x + image.width).toBeCloseTo(node.image.x + node.image.width)
+    expect(image.y + image.height).toBeCloseTo(node.image.y + node.image.height)
     expect(props.onMove).not.toHaveBeenCalled()
     fireEvent.pointerCancel(handle, { pointerId: 3 })
     fireEvent.pointerMove(handle, { pointerId: 3, clientX: 160, clientY: 140 })
