@@ -8,7 +8,7 @@ const lines = [
 ]
 const look = { gradientOffset: 0, gradientScale: 1, banding: 1 }
 const style = {
-  gradient: gradientRamp(paletteStops('ember'), look),
+  gradient: gradientRamp(paletteStops('slate'), look),
   span: gradientSpan(look),
   tilt: 0,
 }

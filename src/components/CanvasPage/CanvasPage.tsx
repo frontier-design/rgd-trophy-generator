@@ -323,9 +323,25 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     [updateScene],
   )
   const setSceneText = useCallback(
-    (id: string, text: string) =>
-      updateScene(id, (node) => ({ ...node, settings: { ...node.settings, text } })),
-    [updateScene],
+    (id: string, text: string) => {
+      const source = [...links]
+        .reverse()
+        .find(
+          (link) =>
+            link.to === id &&
+            modifiers.some((node) => node.id === link.from && node.kind === 'text'),
+        )
+      if (source) {
+        setModifiers((current) =>
+          current.map((node) =>
+            node.id === source.from && node.kind === 'text' ? { ...node, params: { text } } : node,
+          ),
+        )
+      } else {
+        updateScene(id, (node) => ({ ...node, settings: { ...node.settings, text } }))
+      }
+    },
+    [updateScene, links, modifiers],
   )
   const updateModifier = useCallback(
     (id: string, update: (node: ModifierNode) => ModifierNode) =>
@@ -568,18 +584,17 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     [resolveModifiers, links, modifiers, patternMaps],
   )
   const linkedNodes = useMemo(() => new Set(links.map((link) => link.from)), [links])
-  // Every selected modifier keeps its handles, even when a scene/another node is active.
+  // Hit areas exist for all linked range modifiers, independently of selection.
   const rangeModifiersByScene = useMemo(() => {
-    const selected = new Map(
-      modifiers.filter((node) => selectedIds.has(node.id)).map((node) => [node.id, node]),
-    )
+    const byId = new Map(modifiers.map((node) => [node.id, node]))
     const grouped = new Map<string, ModifierNode[]>()
     for (const link of links) {
-      const modifier = selected.get(link.from)
-      if (modifier) grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
+      const modifier = byId.get(link.from)
+      if (modifier && modifier.kind !== 'material' && modifier.kind !== 'text')
+        grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
     }
     return grouped
-  }, [modifiers, selectedIds, links])
+  }, [modifiers, links])
 
   // Zoomed out far, node cards show only their headers (they're small, and it's less to draw).
   const compactCards = cardScale(view.zoom) < CARD_COMPACT_SCALE
@@ -621,9 +636,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const menuItems: ContextMenuItem[] = menu
     ? [
         { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
+        { label: 'insert text', onSelect: () => insertModifier('text', menu.x, menu.y) },
         { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
         { label: 'insert etch', onSelect: () => insertModifier('etch', menu.x, menu.y) },
         { label: 'insert pattern', onSelect: () => insertModifier('pattern', menu.x, menu.y) },
+        { label: 'insert material', onSelect: () => insertModifier('material', menu.x, menu.y) },
         { label: 'insert texture', onSelect: () => insertModifier('texture', menu.x, menu.y) },
         ...(disconnectTarget && links.some((link) => link.to === disconnectTarget)
           ? [
@@ -700,6 +717,19 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 renderZoom={renderZoom}
                 modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
                 rangeModifiers={rangeModifiersByScene.get(node.id)}
+                selectedRangeModifierIds={selectedIds}
+                textNodeId={
+                  links
+                    .filter(
+                      (link) =>
+                        link.to === node.id &&
+                        modifiers.some(
+                          (modifier) => modifier.id === link.from && modifier.kind === 'text',
+                        ),
+                    )
+                    .at(-1)?.from
+                }
+                selectedTextNodeIds={selectedIds}
                 onRangeChange={setModifierParams}
                 onRangeBoundary={checkpoint}
                 onSelect={selectNode}

@@ -27,9 +27,9 @@ describe('settingsReducer', () => {
   it('updateMaterial merges into the material and leaves the rest alone', () => {
     const next = settingsReducer(DEFAULT_SETTINGS, {
       type: 'updateMaterial',
-      patch: { palette: 'cobalt', grain: 0 },
+      patch: { palette: 'bronze', grain: 0 },
     })
-    expect(next.material).toEqual({ ...DEFAULT_SETTINGS.material, palette: 'cobalt', grain: 0 })
+    expect(next.material).toEqual({ ...DEFAULT_SETTINGS.material, palette: 'bronze', grain: 0 })
     expect(next.fontSize).toBe(DEFAULT_SETTINGS.fontSize)
   })
 })

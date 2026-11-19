@@ -12,7 +12,7 @@ import {
   replaceSelection,
 } from '../../src/components/CanvasPage/selection'
 
-const counters = { scene: 4, twist: 2, etch: 0, pattern: 0, texture: 0 }
+const counters = { scene: 4, twist: 2, etch: 0, pattern: 0, texture: 0, material: 0 }
 
 describe('selection', () => {
   it('preserves a group on ordinary click and toggles with additive click', () => {
@@ -92,7 +92,7 @@ describe('subgraph clipboard', () => {
       scenes: [],
       modifiers: [],
       links: [],
-      inserted: counters,
+      inserted: { ...counters, text: 0 },
       ids: [],
       activeId: null,
     })

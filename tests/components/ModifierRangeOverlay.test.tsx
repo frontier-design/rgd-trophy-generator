@@ -3,6 +3,31 @@ import { describe, expect, it, vi } from 'vitest'
 import { ModifierRangeOverlay } from '../../src/components/CanvasPage/ModifierRangeOverlay'
 
 describe('ModifierRangeOverlay', () => {
+  it('selects the modifier inside the from-to area, even when crossed', () => {
+    const onSelect = vi.fn()
+    const parentDown = vi.fn()
+    const onChange = vi.fn()
+    render(
+      <div onPointerDown={parentDown}>
+        <ModifierRangeOverlay
+          top={0}
+          height={200}
+          from={80}
+          to={20}
+          label="Twist"
+          onChange={onChange}
+          onSelect={onSelect}
+        />
+      </div>,
+    )
+    const area = screen.getByLabelText('select Twist range')
+    expect(area).toHaveStyle({ top: '20%', height: '60%' })
+    fireEvent.pointerDown(area, { button: 0 })
+    expect(onSelect).toHaveBeenCalledOnce()
+    expect(parentDown).not.toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   it('positions the original endpoints independently, including crossed values', () => {
     render(<ModifierRangeOverlay top={20} height={200} from={80} to={10} onChange={() => {}} />)
     expect(screen.getByRole('slider', { name: 'Modifier from' })).toHaveStyle({ top: '80%' })
@@ -104,6 +129,34 @@ describe('ModifierRangeOverlay', () => {
     expect(first.style.transform).toBe('')
     expect(first.style.zIndex).toBe('')
   })
+
+  it.each(['from', 'to'])(
+    'selects on primary %s handle press without bubbling to the scene',
+    (key) => {
+      const onSelect = vi.fn()
+      const sceneDown = vi.fn()
+      render(
+        <div onPointerDown={sceneDown}>
+          <ModifierRangeOverlay
+            top={0}
+            height={100}
+            from={25}
+            to={75}
+            onChange={() => {}}
+            onSelect={onSelect}
+          />
+        </div>,
+      )
+      const handle = screen.getByRole('slider', { name: `Modifier ${key}` })
+      fireEvent.pointerDown(handle, { pointerId: 1, button: 2 })
+      expect(onSelect).not.toHaveBeenCalled()
+      sceneDown.mockClear()
+      fireEvent.pointerDown(handle, { pointerId: 1, button: 0 })
+      fireEvent.pointerUp(handle, { pointerId: 1 })
+      expect(onSelect).toHaveBeenCalledTimes(1)
+      expect(sceneDown).not.toHaveBeenCalled()
+    },
+  )
 
   it('supports keyboard edits and disables handles without a height', () => {
     const onChange = vi.fn()

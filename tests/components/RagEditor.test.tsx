@@ -1,11 +1,62 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import App from '../support/ControlPanelScene'
+import { RagEditor } from '../../src/components/RagEditor'
 import { DEFAULT_SETTINGS, SettingsProvider } from '../../src/state'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
 vi.mock('../../src/timeline', () => import('../support/timelineStub'))
 
 describe('RagEditor', () => {
+  it('uses the debug box geometry for canvas text handles', () => {
+    const onDown = vi.fn()
+    const boxes = [{ lineIndex: 0, x: 12, y: 8, width: 90, height: 24, radius: 2 }]
+    const { container } = render(
+      <RagEditor
+        settings={DEFAULT_SETTINGS}
+        lines={[]}
+        boxes={boxes}
+        baselines={[]}
+        extent={null}
+        mirror={false}
+        debug={false}
+        onTextChange={() => {}}
+        canvasMode
+        onTextHandleDown={onDown}
+      />,
+    )
+    expect(container.querySelector('.rag-editor')).toHaveAttribute('data-canvas-mode')
+    const handle = screen.getByLabelText('select text node')
+    expect(handle).toHaveStyle({ left: '12px', top: '8px', width: '90px', height: '24px' })
+    fireEvent.pointerDown(handle, { button: 0 })
+    expect(onDown).toHaveBeenCalledOnce()
+  })
+
+  it('enables artboard editing only when the linked text is selected', () => {
+    const onTextChange = vi.fn()
+    const props = {
+      settings: DEFAULT_SETTINGS,
+      lines: [],
+      boxes: [{ lineIndex: 0, x: 0, y: 0, width: 90, height: 24, radius: 2 }],
+      baselines: [],
+      extent: null,
+      mirror: false,
+      debug: false,
+      onTextChange,
+      canvasMode: true,
+      onTextHandleDown: vi.fn(),
+    }
+    const { rerender } = render(<RagEditor {...props} />)
+    expect(screen.getByLabelText('Text')).toHaveAttribute('readonly')
+    expect(screen.getByLabelText('select text node')).toBeInTheDocument()
+    rerender(<RagEditor {...props} textEditable />)
+    expect(screen.getByLabelText('Text')).not.toHaveAttribute('readonly')
+    expect(screen.queryByLabelText('select text node')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Text'), { target: { value: 'changed' } })
+    expect(onTextChange).toHaveBeenCalledWith('changed')
+    rerender(<RagEditor {...props} />)
+    expect(screen.getByLabelText('Text')).toHaveAttribute('readonly')
+  })
+
   it('draws a box with a px width label for each line typed', async () => {
     const { container } = render(
       <SettingsProvider initialSettings={{ ...DEFAULT_SETTINGS, text: '' }}>

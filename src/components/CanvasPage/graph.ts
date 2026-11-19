@@ -1,6 +1,12 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
-import { ARTBOARD } from '../../state'
-import type { EtchParams, PatternParams, TextureParams, TwistParams } from '../../types'
+import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS } from '../../state'
+import type {
+  EtchParams,
+  PatternParams,
+  TextureParams,
+  TwistParams,
+  MaterialSettings,
+} from '../../types'
 
 /** A node on the canvas that changes the scenes its output links to: where it sits. */
 interface ModifierBase {
@@ -37,9 +43,27 @@ export interface TextureNode extends ModifierBase {
   params: TextureParams
 }
 
-export type ModifierNode = TwistNode | EtchNode | PatternNode | TextureNode
+export interface MaterialNode extends ModifierBase {
+  kind: 'material'
+  params: MaterialSettings
+}
+
+export interface TextNode extends ModifierBase {
+  kind: 'text'
+  params: { text: string }
+}
+
+export type ModifierNode =
+  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | TextNode
 export type ModifierKind = ModifierNode['kind']
-export const MODIFIER_KINDS: readonly ModifierKind[] = ['twist', 'etch', 'pattern', 'texture']
+export const MODIFIER_KINDS: readonly ModifierKind[] = [
+  'twist',
+  'etch',
+  'pattern',
+  'texture',
+  'material',
+  'text',
+]
 
 /** A link from a node's output to a scene's input. */
 export interface NodeLink {
@@ -164,6 +188,17 @@ export function createModifier(
       return { kind, id, name, x, y, params: DEFAULT_PATTERN }
     case 'texture':
       return { kind, id, name, x, y, params: DEFAULT_TEXTURE }
+    case 'text':
+      return { kind, id, name, x, y, params: { text: DEFAULT_SETTINGS.text } }
+    case 'material':
+      return {
+        kind,
+        id,
+        name,
+        x,
+        y,
+        params: { ...DEFAULT_MATERIAL, customColors: [...DEFAULT_MATERIAL.customColors] },
+      }
   }
 }
 
@@ -207,6 +242,9 @@ export interface SceneModifiers {
   patterns: SolidPattern[]
   /** Anything linked at all (patterns still generating included). */
   linked: boolean
+  material?: MaterialSettings
+  /** The last linked text node wins. */
+  text?: string
 }
 
 /** Each linked scene's modifiers; `maps` holds the pattern nodes' height maps by id. */
@@ -220,7 +258,7 @@ export function modifiersByScene(
   for (const link of links) {
     const node = byId.get(link.from)
     if (!node) continue
-    const current = out.get(link.to) ?? {
+    const current: SceneModifiers = out.get(link.to) ?? {
       twists: [],
       etches: [],
       textures: [],
@@ -230,6 +268,8 @@ export function modifiersByScene(
     if (node.kind === 'twist') current.twists = [...current.twists, node.params]
     else if (node.kind === 'etch') current.etches = [...current.etches, node.params]
     else if (node.kind === 'texture') current.textures = [...current.textures, node.params]
+    else if (node.kind === 'material') current.material = node.params
+    else if (node.kind === 'text') current.text = node.params.text
     else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]

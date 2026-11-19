@@ -12,7 +12,11 @@ export interface ModifierRangeOverlayProps {
   label?: string
   /** One-based modifier slot used to stagger percentage tags horizontally. */
   index?: number
+  /** Only selected modifiers display editable endpoints. */
+  showHandles?: boolean
   onChange: (patch: { from?: number; to?: number }) => void
+  /** Activate the modifier without discarding the current selection. */
+  onSelect?: () => void
   onGestureBoundary?: () => void
 }
 
@@ -27,7 +31,9 @@ export function ModifierRangeOverlay({
   to,
   label,
   index,
+  showHandles = true,
   onChange,
+  onSelect,
   onGestureBoundary,
 }: ModifierRangeOverlayProps) {
   const track = useRef<HTMLDivElement>(null)
@@ -40,10 +46,12 @@ export function ModifierRangeOverlay({
     onChange({ [key]: Math.round(clamp(((clientY - rect.top) / rect.height) * 100)) })
   }
 
-  function down(key: 'from' | 'to', event: PointerEvent<HTMLButtonElement>) {
+  function down(event: PointerEvent<HTMLButtonElement>) {
     if (!enabled || event.button !== 0) return
+    const key = event.currentTarget.dataset.rangeKey as 'from' | 'to'
     event.stopPropagation()
     event.preventDefault()
+    onSelect?.()
     onGestureBoundary?.()
     drag.current = { pointer: event.pointerId, key }
     try {
@@ -142,51 +150,77 @@ export function ModifierRangeOverlay({
         pointerEvents: 'none',
       }}
     >
-      {(['from', 'to'] as const).map((key) => {
-        const value = clamp(key === 'from' ? from : to)
-        return (
-          <button
-            key={key}
-            type="button"
-            data-handle
-            role="slider"
-            aria-label={label ? `${label} ${key}` : `Modifier ${key}`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={value}
-            aria-orientation="vertical"
-            disabled={!enabled}
-            style={{ ...handleStyle, top: `${value}%` }}
-            onPointerDown={(event) => down(key, event)}
-            onPointerMove={move}
-            onPointerUp={end}
-            onPointerCancel={end}
-            onLostPointerCapture={end}
-            onKeyDown={(event) => keyDown(key, value, event)}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <span
-              data-range-line={key}
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: '50%',
-                zIndex: 1,
-                borderTop: '1px solid white',
-                boxShadow: '0 1px 1px #0008',
-              }}
-            />
-            <span
-              style={{ ...tagStyle, right: tagOffset + (key === 'from' ? (label ? 144 : 68) : 0) }}
+      {enabled && (
+        <div
+          data-handle
+          aria-label={label ? `select ${label} range` : 'select modifier range'}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return
+            event.preventDefault()
+            event.stopPropagation()
+            onSelect?.()
+          }}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: `${Math.min(clamp(from), clamp(to))}%`,
+            height: `${Math.abs(clamp(to) - clamp(from))}%`,
+            pointerEvents: 'auto',
+            cursor: 'pointer',
+          }}
+        />
+      )}
+      {showHandles &&
+        (['from', 'to'] as const).map((key) => {
+          const value = clamp(key === 'from' ? from : to)
+          return (
+            <button
+              key={key}
+              type="button"
+              data-handle
+              data-range-key={key}
+              role="slider"
+              aria-label={label ? `${label} ${key}` : `Modifier ${key}`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={value}
+              aria-orientation="vertical"
+              disabled={!enabled}
+              style={{ ...handleStyle, top: `${value}%` }}
+              onPointerDown={down}
+              onPointerMove={move}
+              onPointerUp={end}
+              onPointerCancel={end}
+              onLostPointerCapture={end}
+              onKeyDown={(event) => keyDown(key, value, event)}
+              onClick={(event) => event.stopPropagation()}
             >
-              {label ? `${label} ` : ''}
-              {key} {Math.round(value)}%
-            </span>
-          </button>
-        )
-      })}
+              <span
+                data-range-line={key}
+                aria-hidden="true"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: '50%',
+                  zIndex: 1,
+                  borderTop: '1px solid white',
+                  boxShadow: '0 1px 1px #0008',
+                }}
+              />
+              <span
+                style={{
+                  ...tagStyle,
+                  right: tagOffset + (key === 'from' ? (label ? 144 : 68) : 0),
+                }}
+              >
+                {label ? `${label} ` : ''}
+                {key} {Math.round(value)}%
+              </span>
+            </button>
+          )
+        })}
     </div>
   )
 }

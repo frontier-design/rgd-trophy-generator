@@ -41,6 +41,9 @@ interface SceneArtboardProps extends SceneRefs {
   /** Pattern nodes' ornament (canvas page). */
   patterns?: readonly SolidPattern[]
   onTextChange: (text: string) => void
+  canvasMode?: boolean
+  textEditable?: boolean
+  onTextHandleDown?: (event: React.PointerEvent<HTMLDivElement>) => void
   /** Observe the exact flattened outline used by the 3D renderer. */
   onOutline?: (outline: Outline2D) => void
   /** Receive the scenes (for video export); referentially stable. */
@@ -70,6 +73,9 @@ export function SceneArtboard({
   textures,
   patterns,
   onTextChange,
+  canvasMode,
+  textEditable,
+  onTextHandleDown,
   onOutline,
   onPaperScene,
   onThreeScene,
@@ -141,6 +147,9 @@ export function SceneArtboard({
         mirror={mirror}
         reveals={model.reveals}
         onTextChange={onTextChange}
+        canvasMode={canvasMode}
+        textEditable={textEditable}
+        onTextHandleDown={onTextHandleDown}
         debug={debug}
       />
       {scene.banner && (

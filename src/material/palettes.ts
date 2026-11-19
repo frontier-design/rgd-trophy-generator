@@ -11,24 +11,35 @@ export interface PaletteStop {
 }
 
 /**
- * Gradient presets, colors listed top → bottom. Picked from the reference
- * (docs/reference/material-ref.png).
+ * Gradient presets, colors listed top → bottom (the darkest stop is the shadow, the lightest
+ * the highlight in lit mode). The color sets used in the RGD awards scenes.
  */
 export const PALETTES: Record<PaletteName, readonly string[]> = {
   // The RGD trophy reference, as a gradient map from shadow to highlight: deep forest
   // green → olive gray → mauve gray → steel blue → blue gray → sage → cream → white.
   studio: ['#1b261d', '#3c463b', '#7b7479', '#7c8fa0', '#a3b0b6', '#c3c6ac', '#ecead8', '#ffffff'],
-  // The tall red vessel: maroon → crimson → orange → coral.
+  // Studio in six stops: dark green, taupe, a dark slate band, steel blue, sage, white.
+  slate: ['#242f22', '#6b6761', '#2f3337', '#7c8fa0', '#bbb8a0', '#ffffff'],
+  // Gold / brass, with dark bands for a reflective look.
+  gold: ['#261812', '#675822', '#ad9b67', '#362707', '#cebd88', '#e5dca9', '#9a915b', '#fef7d6'],
+  // Silver / chrome.
+  silver: ['#121212', '#404040', '#c2c2c2', '#787d87', '#babdc1', '#e6e9eb', '#f5f5f5'],
+  // Bronze / copper.
+  bronze: ['#1a100f', '#55372b', '#7e562a', '#eac080', '#a79476', '#ecdbc0', '#fcfcfc'],
+  // Rose gold.
+  rose: ['#362b2d', '#744c49', '#dbbeb8', '#886863', '#d3b9b6', '#ffe7d6', '#ffffff'],
+  // Neutral gray / pewter.
+  pewter: ['#141414', '#454545', '#878787', '#616161', '#828282', '#636363', '#c7c7c7', '#e6e6e6'],
+}
+
+/** Presets that were removed, by name: saves that used one load as a custom palette of its
+ *  colors, so they look the same. */
+export const LEGACY_PALETTES: Readonly<Record<string, readonly string[]>> = {
   ember: ['#6e1420', '#b8262a', '#ee5530', '#f2875e'],
-  // The center vessel and the small bottle: lavender → pink → hot pink → orange.
   candy: ['#a9a6f2', '#dc8fdb', '#f2547f', '#f0562c'],
-  // The blue hourglass, fading to warm gray at its foot.
   cobalt: ['#0b23c9', '#1840d8', '#6f7fd0', '#c7c1bd'],
-  // The green stack: deep forest → lime.
   forest: ['#0f3a17', '#2c6a2a', '#7fb24a', '#a6cc5e'],
-  // The plum stack: deep plum → magenta → orchid.
   plum: ['#2c0319', '#5e0b43', '#b23fa6', '#f08be8'],
-  // The sphere and the tall flask.
   mustard: ['#cf9632', '#bb762a', '#a5602a'],
 }
 
@@ -57,6 +68,20 @@ export function stopsFromColors(colors: readonly string[]): PaletteStop[] {
   }))
 }
 
+/**
+ * A saved material's palette fields made valid: a removed preset becomes a custom palette of
+ * its colors (LEGACY_PALETTES), an unknown name the default preset.
+ */
+export function migratePalette<T extends Pick<MaterialSettings, 'palette' | 'customColors'>>(
+  look: T,
+): T {
+  const name = look.palette as string
+  if (name === 'custom' || name in PALETTES) return look
+  const legacy = LEGACY_PALETTES[name]
+  if (legacy) return { ...look, palette: 'custom', customColors: [...legacy] }
+  return { ...look, palette: 'studio' }
+}
+
 /** A preset's stops. */
 export function paletteStops(name: PaletteName): PaletteStop[] {
   return stopsFromColors(PALETTES[name])
@@ -67,8 +92,8 @@ export function paletteStops(name: PaletteName): PaletteStop[] {
 export function paletteColors(
   look: Pick<MaterialSettings, 'palette' | 'customColors'>,
 ): readonly string[] {
-  if (look.palette !== 'custom') return PALETTES[look.palette]
-  return look.customColors.length > 0 ? look.customColors : PALETTES.ember
+  if (look.palette !== 'custom') return PALETTES[look.palette] ?? PALETTES.studio
+  return look.customColors.length > 0 ? look.customColors : PALETTES.studio
 }
 
 /** The material's gradient stops (preset or custom). */

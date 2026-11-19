@@ -6,7 +6,7 @@
  */
 
 /** Gradient presets for the trophy material, based on docs/reference/material-ref.png. */
-export type PaletteName = 'studio' | 'ember' | 'candy' | 'cobalt' | 'forest' | 'plum' | 'mustard'
+export type PaletteName = 'studio' | 'slate' | 'gold' | 'silver' | 'bronze' | 'rose' | 'pewter'
 
 /** A preset, or the user's own colors (`MaterialSettings.customColors`). */
 export type PaletteChoice = PaletteName | 'custom'

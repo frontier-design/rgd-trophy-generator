@@ -6,10 +6,10 @@ import { DEFAULT_MATERIAL } from '../../src/state'
 describe('createTrophyMaterial', () => {
   it('drives the uniforms from the material settings', () => {
     const material = createTrophyMaterial()
-    material.setLook({ ...DEFAULT_MATERIAL, palette: 'plum', wobble: 0.25, grain: 0.5 })
+    material.setLook({ ...DEFAULT_MATERIAL, palette: 'rose', wobble: 0.25, grain: 0.5 })
     const u = material.surface.uniforms
 
-    const stops = paletteStops('plum')
+    const stops = paletteStops('rose')
     expect(u.uStopCount!.value).toBe(stops.length)
     const colors = u.uStopColors!.value as Vector3[]
     expect(colors).toHaveLength(MAX_STOPS)

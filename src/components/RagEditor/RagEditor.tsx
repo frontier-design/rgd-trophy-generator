@@ -24,6 +24,10 @@ interface RagEditorProps {
   /** Show the debug overlay (line boxes, width labels, baselines, right-edge guide).
    *  Hidden via opacity, not removed. */
   debug: boolean
+  /** Canvas mode uses the measured left-side boxes to select a linked text node. */
+  onTextHandleDown?: (event: React.PointerEvent<HTMLDivElement>) => void
+  canvasMode?: boolean
+  textEditable?: boolean
 }
 
 /**
@@ -50,6 +54,9 @@ export function RagEditor({
   reveals = null,
   onTextChange,
   debug,
+  onTextHandleDown,
+  canvasMode = false,
+  textEditable = false,
 }: RagEditorProps) {
   // Pretext emits no empty line for a trailing "\n", but the textarea puts the caret there.
   const rows = Math.max(1, lines.length + (settings.text.endsWith('\n') ? 1 : 0))
@@ -106,11 +113,14 @@ export function RagEditor({
       data-debug={debug ? 'on' : 'off'}
       data-revealing={reveals ? 'on' : undefined}
       data-align={align}
+      data-canvas-mode={canvasMode || undefined}
+      data-text-editable={(canvasMode && textEditable) || undefined}
     >
       <textarea
         className="rag-text"
         aria-label="Text"
         value={settings.text}
+        readOnly={canvasMode && !textEditable}
         onChange={(e) => onTextChange(e.target.value)}
         placeholder="Start typing…"
         spellCheck={false}
@@ -140,6 +150,18 @@ export function RagEditor({
           ))}
         </div>
       )}
+      {onTextHandleDown &&
+        !textEditable &&
+        boxes.map((box) => (
+          <div
+            key={box.lineIndex}
+            className="rag-text-handle"
+            data-handle
+            aria-label="select text node"
+            onPointerDown={onTextHandleDown}
+            style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
+          />
+        ))}
       <div className="rag-overlay" aria-hidden="true">
         <div className="rag-edge" />
         {baselines.map((y, i) => (

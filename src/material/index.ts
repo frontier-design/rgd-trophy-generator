@@ -27,6 +27,8 @@ export {
 } from './oklab'
 export {
   hexToRgb,
+  LEGACY_PALETTES,
+  migratePalette,
   materialStops,
   MAX_STOPS,
   MIN_CUSTOM_COLORS,

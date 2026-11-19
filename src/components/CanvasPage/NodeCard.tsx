@@ -1,7 +1,14 @@
 import { memo, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
 import type { PatternStatus } from '../../hooks'
-import type { EtchParams, PatternParams, TextureParams, TwistParams } from '../../types'
+import type {
+  EtchParams,
+  PatternParams,
+  TextureParams,
+  TwistParams,
+  MaterialSettings,
+} from '../../types'
+import { MaterialFields } from './MaterialFields'
 import { EtchFields } from './EtchFields'
 import type { ModifierNode } from './graph'
 import type { MasterNode, MasterParams } from './master'
@@ -17,6 +24,8 @@ export type ParamsPatch =
   | Partial<PatternParams>
   | Partial<TextureParams>
   | Partial<MasterParams>
+  | Partial<MaterialSettings>
+  | { text?: string }
 
 /** Where a press edits rather than drags the node. */
 const EDITABLE = 'textarea, input, select, button, a, [data-port]'
@@ -75,6 +84,19 @@ export const NodeCard = memo(function NodeCard({
         return <TwistFields params={params as TwistParams} set={set} />
       case 'etch':
         return <EtchFields params={params as EtchParams} set={set} />
+      case 'text':
+        return (
+          <label>
+            Text
+            <textarea
+              aria-label="Text"
+              value={(params as { text: string }).text}
+              onChange={(e) => set({ text: e.target.value })}
+            />
+          </label>
+        )
+      case 'material':
+        return <MaterialFields params={params as MaterialSettings} set={set} />
       case 'texture':
         return <TextureFields params={params as TextureParams} set={set} />
       case 'pattern':

@@ -42,6 +42,9 @@ interface CanvasSceneProps {
   renderZoom: number
   modifiers: SceneModifiers
   rangeModifiers?: readonly ModifierNode[]
+  selectedRangeModifierIds?: ReadonlySet<string>
+  textNodeId?: string
+  selectedTextNodeIds?: ReadonlySet<string>
   onRangeChange?: (id: string, patch: { from?: number; to?: number }) => void
   onRangeBoundary?: () => void
   onSelect: (id: string, additive?: boolean, preserveGroup?: boolean) => void
@@ -81,6 +84,9 @@ export const CanvasScene = memo(function CanvasScene({
   renderZoom,
   modifiers,
   rangeModifiers = EMPTY_RANGE_MODIFIERS,
+  selectedRangeModifierIds,
+  textNodeId,
+  selectedTextNodeIds,
   onRangeChange,
   onRangeBoundary,
   onSelect,
@@ -163,6 +169,12 @@ export const CanvasScene = memo(function CanvasScene({
       {...drag}
       onPointerDown={(e) => {
         if (e.button !== 0) return
+        if (
+          (e.target as Element).closest('.rag-text') &&
+          textNodeId &&
+          selectedTextNodeIds?.has(textNodeId)
+        )
+          return
         const editable = Boolean((e.target as Element).closest(EDITABLE))
         onSelect(id, e.shiftKey, !editable)
         if (e.shiftKey || editable) return
@@ -245,8 +257,19 @@ export const CanvasScene = memo(function CanvasScene({
         renderZoom={renderZoom}
         modifiers={modifiers}
         onTextChange={onTextChange}
+        textEditable={Boolean(textNodeId && selectedTextNodeIds?.has(textNodeId))}
         onExporter={onExporter}
         onRangeBounds={setRangeBounds}
+        onTextHandleDown={
+          textNodeId
+            ? (event) => {
+                if (event.button !== 0) return
+                event.preventDefault()
+                event.stopPropagation()
+                onSelect(textNodeId, event.shiftKey, true)
+              }
+            : undefined
+        }
       />
       {revolve &&
         rangeBounds &&
@@ -255,11 +278,17 @@ export const CanvasScene = memo(function CanvasScene({
           <ModifierRangeOverlay
             key={rangeModifier.id}
             {...rangeBounds}
-            from={rangeModifier.params.from}
-            to={rangeModifier.params.to}
+            from={'from' in rangeModifier.params ? rangeModifier.params.from : 0}
+            to={'to' in rangeModifier.params ? rangeModifier.params.to : 100}
             label={rangeModifier.name}
-            index={index + 1}
+            index={
+              rangeModifiers
+                .slice(0, index + 1)
+                .filter((modifier) => selectedRangeModifierIds?.has(modifier.id)).length
+            }
+            showHandles={selectedRangeModifierIds?.has(rangeModifier.id) ?? false}
             onChange={(patch) => onRangeChange?.(rangeModifier.id, patch)}
+            onSelect={() => onSelect(rangeModifier.id, false, true)}
             onGestureBoundary={onRangeBoundary}
           />
         ))}
@@ -274,13 +303,17 @@ const SceneArtwork = memo(function SceneArtwork({
   onTextChange,
   onExporter,
   onRangeBounds,
+  onTextHandleDown,
+  textEditable,
 }: {
+  textEditable: boolean
   node: ArtworkNode
   renderZoom: number
   modifiers: SceneModifiers
   onTextChange: CanvasSceneProps['onTextChange']
   onExporter: CanvasSceneProps['onExporter']
   onRangeBounds: (bounds: RangeBounds | null) => void
+  onTextHandleDown?: (event: React.PointerEvent<HTMLDivElement>) => void
 }) {
   const editorRef = useRef<HTMLDivElement>(null)
   const artboardRef = useRef<HTMLDivElement>(null)
@@ -292,7 +325,22 @@ const SceneArtwork = memo(function SceneArtwork({
   const setPaper = useCallback((s: PaperScene | null) => {
     paperRef.current = s
   }, [])
-  const { id, settings, scene, bannerPosition, bannerText, frame } = node
+  const { id, scene, bannerPosition, bannerText, frame } = node
+  const settings = useMemo(
+    () =>
+      modifiers.material || modifiers.text !== undefined
+        ? {
+            ...node.settings,
+            ...(modifiers.material ? { material: modifiers.material } : {}),
+            ...(modifiers.text !== undefined ? { text: modifiers.text } : {}),
+          }
+        : node.settings,
+    [node.settings, modifiers.material, modifiers.text],
+  )
+  const effectiveNode = useMemo(
+    () => (settings === node.settings ? node : { ...node, settings }),
+    [node, settings],
+  )
   const model = useSceneModel(
     settings,
     scene,
@@ -318,9 +366,9 @@ const SceneArtwork = memo(function SceneArtwork({
   }, [outline, settings.columnWidth, model.anchor.y, onRangeBounds])
   const setText = useCallback((text: string) => onTextChange(id, text), [onTextChange, id])
 
-  const latest = useRef({ model, node, pixelRatio })
+  const latest = useRef({ model, node: effectiveNode, pixelRatio })
   useEffect(() => {
-    latest.current = { model, node, pixelRatio }
+    latest.current = { model, node: effectiveNode, pixelRatio }
   })
   useEffect(() => {
     onExporter(id, async ({ format, scale, transparent }) => {
@@ -374,6 +422,9 @@ const SceneArtwork = memo(function SceneArtwork({
       textures={modifiers.textures}
       patterns={modifiers.patterns}
       onTextChange={setText}
+      canvasMode
+      textEditable={textEditable}
+      onTextHandleDown={onTextHandleDown}
       onOutline={setOutline}
       onPaperScene={setPaper}
       onThreeScene={setThree}

@@ -1,4 +1,5 @@
 import type { PanZoomView } from '../../hooks'
+import { migratePalette } from '../../material'
 import {
   DEFAULT_BANNER_TEXT,
   DEFAULT_MATERIAL,
@@ -35,7 +36,15 @@ export interface CanvasDocument {
   /** The settings every scene shares (applied to all of them). */
   master: MasterNode
   /** Nodes inserted so far of each kind (their names and ids continue from here). */
-  inserted: { scene: number; twist: number; etch: number; pattern: number; texture: number }
+  inserted: {
+    scene: number
+    twist: number
+    etch: number
+    pattern: number
+    texture: number
+    material: number
+    text: number
+  }
   /** Where the canvas was looking. */
   view: PanZoomView | null
 }
@@ -46,7 +55,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   modifiers: [],
   links: [],
   master: createMasterNode(),
-  inserted: { scene: 0, twist: 0, etch: 0, pattern: 0, texture: 0 },
+  inserted: { scene: 0, twist: 0, etch: 0, pattern: 0, texture: 0, material: 0, text: 0 },
   view: null,
 }
 
@@ -93,7 +102,8 @@ function parseScene(value: unknown): SceneNode | null {
     settings: {
       ...DEFAULT_SETTINGS,
       ...settings,
-      material: { ...DEFAULT_MATERIAL, ...asObject(settings.material) },
+      // (A preset that was removed loads as a custom palette of its colors.)
+      material: migratePalette({ ...DEFAULT_MATERIAL, ...asObject(settings.material) }),
     } as SceneNode['settings'],
     scene: {
       ...DEFAULT_SCENE_PARAMS,
@@ -150,6 +160,16 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
       kind: 'texture',
       params: { ...DEFAULT_TEXTURE, ...params },
     } as ModifierNode
+  }
+  if (type === 'text') {
+    return {
+      ...base,
+      kind: 'text',
+      params: { text: typeof params.text === 'string' ? params.text : DEFAULT_SETTINGS.text },
+    }
+  }
+  if (type === 'material') {
+    return { ...base, kind: 'material', params: migratePalette({ ...DEFAULT_MATERIAL, ...params }) }
   }
   if (type === 'twist') {
     return { ...base, kind: 'twist', params: { ...DEFAULT_TWIST, ...params } } as ModifierNode
@@ -246,6 +266,14 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       pattern: Math.max(
         isFiniteNumber(inserted.pattern) ? inserted.pattern : 0,
         highestId(modifiers, 'pattern'),
+      ),
+      material: Math.max(
+        isFiniteNumber(inserted.material) ? inserted.material : 0,
+        highestId(modifiers, 'material'),
+      ),
+      text: Math.max(
+        isFiniteNumber(inserted.text) ? inserted.text : 0,
+        highestId(modifiers, 'text'),
       ),
       texture: Math.max(
         isFiniteNumber(inserted.texture) ? inserted.texture : 0,

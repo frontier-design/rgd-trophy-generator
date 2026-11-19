@@ -120,8 +120,8 @@ describe('ControlPanel', () => {
     renderApp()
     const palette = screen.getByRole('combobox', { name: 'palette' })
     expect(palette).toHaveValue('studio')
-    fireEvent.change(palette, { target: { value: 'cobalt' } })
-    expect(palette).toHaveValue('cobalt')
+    fireEvent.change(palette, { target: { value: 'bronze' } })
+    expect(palette).toHaveValue('bronze')
 
     for (const name of [
       'offset',
@@ -147,7 +147,7 @@ describe('ControlPanel', () => {
   it('editing a preset color switches to a custom palette seeded from that preset', () => {
     renderApp()
     const palette = screen.getByRole('combobox', { name: 'palette' })
-    fireEvent.change(palette, { target: { value: 'ember' } })
+    fireEvent.change(palette, { target: { value: 'slate' } })
 
     fireEvent.input(screen.getByLabelText('color 2'), { target: { value: '#00ff00' } })
 
@@ -155,29 +155,29 @@ describe('ControlPanel', () => {
     const swatches = ['color 1', 'color 2', 'color 3', 'color 4'].map(
       (name) => (screen.getByLabelText(name) as HTMLInputElement).value,
     )
-    expect(swatches).toEqual([PALETTES.ember[0], '#00ff00', PALETTES.ember[2], PALETTES.ember[3]])
+    expect(swatches).toEqual([PALETTES.slate[0], '#00ff00', PALETTES.slate[2], PALETTES.slate[3]])
   })
 
   it('adds and removes colors within the limits, and keeps custom colors across presets', () => {
     renderApp()
-    // Start from a 4-color preset (studio, the default, already has the maximum 8).
+    // Start from a 6-color preset (studio, the default, already has the maximum 8).
     fireEvent.change(screen.getByRole('combobox', { name: 'palette' }), {
-      target: { value: 'ember' },
+      target: { value: 'slate' },
     })
     const add = screen.getByRole('button', { name: '+ add color' })
-    fireEvent.click(add) // 4 → 5 (switches to custom)
+    fireEvent.click(add) // 6 → 7 (switches to custom)
     expect(screen.getByRole('combobox', { name: 'palette' })).toHaveValue('custom')
-    expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(5)
+    expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(7)
 
     // Remove down to the minimum of 2; then remove is disabled.
-    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByLabelText('remove color 1'))
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByLabelText('remove color 1'))
     expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(2)
     expect(screen.getByLabelText('remove color 1')).toBeDisabled()
 
     // Browse a preset and come back: the custom colors are still there.
     const palette = screen.getByRole('combobox', { name: 'palette' })
-    fireEvent.change(palette, { target: { value: 'plum' } })
-    expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(PALETTES.plum.length)
+    fireEvent.change(palette, { target: { value: 'silver' } })
+    expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(PALETTES.silver.length)
     fireEvent.change(palette, { target: { value: 'custom' } })
     expect(screen.getAllByLabelText(/^color \d+$/)).toHaveLength(2)
   })

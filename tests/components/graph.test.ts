@@ -14,6 +14,22 @@ import {
 } from '../../src/components/CanvasPage/graph'
 
 describe('node graph', () => {
+  it('resolves linked materials per scene, with the last link taking precedence', () => {
+    const a = createModifier('material', 'a', 'a', 0, 0)
+    const b = createModifier('material', 'b', 'b', 0, 0)
+    const resolved = modifiersByScene(
+      [
+        { from: 'a', to: 's1' },
+        { from: 'b', to: 's1' },
+        { from: 'a', to: 's2' },
+      ],
+      [a, b],
+    )
+    expect(resolved.get('s1')?.material).toBe(b.params)
+    expect(resolved.get('s2')?.material).toBe(a.params)
+    expect(modifiersByScene([], [a]).has('s1')).toBe(false)
+  })
+
   it('links an output to an input once', () => {
     const links = connect(connect([], 'twist-1', 'scene-1'), 'twist-1', 'scene-1')
     expect(links).toEqual([{ from: 'twist-1', to: 'scene-1' }])
