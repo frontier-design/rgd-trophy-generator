@@ -1,5 +1,10 @@
 import { createModifier, createSceneModifiersResolver } from '../../src/components/CanvasPage/graph'
-import { parseCanvasDocument } from '../../src/components/CanvasPage/canvasDocument'
+import {
+  loadCanvasDocument,
+  parseCanvasDocument,
+  storeCanvasDocument,
+} from '../../src/components/CanvasPage/canvasDocument'
+import { readSaved, writeSaved } from '../../src/state/persist'
 import {
   copySelection,
   pasteSelection,
@@ -26,6 +31,29 @@ describe('text nodes', () => {
       resolve(links, [{ ...a, params: { text: 'updated' } }, b], new Map()).get('s2')?.text,
     ).toBe('updated')
     expect(resolve(links.slice(0, 1), [a, b], new Map()).get('s1')?.text).toBe('first')
+  })
+
+  it('round-trips counters through autosave and recovers missing or corrupt legacy counters', () => {
+    const node = createModifier('text', 'text-4', 'text 4', 0, 0)
+    const legacy = parseCanvasDocument({ modifiers: [node], inserted: { text: null } })
+    expect(legacy.inserted.text).toBe(4)
+    expect(
+      writeSaved(
+        'canvas',
+        storeCanvasDocument({ ...legacy, inserted: { ...legacy.inserted, text: 9 } }),
+      ),
+    ).toBe(true)
+    expect(loadCanvasDocument().inserted.text).toBe(9)
+    expect((readSaved('canvas') as { inserted: { text: number } }).inserted.text).toBe(9)
+
+    for (const invalid of [NaN, Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER]) {
+      expect(
+        parseCanvasDocument({ modifiers: [node], inserted: { text: invalid } }).inserted.text,
+      ).toBe(4)
+    }
+    const hugeId = { ...node, id: `text-${'9'.repeat(400)}` }
+    expect(parseCanvasDocument({ modifiers: [hugeId], inserted: {} }).inserted.text).toBe(0)
+    window.localStorage.removeItem('rgd-generator:canvas')
   })
 
   it('persists and copies text nodes, including legacy counters', () => {

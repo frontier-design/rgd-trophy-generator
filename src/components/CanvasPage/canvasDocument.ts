@@ -65,6 +65,12 @@ const isObject = (value: unknown): value is Loose =>
 const asObject = (value: unknown): Loose => (isObject(value) ? value : {})
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
+// Counters are non-negative integers, with room for an increment.
+const isCounter = (value: unknown): value is number =>
+  typeof value === 'number' &&
+  Number.isSafeInteger(value) &&
+  value >= 0 &&
+  value < Number.MAX_SAFE_INTEGER
 
 /** A saved frame size (the default for saves from before frames could change). */
 function parseFrame(value: unknown): SceneNode['frame'] {
@@ -216,7 +222,8 @@ function highestId(nodes: readonly { id: string }[], prefix: string): number {
     0,
     ...nodes
       .filter((node) => node.id.startsWith(prefix))
-      .map((node) => Number(/(\d+)$/.exec(node.id)?.[1] ?? 0)),
+      .map((node) => Number(/(\d+)$/.exec(node.id)?.[1] ?? 0))
+      .filter(isCounter),
   )
 }
 
@@ -238,7 +245,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       typeof link.to === 'string' &&
       ids.has(link.from) &&
       ids.has(link.to)
-      ? [{ from: link.from, to: link.to }]
+      ? [{ from: link.from, to: link.to, ...(link.muted === true ? { muted: true } : {}) }]
       : []
   })
   const inserted = asObject(value.inserted)
@@ -251,32 +258,23 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     master,
     // Never reuse an id: past every id's number.
     inserted: {
-      scene: Math.max(
-        isFiniteNumber(inserted.scene) ? inserted.scene : 0,
-        highestId(scenes, 'scene'),
-      ),
+      scene: Math.max(isCounter(inserted.scene) ? inserted.scene : 0, highestId(scenes, 'scene')),
       twist: Math.max(
-        isFiniteNumber(inserted.twist) ? inserted.twist : 0,
+        isCounter(inserted.twist) ? inserted.twist : 0,
         highestId(modifiers, 'twist'),
       ),
-      etch: Math.max(
-        isFiniteNumber(inserted.etch) ? inserted.etch : 0,
-        highestId(modifiers, 'etch'),
-      ),
+      etch: Math.max(isCounter(inserted.etch) ? inserted.etch : 0, highestId(modifiers, 'etch')),
       pattern: Math.max(
-        isFiniteNumber(inserted.pattern) ? inserted.pattern : 0,
+        isCounter(inserted.pattern) ? inserted.pattern : 0,
         highestId(modifiers, 'pattern'),
       ),
       material: Math.max(
-        isFiniteNumber(inserted.material) ? inserted.material : 0,
+        isCounter(inserted.material) ? inserted.material : 0,
         highestId(modifiers, 'material'),
       ),
-      text: Math.max(
-        isFiniteNumber(inserted.text) ? inserted.text : 0,
-        highestId(modifiers, 'text'),
-      ),
+      text: Math.max(isCounter(inserted.text) ? inserted.text : 0, highestId(modifiers, 'text')),
       texture: Math.max(
-        isFiniteNumber(inserted.texture) ? inserted.texture : 0,
+        isCounter(inserted.texture) ? inserted.texture : 0,
         highestId(modifiers, 'texture'),
       ),
     },

@@ -16,6 +16,7 @@ import { MasterFields } from './MasterFields'
 import { PatternFields } from './PatternFields'
 import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
+import { RangeField } from '../ControlPanel/RangeField'
 
 /** A node's field edit: a patch of its params. */
 export type ParamsPatch =
@@ -39,8 +40,14 @@ interface NodeCardProps {
   getZoom: () => number
   /** Linked to at least one scene. */
   connected: boolean
+  muted?: boolean
+  onToggleMute?: (id: string) => void
   /** A pattern node's map as it's being made. */
   pattern?: PatternStatus
+  typingSpeed?: number
+  typingPlaying?: boolean
+  onTypingSpeed?: (id: string, speed: number) => void
+  onTypingToggle?: (id: string, text: string) => void
   /** Zoomed out so far the card is small: show only its header. */
   compact: boolean
   onCollapsedChange: (id: string, collapsed: boolean) => void
@@ -62,7 +69,13 @@ export const NodeCard = memo(function NodeCard({
   selected,
   getZoom,
   connected,
+  muted,
+  onToggleMute,
   pattern,
+  typingSpeed,
+  typingPlaying,
+  onTypingSpeed,
+  onTypingToggle,
   compact,
   onCollapsedChange,
   onSelect,
@@ -86,14 +99,32 @@ export const NodeCard = memo(function NodeCard({
         return <EtchFields params={params as EtchParams} set={set} />
       case 'text':
         return (
-          <label>
-            Text
-            <textarea
-              aria-label="Text"
-              value={(params as { text: string }).text}
-              onChange={(e) => set({ text: e.target.value })}
+          <>
+            <label className="text-node-field node-card-wide">
+              <span className="text-node-label">Text</span>
+              <textarea
+                className="control-text text-node-input"
+                aria-label="Text"
+                value={(params as { text: string }).text}
+                onChange={(e) => set({ text: e.target.value })}
+              />
+            </label>
+            <RangeField
+              label="Speed (chars/s)"
+              min={1}
+              max={60}
+              unit=""
+              value={typingSpeed ?? 8}
+              onChange={(speed) => onTypingSpeed?.(id, speed)}
             />
-          </label>
+            <button
+              type="button"
+              className="control-button node-card-wide"
+              onClick={() => onTypingToggle?.(id, (params as { text: string }).text)}
+            >
+              {typingPlaying ? 'Stop typing' : 'Play typing'}
+            </button>
+          </>
         )
       case 'material':
         return <MaterialFields params={params as MaterialSettings} set={set} />
@@ -102,7 +133,17 @@ export const NodeCard = memo(function NodeCard({
       case 'pattern':
         return <PatternFields params={params as PatternParams} set={set} status={pattern} />
     }
-  }, [kind, params, id, onParamsChange, pattern])
+  }, [
+    kind,
+    params,
+    id,
+    onParamsChange,
+    pattern,
+    typingSpeed,
+    typingPlaying,
+    onTypingSpeed,
+    onTypingToggle,
+  ])
 
   return (
     <div
@@ -112,6 +153,7 @@ export const NodeCard = memo(function NodeCard({
       data-kind={kind}
       data-no-pan
       data-selected={selected || undefined}
+      data-muted={muted || undefined}
       data-compact={compact || node.collapsed || undefined}
       style={{
         left: node.x,
@@ -126,13 +168,21 @@ export const NodeCard = memo(function NodeCard({
         className="node-card"
         role="group"
         aria-label={node.name}
+        title={isMaster ? undefined : 'Command-click to mute or unmute outgoing links'}
         {...drag}
         onPointerDown={(e) => {
           if (e.button !== 0) return
           const editable = Boolean((e.target as Element).closest(EDITABLE))
+          if (e.metaKey && !editable && !isMaster) return
           onSelect(id, e.shiftKey, !editable)
           if (e.shiftKey || editable) return
           drag.onPointerDown(e)
+        }}
+        onClick={(e) => {
+          if (e.metaKey && !isMaster && !(e.target as Element).closest(EDITABLE)) {
+            e.preventDefault()
+            onToggleMute?.(id)
+          }
         }}
       >
         <div className="node-card-header">

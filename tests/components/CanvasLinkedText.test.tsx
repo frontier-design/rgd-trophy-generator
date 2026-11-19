@@ -15,6 +15,13 @@ it('selects linked text from an artboard handle, shares edits, and locks again o
   fireEvent.contextMenu(canvas, { clientX: 40, clientY: 40 })
   fireEvent.click(screen.getByRole('menuitem', { name: 'insert text' }))
   const textNode = screen.getByRole('group', { name: 'text 1' })
+  const speed = within(textNode).getByRole('slider', {
+    name: 'Speed (chars/s)',
+  })
+  expect(speed).toHaveValue('8')
+  fireEvent.change(speed, { target: { value: '20' } })
+  expect(speed).toHaveValue('20')
+  expect(within(textNode).getByRole('textbox', { name: 'Text' })).toHaveClass('control-text')
   for (const [index, scene] of [scene1, scene2].entries()) {
     const pointerId = index + 10
     fireEvent.pointerDown(within(textNode).getByLabelText('text 1 output'), {
@@ -35,6 +42,13 @@ it('selects linked text from an artboard handle, shares edits, and locks again o
   expect(textNode.parentElement).toHaveAttribute('data-selected')
   expect(firstText).not.toHaveAttribute('readonly')
   expect(secondText).not.toHaveAttribute('readonly')
+  const source = within(textNode).getByRole('textbox')
+  fireEvent.change(source, { target: { value: 'Complete source' } })
+  fireEvent.click(within(textNode).getByRole('button', { name: 'Play typing' }))
+  expect(firstText).toHaveValue('')
+  fireEvent.focus(firstText)
+  expect(firstText).toHaveValue('Complete source')
+  expect(secondText).toHaveValue('Complete source')
   fireEvent.change(firstText, { target: { value: 'Shared update' } })
   expect(secondText).toHaveValue('Shared update')
   fireEvent.pointerDown(canvas, { button: 0, pointerId: 32 })

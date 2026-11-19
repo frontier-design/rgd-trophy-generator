@@ -45,7 +45,9 @@ export function shapeExtent(
   lines: LineMeasure[],
   { lineHeight, topHeight, overshoot = 0, metrics, left = 0, top, whenEmpty }: ShapeExtentOptions,
 ): ShapeExtent | null {
-  const last = lines.at(-1)
+  // Empty rows still occupy editor height, but cannot define the trophy's last baseline.
+  // Preserve their indices so blank rows between visible lines keep their spacing.
+  const last = [...lines].reverse().find((line) => line.text.trim().length > 0)
   if (!last || boxes.length === 0) {
     if (!whenEmpty || !(whenEmpty.bottom > whenEmpty.top)) return null
     return { left, top: whenEmpty.top, bandBottom: whenEmpty.top, bottom: whenEmpty.bottom }

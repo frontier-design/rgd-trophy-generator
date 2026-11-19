@@ -164,8 +164,8 @@ body {
   width: var(--artboard-width);
   height: var(--artboard-height);
   padding: var(--artboard-padding);
-  /* A bottom banner pushes the text up above it (App sets this). */
-  padding-bottom: var(--artboard-padding-bottom, var(--artboard-padding));
+  /* The editor's signed bottom margin controls its vertical placement. */
+  padding-bottom: 0;
   overflow: hidden;
   color: var(--color-canvas-text);
   background: var(--color-artboard-bg);
@@ -240,6 +240,7 @@ body {
   position: relative;
   flex: none;
   width: var(--rag-column-width);
+  margin-bottom: var(--artboard-padding-bottom, var(--artboard-padding));
 }
 
 /* Layers, bottom to top: rag shape canvas → 3D view → textarea → debug overlay. */
@@ -1173,8 +1174,14 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
-.node-links path[data-pending] {
+.node-links path[data-pending],
+.node-links path[data-muted] {
   stroke-dasharray: 6 4;
+}
+
+.node-links path[data-muted],
+.canvas-node[data-muted] {
+  opacity: 0.6;
 }
 
 /* ---- Page tools: the page dropdown and saving ------------------------------ */
@@ -1214,6 +1221,22 @@ body {
   display: grid;
   gap: 6px;
   padding-bottom: 6px;
+}
+
+.text-node-field {
+  min-width: 0;
+}
+
+.text-node-label {
+  font-weight: 700;
+}
+
+.text-node-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+  box-sizing: border-box;
+  resize: vertical;
 }
 
 /* The pattern's height map, white ornament on black. */

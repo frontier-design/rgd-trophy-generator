@@ -48,7 +48,7 @@ export interface SceneModel {
   banner: BannerLayout
   /** How far from the frame's bottom the trophy ends (px). */
   bottomClearance: number
-  /** The text block's bottom padding that puts the trophy's bottom there (px). */
+  /** Signed bottom offset of the text block that puts the trophy's bottom there (px). */
   bottomInset: number
   /** While the text reveals: each line's state; null once it's all in. */
   reveals: LineReveal[] | null
@@ -253,11 +253,11 @@ export function useSceneModel(
         : extent,
     [extent, fill, anchor, columnWidth, frame.width, frame.height],
   )
-  // The text block's bottom padding that puts the trophy's bottom (the last baseline plus
+  // The text block's signed bottom offset that puts the trophy's bottom (the last baseline plus
   // the overshoot, not the text box's bottom, which includes the descenders) exactly
   // `bottomClearance` from the frame's bottom, the same margin as the sides.
   const bottomInset = extent
-    ? Math.max(0, bottomClearance + extent.bottom - rows * lineHeight)
+    ? bottomClearance + extent.bottom - rows * lineHeight
     : bottomClearance
   // Each line's baseline, for the debug guides.
   const baselines = useMemo(

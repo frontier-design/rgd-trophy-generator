@@ -136,10 +136,10 @@ export function pasteSelection(
     x: node.x + delta.x,
     y: node.y + delta.y,
   }))
-  const links = snapshot.links.flatMap(({ from, to }) => {
-    const newFrom = remap.get(from),
-      newTo = remap.get(to)
-    return newFrom && newTo ? [{ from: newFrom, to: newTo }] : []
+  const links = snapshot.links.flatMap((link) => {
+    const newFrom = remap.get(link.from),
+      newTo = remap.get(link.to)
+    return newFrom && newTo ? [{ ...link, from: newFrom, to: newTo }] : []
   })
   const ids = snapshot.ids.flatMap((id) => {
     const next = remap.get(id)

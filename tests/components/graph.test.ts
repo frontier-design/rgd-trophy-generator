@@ -14,6 +14,19 @@ import {
 } from '../../src/components/CanvasPage/graph'
 
 describe('node graph', () => {
+  it('skips muted links and restores their precedence when unmuted', () => {
+    const a = createModifier('text', 'a', 'a', 0, 0)
+    const b = createModifier('text', 'b', 'b', 0, 0)
+    if (a.kind !== 'text' || b.kind !== 'text') throw new Error('expected text nodes')
+    a.params.text = 'first'
+    b.params.text = 'second'
+    const resolve = createSceneModifiersResolver()
+    const links = [{ from: 'a', to: 's' }, { from: 'b', to: 's' }]
+    expect(resolve(links, [a, b]).get('s')?.text).toBe('second')
+    expect(resolve([links[0]!, { ...links[1]!, muted: true }], [a, b]).get('s')?.text).toBe('first')
+    expect(resolve(links, [a, b]).get('s')?.text).toBe('second')
+  })
+
   it('resolves linked materials per scene, with the last link taking precedence', () => {
     const a = createModifier('material', 'a', 'a', 0, 0)
     const b = createModifier('material', 'b', 'b', 0, 0)

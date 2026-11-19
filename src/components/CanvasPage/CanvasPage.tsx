@@ -44,6 +44,7 @@ import {
 } from './sceneNode'
 import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './master'
 import { NodeCard, type ParamsPatch } from './NodeCard'
+import { useTypingPlayback } from './useTypingPlayback'
 import {
   createNodePositionStore,
   NodeDragContext,
@@ -138,6 +139,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const { view, size, reset } = useInfiniteCanvas(canvasRef, saved.view)
   const [scenes, setScenes] = useState<SceneNode[]>(saved.scenes)
   const [modifiers, setModifiers] = useState<ModifierNode[]>(saved.modifiers)
+  const typing = useTypingPlayback(modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
   const [master, setMaster] = useState<MasterNode>(saved.master)
   // The master's settings, for updates made in callbacks (every scene keeps them).
@@ -181,7 +183,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const [inserted, setInserted] = useState(saved.inserted)
   const insertedRef = useRef(inserted)
   const reserveCount = (kind: keyof typeof inserted) => {
-    const count = insertedRef.current[kind] + 1
+    const previous = insertedRef.current[kind]
+    const count = (Number.isFinite(previous) ? previous : 0) + 1
     insertedRef.current = { ...insertedRef.current, [kind]: count }
     setInserted(insertedRef.current)
     return count
@@ -328,7 +331,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         .reverse()
         .find(
           (link) =>
-            link.to === id &&
+            !link.muted && link.to === id &&
             modifiers.some((node) => node.id === link.from && node.kind === 'text'),
         )
       if (source) {
@@ -580,15 +583,29 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   // Position/name/fold changes don't invalidate artwork, and unrelated scenes keep their inputs.
   const resolveModifiers = useMemo(() => createSceneModifiersResolver(), [])
   const sceneModifiers = useMemo(
-    () => resolveModifiers(links, modifiers, patternMaps),
-    [resolveModifiers, links, modifiers, patternMaps],
+    () => resolveModifiers(links, typing.previewNodes, patternMaps),
+    [resolveModifiers, links, typing.previewNodes, patternMaps],
   )
   const linkedNodes = useMemo(() => new Set(links.map((link) => link.from)), [links])
+  const mutedNodes = useMemo(() => {
+    const muted = new Set(links.filter((link) => link.muted).map((link) => link.from))
+    for (const link of links) if (!link.muted) muted.delete(link.from)
+    return muted
+  }, [links])
+  const toggleOutgoingMute = useCallback((id: string) => {
+    setLinks((current) => {
+      const outgoing = current.filter((link) => link.from === id)
+      if (!outgoing.length) return current
+      const muted = outgoing.some((link) => !link.muted)
+      return current.map((link) => link.from === id ? { ...link, muted } : link)
+    })
+  }, [])
   // Hit areas exist for all linked range modifiers, independently of selection.
   const rangeModifiersByScene = useMemo(() => {
     const byId = new Map(modifiers.map((node) => [node.id, node]))
     const grouped = new Map<string, ModifierNode[]>()
     for (const link of links) {
+      if (link.muted) continue
       const modifier = byId.get(link.from)
       if (modifier && modifier.kind !== 'material' && modifier.kind !== 'text')
         grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
@@ -618,7 +635,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     const to = scenesById.get(link.to)
     if (!from || !to) return []
     const key = `${link.from}→${link.to}`
-    return [{ key, from, to }]
+    return [{ key, from, to, muted: link.muted }]
   })
   const pendingSource = pending ? nodesById.get(pending.from) : undefined
   const pendingPath =
@@ -679,6 +696,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           onPointerLeave={() => {
             pointer.current = null
           }}
+          onFocusCapture={(e) => {
+            const target = e.target
+            if (!(target instanceof HTMLTextAreaElement) || !target.classList.contains('rag-text'))
+              return
+            const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
+            const source = links.findLast(
+              (link) =>
+                !link.muted && link.to === sceneId &&
+                modifiers.some((node) => node.id === link.from && node.kind === 'text'),
+            )
+            if (source) typing.stop(source.from)
+          }}
           onContextMenu={(e) => {
             const target = e.target as Element
             if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
@@ -722,7 +751,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                   links
                     .filter(
                       (link) =>
-                        link.to === node.id &&
+                        !link.muted && link.to === node.id &&
                         modifiers.some(
                           (modifier) => modifier.id === link.from && modifier.kind === 'text',
                         ),
@@ -741,8 +770,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
               />
             ))}
             <svg className="node-links" aria-hidden="true">
-              {linkPaths.map(({ key, from, to }) => (
-                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} />
+              {linkPaths.map(({ key, from, to, muted }) => (
+                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} muted={muted} />
               ))}
               {pendingPath && <path d={pendingPath} data-pending />}
             </svg>
@@ -765,7 +794,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 selected={selectedIds.has(node.id)}
                 getZoom={getZoom}
                 connected={linkedNodes.has(node.id)}
+                muted={mutedNodes.has(node.id)}
+                onToggleMute={toggleOutgoingMute}
                 pattern={patternStatuses.get(node.id)}
+                typingSpeed={typing.speeds[node.id] ?? typing.defaultSpeed}
+                typingPlaying={Boolean(typing.playing[node.id])}
+                onTypingSpeed={typing.setSpeed}
+                onTypingToggle={typing.toggle}
                 compact={compactCards}
                 onCollapsedChange={setModifierCollapsed}
                 onSelect={selectNode}
@@ -819,15 +854,18 @@ const NodeLinkPath = memo(function NodeLinkPath({
   from,
   to,
   zoom,
+  muted,
 }: {
   from: ModifierNode
   to: SceneNode
   zoom: number
+  muted?: boolean
 }) {
   const source = useNodePosition(from.id, from)
   const destination = useNodePosition(to.id, to)
   return (
     <path
+      data-muted={muted || undefined}
       d={linkPath(
         outputPort({ ...from, ...source }, zoom),
         inputPort({ ...to, ...destination }),

@@ -69,6 +69,7 @@ export const MODIFIER_KINDS: readonly ModifierKind[] = [
 export interface NodeLink {
   from: string
   to: string
+  muted?: boolean
 }
 
 /** A new twist (tuned to how twists get used): many shallow, straight lobes on a band in
@@ -256,6 +257,7 @@ export function modifiersByScene(
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const out = new Map<string, SceneModifiers>()
   for (const link of links) {
+    if (link.muted) continue
     const node = byId.get(link.from)
     if (!node) continue
     const current: SceneModifiers = out.get(link.to) ?? {
@@ -295,6 +297,7 @@ export function createSceneModifiersResolver() {
     const inputs = new Map<string, Input[]>()
     const sceneLinks = new Map<string, NodeLink[]>()
     for (const link of links) {
+      if (link.muted) continue
       const node = byId.get(link.from)
       if (!node) continue
       const entries = inputs.get(link.to) ?? []
