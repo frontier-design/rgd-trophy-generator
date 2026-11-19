@@ -17,7 +17,7 @@ import { ModifierRangeOverlay } from './ModifierRangeOverlay'
 import type { PaperScene } from '../../shape2d'
 import { SceneArtboard } from '../SceneArtboard'
 import { bannerLogo, composeScene } from '../SceneArtboard/composeScene'
-import type { ModifierNode, SceneModifiers } from './graph'
+import { sceneMaterial, type ModifierNode, type SceneModifiers } from './graph'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
 import {
   FRAME_EDGES as EDGES,
@@ -49,9 +49,13 @@ interface CanvasSceneProps {
   onRangeBoundary?: () => void
   onSelect: (id: string, additive?: boolean, preserveGroup?: boolean) => void
   onInputDown: (id: string, e: ReactPointerEvent) => void
+  onOutputDown?: (id: string, e: ReactPointerEvent) => void
+  onToggleMute?: (id: string) => void
+  muted?: boolean
   onMove: (id: string, x: number, y: number) => void
   onTextChange: (id: string, text: string) => void
   onExporter: (id: string, exporter: SceneExporter | null) => void
+  onVisualChange?: (id: string) => void
   onResize: (id: string, frame: FrameRect) => void
 }
 
@@ -91,9 +95,13 @@ export const CanvasScene = memo(function CanvasScene({
   onRangeBoundary,
   onSelect,
   onInputDown,
+  onOutputDown,
+  onToggleMute,
+  muted,
   onMove,
   onTextChange,
   onExporter,
+  onVisualChange,
   onResize,
 }: CanvasSceneProps) {
   const {
@@ -153,6 +161,7 @@ export const CanvasScene = memo(function CanvasScene({
       data-scene-id={id}
       data-no-pan
       data-selected={selected || undefined}
+      data-muted={muted || undefined}
       style={
         {
           left: node.x,
@@ -176,9 +185,16 @@ export const CanvasScene = memo(function CanvasScene({
         )
           return
         const editable = Boolean((e.target as Element).closest(EDITABLE))
+        if (e.metaKey && !editable) return
         onSelect(id, e.shiftKey, !editable)
         if (e.shiftKey || editable) return
         drag.onPointerDown(e)
+      }}
+      onClick={(e) => {
+        if (e.metaKey && !(e.target as Element).closest(EDITABLE)) {
+          e.preventDefault()
+          onToggleMute?.(id)
+        }
       }}
     >
       <div className="canvas-scene-name">{node.name}</div>
@@ -252,6 +268,17 @@ export const CanvasScene = memo(function CanvasScene({
           else onInputDown(id, e)
         }}
       />
+      <span
+        className="node-port node-port-scene-out"
+        data-port="out"
+        aria-label={`${node.name} output`}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          onOutputDown?.(id, e)
+        }}
+      />
       <SceneArtwork
         node={artwork}
         renderZoom={renderZoom}
@@ -259,6 +286,7 @@ export const CanvasScene = memo(function CanvasScene({
         onTextChange={onTextChange}
         textEditable={Boolean(textNodeId && selectedTextNodeIds?.has(textNodeId))}
         onExporter={onExporter}
+        onVisualChange={onVisualChange}
         onRangeBounds={setRangeBounds}
         onTextHandleDown={
           textNodeId
@@ -302,6 +330,7 @@ const SceneArtwork = memo(function SceneArtwork({
   modifiers,
   onTextChange,
   onExporter,
+  onVisualChange,
   onRangeBounds,
   onTextHandleDown,
   textEditable,
@@ -312,6 +341,7 @@ const SceneArtwork = memo(function SceneArtwork({
   modifiers: SceneModifiers
   onTextChange: CanvasSceneProps['onTextChange']
   onExporter: CanvasSceneProps['onExporter']
+  onVisualChange?: CanvasSceneProps['onVisualChange']
   onRangeBounds: (bounds: RangeBounds | null) => void
   onTextHandleDown?: (event: React.PointerEvent<HTMLDivElement>) => void
 }) {
@@ -328,14 +358,16 @@ const SceneArtwork = memo(function SceneArtwork({
   const { id, scene, bannerPosition, bannerText, frame } = node
   const settings = useMemo(
     () =>
-      modifiers.material || modifiers.text !== undefined
+      modifiers.material || modifiers.lighting || modifiers.text !== undefined
         ? {
             ...node.settings,
-            ...(modifiers.material ? { material: modifiers.material } : {}),
+            // A material node's look, with the scene's own lighting unless a lighting node
+            // is linked (sceneMaterial).
+            material: sceneMaterial(node.settings.material, modifiers),
             ...(modifiers.text !== undefined ? { text: modifiers.text } : {}),
           }
         : node.settings,
-    [node.settings, modifiers.material, modifiers.text],
+    [node.settings, modifiers],
   )
   const effectiveNode = useMemo(
     () => (settings === node.settings ? node : { ...node, settings }),
@@ -354,6 +386,9 @@ const SceneArtwork = memo(function SceneArtwork({
     Math.max(0.5, Math.round(window.devicePixelRatio * renderZoom * 4) / 4),
   )
   const [outline, setOutline] = useState<Outline2D | null>(null)
+  useEffect(() => {
+    onVisualChange?.(id)
+  }, [id, onVisualChange, model.lines, model.metrics, model.fontReady, model.anchor, outline])
   useEffect(() => {
     const points = outline ? outlineToLatheProfiles(outline, settings.columnWidth).flat() : []
     if (!points.length) {

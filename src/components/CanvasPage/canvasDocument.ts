@@ -1,4 +1,5 @@
 import type { PanZoomView } from '../../hooks'
+import type { CompositionNode } from './compositionNode'
 import { migratePalette } from '../../material'
 import {
   DEFAULT_BANNER_TEXT,
@@ -13,6 +14,8 @@ import {
   DEFAULT_PATTERN,
   SAMPLE_IMAGE,
   DEFAULT_TWIST,
+  DEFAULT_LIGHTING,
+  LIGHTING_KEYS,
   type ModifierNode,
   type NodeLink,
 } from './graph'
@@ -30,6 +33,7 @@ import { DEFAULT_FRAME, DEFAULT_IMAGE_EXPORT, type SceneNode } from './sceneNode
 export interface CanvasDocument {
   version: 1
   scenes: SceneNode[]
+  compositions: CompositionNode[]
   /** Twist and etch nodes. */
   modifiers: ModifierNode[]
   links: NodeLink[]
@@ -38,11 +42,13 @@ export interface CanvasDocument {
   /** Nodes inserted so far of each kind (their names and ids continue from here). */
   inserted: {
     scene: number
+    composition: number
     twist: number
     etch: number
     pattern: number
     texture: number
     material: number
+    lighting: number
     text: number
   }
   /** Where the canvas was looking. */
@@ -52,10 +58,21 @@ export interface CanvasDocument {
 export const EMPTY_CANVAS: CanvasDocument = {
   version: 1,
   scenes: [],
+  compositions: [],
   modifiers: [],
   links: [],
   master: createMasterNode(),
-  inserted: { scene: 0, twist: 0, etch: 0, pattern: 0, texture: 0, material: 0, text: 0 },
+  inserted: {
+    scene: 0,
+    composition: 0,
+    twist: 0,
+    etch: 0,
+    pattern: 0,
+    texture: 0,
+    material: 0,
+    lighting: 0,
+    text: 0,
+  },
   view: null,
 }
 
@@ -174,6 +191,12 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
       params: { text: typeof params.text === 'string' ? params.text : DEFAULT_SETTINGS.text },
     }
   }
+  if (type === 'lighting') {
+    // Saved numbers over the defaults (anything else is dropped).
+    const lighting = { ...DEFAULT_LIGHTING }
+    for (const key of LIGHTING_KEYS) if (isFiniteNumber(params[key])) lighting[key] = params[key]
+    return { ...base, kind: 'lighting', params: lighting }
+  }
   if (type === 'material') {
     return { ...base, kind: 'material', params: migratePalette({ ...DEFAULT_MATERIAL, ...params }) }
   }
@@ -238,13 +261,35 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     ...list('twists').flatMap((item) => parseModifier(item, 'twist') ?? []),
     ...list('modifiers').flatMap((item) => parseModifier(item) ?? []),
   ]
-  const ids = new Set([...scenes, ...modifiers].map((node) => node.id))
+  const compositions: CompositionNode[] = list('compositions').flatMap((item) => {
+    if (!isObject(item) || typeof item.id !== 'string') return []
+    const frame = parseFrame(item.frame)
+    const image = asObject(item.image)
+    return [
+      {
+        id: item.id,
+        name: typeof item.name === 'string' ? item.name : item.id,
+        x: isFiniteNumber(item.x) ? item.x : 0,
+        y: isFiniteNumber(item.y) ? item.y : 0,
+        frame,
+        image: {
+          x: isFiniteNumber(image.x) ? image.x : 0,
+          y: isFiniteNumber(image.y) ? image.y : 0,
+          width: isFiniteNumber(image.width) && image.width > 0 ? image.width : frame.width,
+          height: isFiniteNumber(image.height) && image.height > 0 ? image.height : frame.height,
+        },
+      },
+    ]
+  })
+  const sceneIds = new Set(scenes.map((node) => node.id))
+  const compositionIds = new Set(compositions.map((node) => node.id))
+  const modifierIds = new Set(modifiers.map((node) => node.id))
   const links = list('links').flatMap((item) => {
     const link = asObject(item)
     return typeof link.from === 'string' &&
       typeof link.to === 'string' &&
-      ids.has(link.from) &&
-      ids.has(link.to)
+      ((modifierIds.has(link.from) && sceneIds.has(link.to)) ||
+        (sceneIds.has(link.from) && compositionIds.has(link.to)))
       ? [{ from: link.from, to: link.to, ...(link.muted === true ? { muted: true } : {}) }]
       : []
   })
@@ -253,12 +298,17 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
   return {
     version: 1,
     scenes,
+    compositions,
     modifiers,
     links,
     master,
     // Never reuse an id: past every id's number.
     inserted: {
       scene: Math.max(isCounter(inserted.scene) ? inserted.scene : 0, highestId(scenes, 'scene')),
+      composition: Math.max(
+        isCounter(inserted.composition) ? inserted.composition : 0,
+        highestId(compositions, 'composition'),
+      ),
       twist: Math.max(
         isCounter(inserted.twist) ? inserted.twist : 0,
         highestId(modifiers, 'twist'),
@@ -271,6 +321,10 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       material: Math.max(
         isCounter(inserted.material) ? inserted.material : 0,
         highestId(modifiers, 'material'),
+      ),
+      lighting: Math.max(
+        isCounter(inserted.lighting) ? inserted.lighting : 0,
+        highestId(modifiers, 'lighting'),
       ),
       text: Math.max(isCounter(inserted.text) ? inserted.text : 0, highestId(modifiers, 'text')),
       texture: Math.max(

@@ -48,13 +48,56 @@ export interface MaterialNode extends ModifierBase {
   params: MaterialSettings
 }
 
+/** The key light and highlight (lit shading), as on the scene panel's old lighting section. */
+export type LightingParams = Pick<
+  MaterialSettings,
+  'lightAngle' | 'lightHeight' | 'ambient' | 'softness' | 'highlight' | 'highlightSize'
+>
+export const LIGHTING_KEYS = [
+  'lightAngle',
+  'lightHeight',
+  'ambient',
+  'softness',
+  'highlight',
+  'highlightSize',
+] as const satisfies readonly (keyof LightingParams)[]
+
+/** Lighting: overrides the lighting of the scenes it links to (the last linked one wins). */
+export interface LightingNode extends ModifierBase {
+  kind: 'lighting'
+  params: LightingParams
+}
+
+/** A new lighting node: the default key light (side-on from the right, a little above). */
+export const DEFAULT_LIGHTING: LightingParams = {
+  lightAngle: DEFAULT_MATERIAL.lightAngle,
+  lightHeight: DEFAULT_MATERIAL.lightHeight,
+  ambient: DEFAULT_MATERIAL.ambient,
+  softness: DEFAULT_MATERIAL.softness,
+  highlight: DEFAULT_MATERIAL.highlight,
+  highlightSize: DEFAULT_MATERIAL.highlightSize,
+}
+
+/** The material a scene draws with: a linked material node's in place of its own, then a
+ *  linked lighting node's lighting, or else the scene's own (lighting stays per scene). */
+export function sceneMaterial(
+  own: MaterialSettings,
+  linked: { material?: MaterialSettings; lighting?: LightingParams },
+): MaterialSettings {
+  if (!linked.material && !linked.lighting) return own
+  const lighting = linked.lighting ?? own
+  const material = { ...(linked.material ?? own) }
+  for (const key of LIGHTING_KEYS) material[key] = lighting[key]
+  return material
+}
+
 export interface TextNode extends ModifierBase {
   kind: 'text'
   params: { text: string }
 }
 
 export type ModifierNode =
-  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | TextNode
+  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | LightingNode | TextNode
 export type ModifierKind = ModifierNode['kind']
 export const MODIFIER_KINDS: readonly ModifierKind[] = [
   'twist',
@@ -62,6 +105,7 @@ export const MODIFIER_KINDS: readonly ModifierKind[] = [
   'pattern',
   'texture',
   'material',
+  'lighting',
   'text',
 ]
 
@@ -191,6 +235,8 @@ export function createModifier(
       return { kind, id, name, x, y, params: DEFAULT_TEXTURE }
     case 'text':
       return { kind, id, name, x, y, params: { text: DEFAULT_SETTINGS.text } }
+    case 'lighting':
+      return { kind, id, name, x, y, params: DEFAULT_LIGHTING }
     case 'material':
       return {
         kind,
@@ -244,6 +290,8 @@ export interface SceneModifiers {
   /** Anything linked at all (patterns still generating included). */
   linked: boolean
   material?: MaterialSettings
+  /** A linked lighting node's (the last linked one wins). */
+  lighting?: LightingParams
   /** The last linked text node wins. */
   text?: string
 }
@@ -271,6 +319,7 @@ export function modifiersByScene(
     else if (node.kind === 'etch') current.etches = [...current.etches, node.params]
     else if (node.kind === 'texture') current.textures = [...current.textures, node.params]
     else if (node.kind === 'material') current.material = node.params
+    else if (node.kind === 'lighting') current.lighting = node.params
     else if (node.kind === 'text') current.text = node.params.text
     else {
       const map = maps.get(node.id)

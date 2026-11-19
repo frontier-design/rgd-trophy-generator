@@ -3,7 +3,7 @@ import { normalizeRect, rectanglesIntersect } from './selection'
 import type { FrameRect } from './sceneNode'
 
 const EXCLUDED =
-  '[data-scene-node], [data-canvas-node], [data-scene-controls], [data-no-pan], .context-menu, input, textarea, button, select, a'
+  '[data-scene-node], [data-composition-node], [data-canvas-node], [data-scene-controls], [data-no-pan], .context-menu, input, textarea, button, select, a'
 
 type Props = {
   canvasRef: RefObject<HTMLElement | null>
@@ -111,7 +111,9 @@ export function SelectionMarquee({ canvasRef, onSelect, onClear }: Props) {
         })
         const ids = new Set<string>()
         canvas
-          .querySelectorAll<HTMLElement>('[data-scene-node], [data-canvas-node]')
+          .querySelectorAll<HTMLElement>(
+            '[data-scene-node], [data-composition-node], [data-canvas-node]',
+          )
           .forEach((wrapper) => {
             const id = wrapper.dataset.sceneId ?? wrapper.dataset.nodeId
             const target = wrapper.hasAttribute('data-canvas-node')

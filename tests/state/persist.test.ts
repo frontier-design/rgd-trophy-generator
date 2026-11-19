@@ -99,11 +99,13 @@ describe('saved documents', () => {
     // New ids continue past the highest one there.
     expect(doc.inserted).toEqual({
       scene: 4,
+      composition: 0,
       twist: 2,
       etch: 3,
       pattern: 5,
       texture: 0,
       material: 0,
+      lighting: 0,
       text: 0,
     })
     const pattern = doc.modifiers[2]

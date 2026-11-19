@@ -123,6 +123,7 @@ export type HideableField =
   | 'grain'
   | 'grainSize'
   | 'background'
+  | 'lighting'
   | 'view'
 
 /** The banner's placement and text (not animated). */
@@ -638,76 +639,78 @@ export function ControlPanel({
         )}
       </ControlSection>
       {/* Lit mode's key light and highlight, like Illustrator's 3D shading options. */}
-      <ControlSection {...sectionProps('lighting')}>
-        <RangeField
-          label="light angle"
-          value={material.lightAngle}
-          min={-180}
-          max={180}
-          unit="°"
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.angle')}
-          onChange={(lightAngle) => setMaterial({ lightAngle })}
-        />
-        <RangeField
-          label="light height"
-          value={material.lightHeight}
-          min={0}
-          max={90}
-          unit="°"
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.height')}
-          onChange={(lightHeight) => setMaterial({ lightHeight })}
-        />
-        <RangeField
-          label="ambient"
-          value={material.ambient}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.ambient')}
-          onChange={(ambient) => setMaterial({ ambient })}
-        />
-        <RangeField
-          label="softness"
-          value={material.softness}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.softness')}
-          onChange={(softness) => setMaterial({ softness })}
-        />
-        <RangeField
-          label="highlight"
-          value={material.highlight}
-          min={0}
-          max={1.5}
-          step={0.01}
-          digits={2}
-          unit=""
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.highlight')}
-          onChange={(highlight) => setMaterial({ highlight })}
-        />
-        <RangeField
-          label="highlight size"
-          value={material.highlightSize}
-          min={0}
-          max={1}
-          step={0.01}
-          digits={2}
-          unit=""
-          disabled={!lit}
-          keyframe={keyframe?.('lighting.highlightSize')}
-          onChange={(highlightSize) => setMaterial({ highlightSize })}
-        />
-      </ControlSection>
+      {shown('lighting') && (
+        <ControlSection {...sectionProps('lighting')}>
+          <RangeField
+            label="light angle"
+            value={material.lightAngle}
+            min={-180}
+            max={180}
+            unit="°"
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.angle')}
+            onChange={(lightAngle) => setMaterial({ lightAngle })}
+          />
+          <RangeField
+            label="light height"
+            value={material.lightHeight}
+            min={0}
+            max={90}
+            unit="°"
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.height')}
+            onChange={(lightHeight) => setMaterial({ lightHeight })}
+          />
+          <RangeField
+            label="ambient"
+            value={material.ambient}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.ambient')}
+            onChange={(ambient) => setMaterial({ ambient })}
+          />
+          <RangeField
+            label="softness"
+            value={material.softness}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.softness')}
+            onChange={(softness) => setMaterial({ softness })}
+          />
+          <RangeField
+            label="highlight"
+            value={material.highlight}
+            min={0}
+            max={1.5}
+            step={0.01}
+            digits={2}
+            unit=""
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.highlight')}
+            onChange={(highlight) => setMaterial({ highlight })}
+          />
+          <RangeField
+            label="highlight size"
+            value={material.highlightSize}
+            min={0}
+            max={1}
+            step={0.01}
+            digits={2}
+            unit=""
+            disabled={!lit}
+            keyframe={keyframe?.('lighting.highlightSize')}
+            onChange={(highlightSize) => setMaterial({ highlightSize })}
+          />
+        </ControlSection>
+      )}
       <ControlSection {...sectionProps('canvas')}>
         {shown('background') && (
           <ColorField

@@ -1,11 +1,46 @@
-import { generatePalette, PALETTE_NAMES, paletteColors } from '../../material'
+import { PALETTE_NAMES, paletteColors } from '../../material'
 import type { MaterialSettings, PaletteChoice } from '../../types'
 import { SelectField } from '../ControlPanel/SelectField'
 import { RangeField } from '../ControlPanel/RangeField'
-import { ColorStops } from '../ControlPanel/ColorStops'
-import { SeedColorField } from '../ControlPanel/SeedColorField'
 
-const PALETTES: readonly PaletteChoice[] = [...PALETTE_NAMES, 'custom']
+/** A palette as one box: its colors as a gradient, shadow (top stop) to highlight. */
+const swatch = (colors: readonly string[]) =>
+  colors.length > 1 ? `linear-gradient(90deg, ${colors.join(', ')})` : (colors[0] ?? '#888888')
+
+/**
+ * The palette, picked from the presets: one box each (no editing). A custom palette (from an
+ * older save) shows as one more box while it's in use, so it isn't lost by looking.
+ */
+function PaletteSwatches({
+  params,
+  set,
+}: {
+  params: MaterialSettings
+  set: (patch: Partial<MaterialSettings>) => void
+}) {
+  const choices: PaletteChoice[] =
+    params.palette === 'custom' ? [...PALETTE_NAMES, 'custom'] : [...PALETTE_NAMES]
+  return (
+    <div className="palette-swatches" role="radiogroup" aria-label="palette">
+      <span className="control-label">palette</span>
+      <div className="palette-swatches-list">
+        {choices.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="radio"
+            className="palette-swatch"
+            aria-checked={params.palette === name}
+            aria-label={name}
+            title={name}
+            style={{ background: swatch(paletteColors({ ...params, palette: name })) }}
+            onClick={() => set({ palette: name })}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function MaterialFields({
   params,
@@ -22,27 +57,7 @@ export function MaterialFields({
         options={['painted', 'lit'] as const}
         onChange={(shading) => set({ shading })}
       />
-      <SelectField
-        label="palette"
-        value={params.palette}
-        options={PALETTES}
-        onChange={(palette) => set({ palette })}
-      />
-      <SeedColorField
-        value={params.seedColor}
-        onChange={(seedColor) =>
-          set({
-            seedColor,
-            palette: 'custom',
-            customColors: generatePalette(seedColor),
-            banding: 0,
-          })
-        }
-      />
-      <ColorStops
-        colors={paletteColors(params)}
-        onChange={(customColors) => set({ palette: 'custom', customColors })}
-      />
+      <PaletteSwatches params={params} set={set} />
       <RangeField
         label="banding"
         value={params.banding}

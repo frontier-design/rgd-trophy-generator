@@ -16,6 +16,9 @@ import { ARTBOARD } from '../../state'
 import { ControlPanel, type HideableField } from '../ControlPanel'
 import { loadCanvasDocument, storeCanvasDocument, type CanvasDocument } from './canvasDocument'
 import { CanvasScene, type SceneExporter } from './CanvasScene'
+import { CanvasComposition } from './CanvasComposition'
+import type { CompositionImageRect, CompositionNode } from './compositionNode'
+import { useSceneImages } from './useSceneImages'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import {
   CARD_COMPACT_SCALE,
@@ -105,10 +108,16 @@ const MASTER_FIELDS: ReadonlySet<HideableField> = new Set<HideableField>([
   'view',
 ])
 
+/** With a lighting node linked, the panel leaves out its lighting section too. */
+const MASTER_AND_LIGHTING_FIELDS: ReadonlySet<HideableField> = new Set<HideableField>([
+  ...MASTER_FIELDS,
+  'lighting',
+])
+
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** What a right-click was on. */
-type MenuTarget = { kind: 'scene' | ModifierKind; id: string } | null
+type MenuTarget = { kind: 'scene' | 'composition' | ModifierKind; id: string } | null
 
 /** What was copied (⌘C, or the right-click menu): kept for the session, so it pastes into
  *  this canvas again after switching pages. */
@@ -138,6 +147,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const canvasRef = useRef<HTMLElement>(null)
   const { view, size, reset } = useInfiniteCanvas(canvasRef, saved.view)
   const [scenes, setScenes] = useState<SceneNode[]>(saved.scenes)
+  const [compositions, setCompositions] = useState<CompositionNode[]>(saved.compositions)
   const [modifiers, setModifiers] = useState<ModifierNode[]>(saved.modifiers)
   const typing = useTypingPlayback(modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
@@ -194,19 +204,20 @@ export function CanvasPage({ tools }: CanvasPageProps) {
 
   // Autosaved shortly after every change (and when leaving the page or closing the tab).
   const autosaved = useMemo<CanvasDocument>(
-    () => ({ version: 1, scenes, modifiers, links, master, inserted, view }),
-    [scenes, modifiers, links, master, inserted, view],
+    () => ({ version: 1, scenes, compositions, modifiers, links, master, inserted, view }),
+    [scenes, compositions, modifiers, links, master, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
 
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
   const content = useMemo(
-    () => ({ scenes, modifiers, links, master }),
-    [scenes, modifiers, links, master],
+    () => ({ scenes, compositions, modifiers, links, master }),
+    [scenes, compositions, modifiers, links, master],
   )
   const history = useUndo(content, (state) => {
     setScenes(state.scenes)
+    setCompositions(state.compositions)
     setModifiers(state.modifiers)
     setLinks(state.links)
     setMaster(state.master)
@@ -217,6 +228,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       pruneSelection(current, [
         MASTER_ID,
         ...state.scenes.map((node) => node.id),
+        ...state.compositions.map((node) => node.id),
         ...state.modifiers.map((node) => node.id),
       ]),
     )
@@ -234,8 +246,10 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const positions = useMemo(() => createNodePositionStore(), [])
   const boardNodes = useRef(new Map<string, NodePosition & { id: string }>())
   useEffect(() => {
-    boardNodes.current = new Map([...scenes, ...modifiers, master].map((node) => [node.id, node]))
-  }, [scenes, modifiers, master])
+    boardNodes.current = new Map(
+      [...scenes, ...compositions, ...modifiers, master].map((node) => [node.id, node]),
+    )
+  }, [scenes, compositions, modifiers, master])
   const participants = useCallback((id: string) => {
     const ids = selectionRef.current.ids.includes(id) ? selectionRef.current.ids : [id]
     return ids.flatMap((key) => {
@@ -246,6 +260,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const commitMoves = useCallback((moves: ReadonlyMap<string, NodePosition>) => {
     moveCommitted.current = true
     setScenes((current) =>
+      current.some((node) => moves.has(node.id))
+        ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
+        : current,
+    )
+    setCompositions((current) =>
       current.some((node) => moves.has(node.id))
         ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
         : current,
@@ -331,7 +350,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         .reverse()
         .find(
           (link) =>
-            !link.muted && link.to === id &&
+            !link.muted &&
+            link.to === id &&
             modifiers.some((node) => node.id === link.from && node.kind === 'text'),
         )
       if (source) {
@@ -391,6 +411,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       checkpoint()
       moveCommitted.current = true
       setScenes((current) => current.filter((node) => !removed.has(node.id)))
+      setCompositions((current) => current.filter((node) => !removed.has(node.id)))
       setModifiers((current) => current.filter((node) => !removed.has(node.id)))
       setLinks((current) =>
         current.filter((link) => !removed.has(link.from) && !removed.has(link.to)),
@@ -433,7 +454,47 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       const under = document.elementFromPoint?.(e.clientX, e.clientY) ?? e.target
       const port = under instanceof Element ? under.closest<HTMLElement>('[data-port="in"]') : null
       const to = port?.dataset.sceneId
-      if (to) setLinks((current) => connect(current, pendingFrom, to))
+      const sourceIsScene = scenes.some((node) => node.id === pendingFrom)
+      const targetIsComposition = compositions.some((node) => node.id === to)
+      const valid =
+        to &&
+        (sourceIsScene
+          ? targetIsComposition
+          : modifiers.some((node) => node.id === pendingFrom) &&
+            scenes.some((node) => node.id === to))
+      if (valid) {
+        setLinks((current) =>
+          connect(
+            targetIsComposition ? current.filter((link) => link.to !== to) : current,
+            pendingFrom,
+            to,
+          ),
+        )
+        if (targetIsComposition) {
+          const source = scenes.find((node) => node.id === pendingFrom)
+          if (source)
+            setCompositions((current) =>
+              current.map((node) => {
+                if (node.id !== to) return node
+                const scale = Math.min(
+                  node.frame.width / source.frame.width,
+                  node.frame.height / source.frame.height,
+                )
+                const width = source.frame.width * scale,
+                  height = source.frame.height * scale
+                return {
+                  ...node,
+                  image: {
+                    x: (node.frame.width - width) / 2,
+                    y: (node.frame.height - height) / 2,
+                    width,
+                    height,
+                  },
+                }
+              }),
+            )
+        }
+      }
       setPending(null)
     }
     window.addEventListener('pointermove', onMove)
@@ -444,7 +505,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [pendingFrom, toCanvas])
+  }, [pendingFrom, toCanvas, scenes, compositions, modifiers])
 
   /** A new scene centered on a point of the canvas element (px), selected. Its layout is
    *  fitted to the frame, from its text measured once the font has loaded. */
@@ -468,6 +529,40 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     selectOnly(id)
   }
 
+  const insertComposition = (x: number, y: number) => {
+    const count = reserveCount('composition')
+    const id = `composition-${count}`
+    setCompositions((current) => [
+      ...current,
+      {
+        id,
+        name: `composition ${count}`,
+        x: (x - view.x) / view.zoom - ARTBOARD.width / 2,
+        y: (y - view.y) / view.zoom - ARTBOARD.height / 2,
+        frame: { width: ARTBOARD.width, height: ARTBOARD.height },
+        image: { x: 0, y: 0, width: ARTBOARD.width, height: ARTBOARD.height },
+      },
+    ])
+    selectOnly(id)
+  }
+  const moveComposition = useCallback((id: string, x: number, y: number) => {
+    setCompositions((current) => current.map((node) => (node.id === id ? { ...node, x, y } : node)))
+  }, [])
+  const resizeComposition = useCallback((id: string, rect: FrameRect) => {
+    setCompositions((current) =>
+      current.map((node) =>
+        node.id === id
+          ? { ...node, x: rect.x, y: rect.y, frame: { width: rect.width, height: rect.height } }
+          : node,
+      ),
+    )
+  }, [])
+  const setCompositionImage = useCallback((id: string, image: CompositionImageRect) => {
+    setCompositions((current) =>
+      current.map((node) => (node.id === id ? { ...node, image } : node)),
+    )
+  }, [])
+
   /** A new modifier node, its top-left at a point of the canvas element (px), selected. */
   const insertModifier = (kind: ModifierKind, x: number, y: number) => {
     const count = reserveCount(kind)
@@ -487,7 +582,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const [hasCopy, setHasCopy] = useState(copied !== null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
   const copyNodes = (selected: Selection = selectionRef.current) => {
-    const snapshot = copySelection(selected, scenes, modifiers, links)
+    const snapshot = copySelection(selected, scenes, modifiers, links, compositions)
     copied = snapshot.ids.length ? snapshot : null
     setHasCopy(copied !== null)
   }
@@ -508,12 +603,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       ...current,
       ...pasted.scenes.map((node) => withMaster(node, masterRef.current)),
     ])
+    setCompositions((current) => [...current, ...pasted.compositions])
     setModifiers((current) => [...current, ...pasted.modifiers])
     setLinks((current) => [...current, ...pasted.links])
     setSelection(replaceSelection(pasted.ids, pasted.activeId))
   }
   const duplicateNodes = (selected: Selection = selectionRef.current) => {
-    pasteCopy(null, copySelection(selected, scenes, modifiers, links))
+    pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions))
   }
   // The keys, with this render's state (re-subscribed each render, as it changes). Not while
   // typing: a text field keeps its own undo and clipboard.
@@ -586,6 +682,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     () => resolveModifiers(links, typing.previewNodes, patternMaps),
     [resolveModifiers, links, typing.previewNodes, patternMaps],
   )
+  const [visualRevisions, setVisualRevisions] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  )
+  const onVisualChange = useCallback((id: string) => {
+    setVisualRevisions((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1))
+  }, [])
+  const sceneImages = useSceneImages(scenes, links, sceneModifiers, getExporter, visualRevisions)
   const linkedNodes = useMemo(() => new Set(links.map((link) => link.from)), [links])
   const mutedNodes = useMemo(() => {
     const muted = new Set(links.filter((link) => link.muted).map((link) => link.from))
@@ -597,7 +700,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       const outgoing = current.filter((link) => link.from === id)
       if (!outgoing.length) return current
       const muted = outgoing.some((link) => !link.muted)
-      return current.map((link) => link.from === id ? { ...link, muted } : link)
+      return current.map((link) => (link.from === id ? { ...link, muted } : link))
     })
   }, [])
   // Hit areas exist for all linked range modifiers, independently of selection.
@@ -607,7 +710,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     for (const link of links) {
       if (link.muted) continue
       const modifier = byId.get(link.from)
-      if (modifier && modifier.kind !== 'material' && modifier.kind !== 'text')
+      if (
+        modifier &&
+        modifier.kind !== 'material' &&
+        modifier.kind !== 'lighting' &&
+        modifier.kind !== 'text'
+      )
         grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
     }
     return grouped
@@ -628,19 +736,23 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const selected = scenes.find((node) => node.id === selection.activeId)
 
   // The links' curves, from each node's output to each scene's input.
-  const scenesById = new Map(scenes.map((node) => [node.id, node]))
-  const nodesById = new Map(modifiers.map((node) => [node.id, node]))
+  const sourcesById = new Map<string, ModifierNode | SceneNode>(
+    [...modifiers, ...scenes].map((node) => [node.id, node]),
+  )
+  const targetsById = new Map<string, SceneNode | CompositionNode>(
+    [...scenes, ...compositions].map((node) => [node.id, node]),
+  )
   const linkPaths = links.flatMap((link) => {
-    const from = nodesById.get(link.from)
-    const to = scenesById.get(link.to)
+    const from = sourcesById.get(link.from)
+    const to = targetsById.get(link.to)
     if (!from || !to) return []
     const key = `${link.from}→${link.to}`
     return [{ key, from, to, muted: link.muted }]
   })
-  const pendingSource = pending ? nodesById.get(pending.from) : undefined
+  const pendingSource = pending ? sourcesById.get(pending.from) : undefined
   const pendingPath =
     pending && pendingSource
-      ? linkPath(outputPort(pendingSource, view.zoom), pending, view.zoom)
+      ? linkPath(sourcePort(pendingSource, view.zoom), pending, view.zoom)
       : null
 
   /** A point of the canvas element (px) in canvas px. */
@@ -649,15 +761,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     y: (y - view.y) / view.zoom,
   })
   const subject = selection.ids.length > 1 ? 'selection' : menu?.target?.kind
-  const disconnectTarget = menu?.target?.kind === 'scene' ? menu.target.id : null
+  const disconnectTarget =
+    menu?.target?.kind === 'scene' || menu?.target?.kind === 'composition' ? menu.target.id : null
   const menuItems: ContextMenuItem[] = menu
     ? [
         { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
+        { label: 'insert composition', onSelect: () => insertComposition(menu.x, menu.y) },
         { label: 'insert text', onSelect: () => insertModifier('text', menu.x, menu.y) },
         { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
         { label: 'insert etch', onSelect: () => insertModifier('etch', menu.x, menu.y) },
         { label: 'insert pattern', onSelect: () => insertModifier('pattern', menu.x, menu.y) },
         { label: 'insert material', onSelect: () => insertModifier('material', menu.x, menu.y) },
+        { label: 'insert lighting', onSelect: () => insertModifier('lighting', menu.x, menu.y) },
         { label: 'insert texture', onSelect: () => insertModifier('texture', menu.x, menu.y) },
         ...(disconnectTarget && links.some((link) => link.to === disconnectTarget)
           ? [
@@ -703,7 +818,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
             const source = links.findLast(
               (link) =>
-                !link.muted && link.to === sceneId &&
+                !link.muted &&
+                link.to === sceneId &&
                 modifiers.some((node) => node.id === link.from && node.kind === 'text'),
             )
             if (source) typing.stop(source.from)
@@ -714,14 +830,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             e.preventDefault()
             const rect = e.currentTarget.getBoundingClientRect()
             const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
+            const compositionId =
+              target.closest<HTMLElement>('[data-composition-node]')?.dataset.sceneId
             const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
             const nodeId = nodeElement?.dataset.nodeId
             const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
             const menuTarget: MenuTarget = sceneId
               ? { kind: 'scene', id: sceneId }
-              : nodeId && nodeKind && nodeId !== MASTER_ID
-                ? { kind: nodeKind, id: nodeId }
-                : null
+              : compositionId
+                ? { kind: 'composition', id: compositionId }
+                : nodeId && nodeKind && nodeId !== MASTER_ID
+                  ? { kind: nodeKind, id: nodeId }
+                  : null
             if (menuTarget) selectNode(menuTarget.id)
             else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
             setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
@@ -751,7 +871,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                   links
                     .filter(
                       (link) =>
-                        !link.muted && link.to === node.id &&
+                        !link.muted &&
+                        link.to === node.id &&
                         modifiers.some(
                           (modifier) => modifier.id === link.from && modifier.kind === 'text',
                         ),
@@ -763,12 +884,34 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onRangeBoundary={checkpoint}
                 onSelect={selectNode}
                 onInputDown={pickUpLink}
+                onOutputDown={startLink}
+                onToggleMute={toggleOutgoingMute}
+                muted={mutedNodes.has(node.id)}
                 onMove={moveScene}
                 onTextChange={setSceneText}
                 onExporter={setExporter}
+                onVisualChange={onVisualChange}
                 onResize={resizeScene}
               />
             ))}
+            {compositions.map((node) => {
+              const link = links.findLast((item) => item.to === node.id && !item.muted)
+              return (
+                <CanvasComposition
+                  key={node.id}
+                  node={node}
+                  selected={selectedIds.has(node.id)}
+                  getZoom={getZoom}
+                  imageUrl={link ? sceneImages.get(link.from) : undefined}
+                  connected={Boolean(link)}
+                  onSelect={selectNode}
+                  onMove={moveComposition}
+                  onInputDown={pickUpLink}
+                  onResize={resizeComposition}
+                  onImageChange={setCompositionImage}
+                />
+              )
+            })}
             <svg className="node-links" aria-hidden="true">
               {linkPaths.map(({ key, from, to, muted }) => (
                 <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} muted={muted} />
@@ -811,7 +954,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             ))}
           </div>
           <SelectionMarquee canvasRef={canvasRef} onSelect={addSelected} onClear={clearSelected} />
-          {scenes.length === 0 && modifiers.length === 0 && (
+          {scenes.length === 0 && compositions.length === 0 && modifiers.length === 0 && (
             <p className="canvas-hint">Right-click to insert a scene</p>
           )}
           {selected && (
@@ -819,6 +962,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
               <SceneControls
                 key={selected.id}
                 node={selected}
+                litByNode={sceneModifiers.get(selected.id)?.lighting !== undefined}
                 onChange={updateScene}
                 exporter={getExporter}
               />
@@ -849,6 +993,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
 }
 
+function sourcePort(node: ModifierNode | SceneNode, zoom: number) {
+  return 'frame' in node
+    ? { x: node.x + node.frame.width, y: node.y + node.frame.height * 0.25 }
+    : outputPort(node, zoom)
+}
+
 /** Edge previews subscribe only to their endpoints, not the entire canvas document. */
 const NodeLinkPath = memo(function NodeLinkPath({
   from,
@@ -856,8 +1006,8 @@ const NodeLinkPath = memo(function NodeLinkPath({
   zoom,
   muted,
 }: {
-  from: ModifierNode
-  to: SceneNode
+  from: ModifierNode | SceneNode
+  to: SceneNode | CompositionNode
   zoom: number
   muted?: boolean
 }) {
@@ -867,7 +1017,7 @@ const NodeLinkPath = memo(function NodeLinkPath({
     <path
       data-muted={muted || undefined}
       d={linkPath(
-        outputPort({ ...from, ...source }, zoom),
+        sourcePort({ ...from, ...source }, zoom),
         inputPort({ ...to, ...destination }),
         zoom,
       )}
@@ -913,6 +1063,8 @@ function PositionedSceneControls({
 
 interface SceneControlsProps {
   node: SceneNode
+  /** A lighting node is linked: its lighting is used, so the panel leaves its own out. */
+  litByNode: boolean
   onChange: (id: string, update: (node: SceneNode) => SceneNode) => void
   /** The scene's image exporter, if it's mounted. */
   exporter: (id: string) => SceneExporter | undefined
@@ -922,6 +1074,7 @@ interface SceneControlsProps {
  *  (only the panel's position changes), and the panel is the page's largest part. */
 const SceneControls = memo(function SceneControls({
   node,
+  litByNode,
   onChange,
   exporter,
 }: SceneControlsProps) {
@@ -957,7 +1110,7 @@ const SceneControls = memo(function SceneControls({
       params={sceneParams(node)}
       onParamsChange={(patch) => update((current) => withParams(current, patch))}
       revealControls={false}
-      hidden={MASTER_FIELDS}
+      hidden={litByNode ? MASTER_AND_LIGHTING_FIELDS : MASTER_FIELDS}
       frame={{
         width: frame.width,
         height: frame.height,

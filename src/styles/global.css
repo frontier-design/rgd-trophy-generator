@@ -1148,6 +1148,13 @@ body {
   transform: translate(50%, -50%);
 }
 
+.node-port-scene-out {
+  z-index: 3;
+  top: 25%;
+  right: 0;
+  transform: translate(50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+}
+
 /* On a scene: the middle of its left side, at screen size. */
 .node-port-in {
   top: 25%; /* INPUT_PORT_AT in CanvasPage/graph.ts */
@@ -1180,7 +1187,8 @@ body {
 }
 
 .node-links path[data-muted],
-.canvas-node[data-muted] {
+.canvas-node[data-muted],
+.canvas-scene[data-muted] {
   opacity: 0.6;
 }
 
@@ -1339,4 +1347,31 @@ body {
   left: 100%;
   transform: scale(calc(var(--card-scale, 1) / var(--zoom))) translate(18px, -50%);
   transform-origin: 0 0;
+}
+
+/* The material node's palettes: one box per preset, the chosen one outlined. */
+.palette-swatches {
+  display: contents;
+}
+
+.palette-swatches > .control-label {
+  align-self: start;
+}
+
+.palette-swatches-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.palette-swatch {
+  height: 22px;
+  padding: 0;
+  cursor: pointer;
+  border: 1px solid var(--color-panel-border);
+}
+
+.palette-swatch[aria-checked='true'] {
+  outline: 2px solid var(--color-text);
+  outline-offset: 1px;
 }

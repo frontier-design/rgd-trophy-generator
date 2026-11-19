@@ -1,6 +1,7 @@
 import type { ModifierNode, NodeLink } from './graph'
 import type { SceneNode, FrameRect } from './sceneNode'
 import type { CanvasDocument } from './canvasDocument'
+import type { CompositionNode } from './compositionNode'
 
 export interface Selection {
   ids: readonly string[]
@@ -61,6 +62,7 @@ export function rectanglesIntersect(a: FrameRect, b: FrameRect): boolean {
 
 export interface CopiedSubgraph {
   scenes: SceneNode[]
+  compositions: CompositionNode[]
   modifiers: ModifierNode[]
   links: NodeLink[]
   /** Selected cloneable ids in selection order. */
@@ -74,14 +76,19 @@ export function copySelection(
   scenes: readonly SceneNode[],
   modifiers: readonly ModifierNode[],
   links: readonly NodeLink[],
+  compositions: readonly CompositionNode[] = [],
 ): CopiedSubgraph {
   const selected = new Set(selection.ids)
   const copiedScenes = scenes.filter((node) => selected.has(node.id))
   const copiedModifiers = modifiers.filter((node) => selected.has(node.id))
-  const available = new Set([...copiedScenes, ...copiedModifiers].map((node) => node.id))
+  const copiedCompositions = compositions.filter((node) => selected.has(node.id))
+  const available = new Set(
+    [...copiedScenes, ...copiedModifiers, ...copiedCompositions].map((node) => node.id),
+  )
   const ids = selection.ids.filter((id) => available.has(id))
   return structuredClone({
     scenes: copiedScenes,
+    compositions: copiedCompositions,
     modifiers: copiedModifiers,
     links: links.filter(({ from, to }) => available.has(from) && available.has(to)),
     ids,
@@ -96,6 +103,7 @@ export type InsertedCounters = CanvasDocument['inserted']
 export type PastePlacement = { at: { x: number; y: number } } | { offset: { x: number; y: number } }
 export interface PastedSubgraph extends Selection {
   scenes: SceneNode[]
+  compositions: CompositionNode[]
   modifiers: ModifierNode[]
   links: NodeLink[]
   inserted: InsertedCounters
@@ -105,17 +113,17 @@ export interface PastedSubgraph extends Selection {
  * Pass the latest counters on every invocation, including after undo, to avoid reusing ids. */
 export function pasteSelection(
   copy: CopiedSubgraph,
-  counters: Omit<InsertedCounters, 'material' | 'text'> &
-    Partial<Pick<InsertedCounters, 'material' | 'text'>>,
+  counters: Omit<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition'> &
+    Partial<Pick<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition'>>,
   placement: PastePlacement,
 ): PastedSubgraph {
   const snapshot = structuredClone(copy)
-  const nodes = [...snapshot.scenes, ...snapshot.modifiers]
+  const nodes = [...snapshot.scenes, ...snapshot.modifiers, ...(snapshot.compositions ?? [])]
   const minX = nodes.length ? Math.min(...nodes.map((node) => node.x)) : 0
   const minY = nodes.length ? Math.min(...nodes.map((node) => node.y)) : 0
   const delta =
     'at' in placement ? { x: placement.at.x - minX, y: placement.at.y - minY } : placement.offset
-  const inserted = { material: 0, text: 0, ...counters }
+  const inserted = { material: 0, lighting: 0, text: 0, composition: 0, ...counters }
   const remap = new Map<string, string>()
   const allocate = (id: string, kind: keyof InsertedCounters) => {
     const count = ++inserted[kind]
@@ -129,6 +137,12 @@ export function pasteSelection(
     x: node.x + delta.x,
     y: node.y + delta.y,
     animateRevolve: false,
+  }))
+  const compositions = (snapshot.compositions ?? []).map((node): CompositionNode => ({
+    ...node,
+    ...allocate(node.id, 'composition'),
+    x: node.x + delta.x,
+    y: node.y + delta.y,
   }))
   const modifiers = snapshot.modifiers.map((node): ModifierNode => ({
     ...node,
@@ -146,5 +160,5 @@ export function pasteSelection(
     return next ? [next] : []
   })
   const activeId = (snapshot.activeId && remap.get(snapshot.activeId)) || ids.at(-1) || null
-  return { scenes, modifiers, links, inserted, ids, activeId }
+  return { scenes, compositions, modifiers, links, inserted, ids, activeId }
 }
