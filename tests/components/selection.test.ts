@@ -91,9 +91,10 @@ describe('subgraph clipboard', () => {
     expect(result).toEqual({
       scenes: [],
       compositions: [],
+      repeats: [],
       modifiers: [],
       links: [],
-      inserted: { ...counters, shape: 0, lighting: 0, text: 0, composition: 0, cluster: 0 },
+      inserted: { ...counters, shape: 0, repeat: 0, lighting: 0, text: 0, composition: 0, cluster: 0 },
       ids: [],
       activeId: null,
     })

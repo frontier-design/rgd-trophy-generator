@@ -2,6 +2,7 @@ import type { ModifierNode, NodeLink } from './graph'
 import type { SceneNode, FrameRect } from './sceneNode'
 import type { CanvasDocument } from './canvasDocument'
 import type { CompositionNode } from './compositionNode'
+import type { RepeatNode } from './repeatNode'
 
 export interface Selection {
   ids: readonly string[]
@@ -63,6 +64,7 @@ export function rectanglesIntersect(a: FrameRect, b: FrameRect): boolean {
 export interface CopiedSubgraph {
   scenes: SceneNode[]
   compositions: CompositionNode[]
+  repeats: RepeatNode[]
   modifiers: ModifierNode[]
   links: NodeLink[]
   /** Selected cloneable ids in selection order. */
@@ -77,18 +79,23 @@ export function copySelection(
   modifiers: readonly ModifierNode[],
   links: readonly NodeLink[],
   compositions: readonly CompositionNode[] = [],
+  repeats: readonly RepeatNode[] = [],
 ): CopiedSubgraph {
   const selected = new Set(selection.ids)
   const copiedScenes = scenes.filter((node) => selected.has(node.id))
   const copiedModifiers = modifiers.filter((node) => selected.has(node.id))
   const copiedCompositions = compositions.filter((node) => selected.has(node.id))
+  const copiedRepeats = repeats.filter((node) => selected.has(node.id))
   const available = new Set(
-    [...copiedScenes, ...copiedModifiers, ...copiedCompositions].map((node) => node.id),
+    [...copiedScenes, ...copiedModifiers, ...copiedCompositions, ...copiedRepeats].map(
+      (node) => node.id,
+    ),
   )
   const ids = selection.ids.filter((id) => available.has(id))
   return structuredClone({
     scenes: copiedScenes,
     compositions: copiedCompositions,
+    repeats: copiedRepeats,
     modifiers: copiedModifiers,
     links: links.filter(({ from, to }) => available.has(from) && available.has(to)),
     ids,
@@ -104,6 +111,7 @@ export type PastePlacement = { at: { x: number; y: number } } | { offset: { x: n
 export interface PastedSubgraph extends Selection {
   scenes: SceneNode[]
   compositions: CompositionNode[]
+  repeats: RepeatNode[]
   modifiers: ModifierNode[]
   links: NodeLink[]
   inserted: InsertedCounters
@@ -115,24 +123,30 @@ export function pasteSelection(
   copy: CopiedSubgraph,
   counters: Omit<
     InsertedCounters,
-    'shape' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
+    'shape' | 'repeat' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
   > &
     Partial<
       Pick<
         InsertedCounters,
-        'shape' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
+        'shape' | 'repeat' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
       >
     >,
   placement: PastePlacement,
 ): PastedSubgraph {
   const snapshot = structuredClone(copy)
-  const nodes = [...snapshot.scenes, ...snapshot.modifiers, ...(snapshot.compositions ?? [])]
+  const nodes = [
+    ...snapshot.scenes,
+    ...snapshot.modifiers,
+    ...(snapshot.compositions ?? []),
+    ...(snapshot.repeats ?? []),
+  ]
   const minX = nodes.length ? Math.min(...nodes.map((node) => node.x)) : 0
   const minY = nodes.length ? Math.min(...nodes.map((node) => node.y)) : 0
   const delta =
     'at' in placement ? { x: placement.at.x - minX, y: placement.at.y - minY } : placement.offset
   const inserted = {
     shape: 0,
+    repeat: 0,
     material: 0,
     lighting: 0,
     text: 0,
@@ -160,6 +174,12 @@ export function pasteSelection(
     x: node.x + delta.x,
     y: node.y + delta.y,
   }))
+  const repeats = (snapshot.repeats ?? []).map((node): RepeatNode => ({
+    ...node,
+    ...allocate(node.id, 'repeat'),
+    x: node.x + delta.x,
+    y: node.y + delta.y,
+  }))
   const modifiers = snapshot.modifiers.map((node): ModifierNode => ({
     ...node,
     ...allocate(node.id, node.kind),
@@ -176,5 +196,5 @@ export function pasteSelection(
     return next ? [next] : []
   })
   const activeId = (snapshot.activeId && remap.get(snapshot.activeId)) || ids.at(-1) || null
-  return { scenes, compositions, modifiers, links, inserted, ids, activeId }
+  return { scenes, compositions, repeats, modifiers, links, inserted, ids, activeId }
 }

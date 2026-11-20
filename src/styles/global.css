@@ -942,6 +942,37 @@ body {
   color: var(--color-text);
 }
 
+/* A repeat artboard: its generated canvas fills the frame; one hidden offscreen scene
+   supplies the shared trophy render (never one 3D context per repeated copy). */
+.repeat-artboard > .repeat-artboard-frame {
+  z-index: 1;
+}
+
+.repeat-artboard-source {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.repeat-controls {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+.scene-controls-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
 /* The selected scene's controls: the sidebar's panel, floating beside the scene
    (CanvasPage places and sizes it). */
 .scene-controls {
