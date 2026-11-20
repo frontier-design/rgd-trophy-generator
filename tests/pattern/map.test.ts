@@ -142,3 +142,40 @@ describe('image mode', () => {
     expect(map?.data[0]).toBe(245)
   })
 })
+
+describe('crop', () => {
+  it('feeds only the selected region to the pattern, without trimming that choice away', () => {
+    // Bright left half, dark right half: the full image's margins trim to the left half.
+    const image = gray(40, 20)
+    for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) image.data[y * 40 + x] = 255
+    const full = buildPatternMap(image, {
+      ...DEFAULT_PATTERN,
+      mode: 'repeat',
+      fold: 'none',
+      softness: 0,
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+    }).map
+    expect(full?.data.some((value) => value > 0)).toBe(true)
+
+    // Selecting the dark half keeps exactly that region: no automatic trim, no ornament.
+    const cropped = buildPatternMap(image, {
+      ...DEFAULT_PATTERN,
+      mode: 'repeat',
+      fold: 'none',
+      softness: 0,
+      crop: { x: 0.5, y: 0, width: 0.5, height: 1 },
+    }).map
+    expect(cropped?.data.every((value) => value === 0)).toBe(true)
+
+    // Selecting the bright half is a smaller map than the whole image's trimmed one.
+    const left = buildPatternMap(image, {
+      ...DEFAULT_PATTERN,
+      mode: 'repeat',
+      fold: 'none',
+      softness: 0,
+      crop: { x: 0, y: 0, width: 0.5, height: 1 },
+    }).map
+    expect(left?.data.some((value) => value > 0)).toBe(true)
+    expect(left?.data).not.toEqual(cropped?.data)
+  })
+})

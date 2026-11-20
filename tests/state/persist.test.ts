@@ -161,7 +161,34 @@ describe('saved documents', () => {
     const pattern = doc.modifiers[2]
     expect(pattern?.kind === 'pattern' && pattern.params.repeats).toBe(3)
     expect(pattern?.kind === 'pattern' && pattern.params.image).toMatch(/ornament-sample/)
+    expect(pattern?.kind === 'pattern' && pattern.params.crop).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    })
     expect(doc.view).toEqual({ x: 5, y: 6, zoom: 0.5 })
+  })
+
+  it('round-trips a pattern crop, clamping broken crops inside the image', () => {
+    const crop = { x: 0.2, y: 0.1, width: 0.5, height: 0.6 }
+    const saved = parseCanvasDocument({
+      modifiers: [{ id: 'pattern-1', kind: 'pattern', params: { image: '/x.png', crop } }],
+    })
+    const node = saved.modifiers[0]
+    expect(node?.kind === 'pattern' && node.params.crop).toEqual(crop)
+
+    for (const [bad, expected] of [
+      [{ x: -1, y: 2, width: 3, height: 0 }, { x: 0, y: 0.98, width: 1, height: 0.02 }],
+      [{ x: 0.9, y: 0.9, width: 0.5, height: 0.5 }, { x: 0.5, y: 0.5, width: 0.5, height: 0.5 }],
+      [undefined, { x: 0, y: 0, width: 1, height: 1 }],
+    ] as const) {
+      const parsed = parseCanvasDocument({
+        modifiers: [{ id: 'pattern-1', kind: 'pattern', params: { image: '/x.png', crop: bad } }],
+      })
+      const parsedNode = parsed.modifiers[0]
+      expect(parsedNode?.kind === 'pattern' && parsedNode.params.crop).toEqual(expected)
+    }
   })
 
   it('load nothing (or junk) as the empty canvas and the default generator', () => {

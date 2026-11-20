@@ -1,5 +1,7 @@
 // Grayscale grids for the pattern node: cropping, orienting, resizing, contrast and blur, on
 // plain arrays (no DOM, no libraries), so pattern maps can be built in a worker and tested.
+import type { CropRect } from '../types'
+import { clampCrop, isFullCrop } from './crop'
 
 /** A grayscale image: `width × height` values 0–255, row by row. */
 export interface Gray {
@@ -35,6 +37,26 @@ export function autocrop(g: Gray, threshold: number): Gray {
     for (let x = 0; x < out.width; x++) {
       out.data[y * out.width + x] = g.data[(y + top) * g.width + x + left] ?? 0
     }
+  }
+  return out
+}
+
+/** The part of `g` inside a normalized crop (0–1 image coordinates), clamped to the image
+ *  and at least one pixel wide and tall; `g` itself for the full image. */
+export function cropRegion(g: Gray, crop: CropRect | null | undefined): Gray {
+  if (!crop || isFullCrop(crop)) return g
+  const clamped = clampCrop(crop)
+  const left = Math.min(g.width - 1, Math.max(0, Math.floor(clamped.x * g.width)))
+  const top = Math.min(g.height - 1, Math.max(0, Math.floor(clamped.y * g.height)))
+  const right = Math.max(left + 1, Math.min(g.width, Math.ceil((clamped.x + clamped.width) * g.width)))
+  const bottom = Math.max(
+    top + 1,
+    Math.min(g.height, Math.ceil((clamped.y + clamped.height) * g.height)),
+  )
+  const out = gray(right - left, bottom - top)
+  for (let y = 0; y < out.height; y++) {
+    const source = (y + top) * g.width + left
+    out.data.set(g.data.subarray(source, source + out.width), y * out.width)
   }
   return out
 }

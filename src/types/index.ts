@@ -330,6 +330,10 @@ export type EtchLayout = 'diagonal' | 'vertical' | 'horizontal' | 'zigzag' | 'wa
 export interface PatternParams {
   /** The source image: a URL or data URL (the node stores what was loaded). */
   image: string
+  /** The part of the source image the pattern uses, in normalized image coordinates
+   *  (0–1, relative to the source), kept apart from the source so cropping is reversible.
+   *  The full image by default. */
+  crop: CropRect
   /** Repeat the image (cropped to its ornament, turned to run around, black-and-white at the
    *  threshold, folded), generate new ornament from its pieces (WFC), or use the image
    *  itself as is (its brightness the relief), repeated around. */
@@ -387,6 +391,14 @@ export interface PatternParams {
   style: PatternStyle
   /** How strongly it shows: relief, how tall; inlay, how opaque (%). */
   strength: number
+}
+
+/** A rectangle in normalized image coordinates (0–1 from the image's top left). */
+export interface CropRect {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export type PatternMode = 'repeat' | 'generate' | 'image'

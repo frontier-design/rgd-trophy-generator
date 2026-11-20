@@ -14,6 +14,7 @@ import {
   resolveImageAssetSync,
   storeImageAsset,
 } from '../../state/imageAssets'
+import { FULL_CROP, clampCrop } from '../../pattern'
 import {
   DEFAULT_ETCH,
   DEFAULT_TEXTURE,
@@ -192,6 +193,7 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
         ...DEFAULT_PATTERN,
         ...params,
         image,
+        crop: parseCrop(params.crop),
         mode: 'repeat',
         style: 'raised',
       },
@@ -224,6 +226,11 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
     return { ...base, kind: 'twist', params: { ...DEFAULT_TWIST, ...params } } as ModifierNode
   }
   return null
+}
+
+/** A saved crop, clamped inside the image with nonzero dimensions (full by default). */
+function parseCrop(value: unknown): typeof FULL_CROP {
+  return value === undefined ? { ...FULL_CROP } : clampCrop(asObject(value) as Partial<typeof FULL_CROP>)
 }
 
 /** Where a master node goes on a canvas that had none: left of the scenes' top-left. */

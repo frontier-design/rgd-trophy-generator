@@ -9,7 +9,9 @@ import type {
 import { RangeField } from '../ControlPanel/RangeField'
 import { SelectField } from '../ControlPanel/SelectField'
 import { ToggleField } from '../ControlPanel/ToggleField'
+import { FULL_CROP } from '../../pattern'
 import { imageFileToUrl } from './patternImage'
+import { PatternCropViewer } from './PatternCropViewer'
 
 const MAPPINGS: readonly PatternMapping[] = ['strip', 'surface']
 const FOLDS: readonly PatternFold[] = ['none', 'across', 'around', 'both']
@@ -28,6 +30,15 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
   return (
     <>
       <div className="node-card-wide">
+        {/* The imported source, with a reversible crop: only the selected region feeds the
+            pattern. Zooming/panning the viewer changes nothing else. */}
+        <PatternCropViewer
+          // A new source remounts the viewer: it starts fitted again.
+          key={params.image}
+          image={params.image}
+          crop={params.crop ?? FULL_CROP}
+          onChange={(crop) => set({ crop })}
+        />
         <MapPreview map={status?.map ?? null} />
         <p className="node-card-status" role="status" data-busy={status?.busy ? 'on' : undefined}>
           {status?.message || 'loading…'}
@@ -46,7 +57,8 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
           onChange={async (e) => {
             const file = e.target.files?.[0]
             e.target.value = ''
-            if (file) set({ image: await imageFileToUrl(file) })
+            // A new source starts from the full image: old crop coordinates would cut it.
+            if (file) set({ image: await imageFileToUrl(file), crop: FULL_CROP })
           }}
         />
       </div>

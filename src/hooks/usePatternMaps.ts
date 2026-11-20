@@ -18,8 +18,22 @@ const DEBOUNCE = 150
 
 /** The fields that change the map (the rest only change how it's laid on the trophy). */
 function mapParams(p: PatternParams): PatternMapParams {
-  const { mode, detail, length, size, symmetry, fold, seed, threshold, invert, softness } = p
-  return { mode, detail, length, size, symmetry, fold, seed, threshold, invert, softness }
+  const { mode, detail, length, size, symmetry, fold, seed, threshold, invert, softness, crop } =
+    p
+  return {
+    mode,
+    detail,
+    length,
+    size,
+    symmetry,
+    fold,
+    seed,
+    threshold,
+    invert,
+    softness,
+    // The crop is part of the map: changing it rebuilds (viewer zoom/pan never do).
+    crop,
+  }
 }
 
 let jobCounter = 0

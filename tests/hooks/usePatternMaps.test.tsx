@@ -39,6 +39,19 @@ describe('usePatternMaps', () => {
     void gray
   })
 
+  it('rebuilds when the crop changes (zoom/pan viewer state is not in the params)', async () => {
+    let nodes = [node('a', { crop: { x: 0, y: 0, width: 0.5, height: 1 } })]
+    const { result, rerender } = renderHook(() => usePatternMaps(nodes))
+    await waitFor(() => expect(result.current.get('a')?.map).toBeTruthy())
+    const first = result.current.get('a')?.map
+
+    nodes = [node('a', { crop: { x: 0.2, y: 0.1, width: 0.6, height: 0.7 } })]
+    rerender()
+    expect(result.current.get('a')?.busy).toBe(true)
+    await waitFor(() => expect(result.current.get('a')?.busy).toBe(false))
+    expect(result.current.get('a')?.map).not.toBe(first)
+  })
+
   it('rebuilds when a map field changes, not when the placement does, and forgets removed nodes', async () => {
     let nodes = [node('a')]
     const { result, rerender } = renderHook(() => usePatternMaps(nodes))

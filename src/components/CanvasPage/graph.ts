@@ -1,5 +1,6 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
 import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS } from '../../state'
+import { FULL_CROP } from '../../pattern'
 import type {
   EtchParams,
   PatternParams,
@@ -160,6 +161,7 @@ export const SAMPLE_IMAGE = '/images/ornament-sample.png'
  *  with crisp band edges (no fade). */
 export const DEFAULT_PATTERN: PatternParams = {
   image: SAMPLE_IMAGE,
+  crop: FULL_CROP,
   mode: 'repeat',
   from: 60,
   to: 70,

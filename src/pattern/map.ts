@@ -1,7 +1,8 @@
 // A pattern node's height map: its image (cropped, turned to run around the trophy) either
 // repeated as is or used as the sample for Wave Function Collapse. Pure; runs in a worker.
-import type { PatternParams } from '../types'
-import { autocrop, binarize, blur, contrast, gray, landscape, resize, type Gray } from './grid'
+import type { CropRect, PatternParams } from '../types'
+import { isFullCrop } from './crop'
+import { autocrop, binarize, blur, contrast, cropRegion, gray, landscape, resize, type Gray } from './grid'
 import { wfcOverlapping } from './wfc'
 
 /** What's below this brightness (0–255) is the image's empty margin, cropped off. */
@@ -27,6 +28,7 @@ export type PatternMapParams = Pick<
   | 'threshold'
   | 'invert'
   | 'softness'
+  | 'crop'
 >
 
 export interface PatternMapResult {
@@ -66,10 +68,10 @@ export function fold(g: Gray, how: PatternParams['fold']): Gray {
   return out
 }
 
-/** The image prepared for repeat and generate: margins cropped, its long side running
- *  around (as is for image mode). */
-export function prepareSample(image: Gray): Gray {
-  return landscape(autocrop(image, MARGIN))
+/** The image prepared for repeat and generate: margins cropped (when the whole image is
+ *  selected: a crop the user chose is kept as it is), its long side running around. */
+export function prepareSample(image: Gray, { trimMargins = true }: { trimMargins?: boolean } = {}): Gray {
+  return landscape(trimMargins ? autocrop(image, MARGIN) : image)
 }
 
 /** Image mode: the map's longest side at most this (px; the texture's size). */
@@ -85,9 +87,13 @@ const IMAGE_MAX_SIDE = 2048
 export function buildPatternMap(image: Gray, params: PatternMapParams): PatternMapResult {
   const threshold = (params.threshold / 100) * 255
   const softness = Math.max(0, params.softness)
+  // The selected region feeds the pattern. A user's crop is used exactly: automatic margin
+  // trimming only applies when the whole image is selected, so it can't shrink their choice.
+  const crop: CropRect | undefined = params.crop
+  const source = cropRegion(image, crop)
   if (params.mode === 'image') {
-    const fit = Math.min(1, IMAGE_MAX_SIDE / Math.max(image.width, image.height))
-    const sized = resize(image, image.width * fit, image.height * fit, true)
+    const fit = Math.min(1, IMAGE_MAX_SIDE / Math.max(source.width, source.height))
+    const sized = resize(source, source.width * fit, source.height * fit, true)
     const height = params.invert
       ? gray(
           sized.width,
@@ -98,7 +104,7 @@ export function buildPatternMap(image: Gray, params: PatternMapParams): PatternM
     const map = blur(height, softness, true)
     return { map, message: `${map.width} × ${map.height}, as is` }
   }
-  const sample = prepareSample(image)
+  const sample = prepareSample(source, { trimMargins: isFullCrop(crop) })
   if (params.mode === 'repeat') {
     // As sharp as the image allows (never upscaled), at most REPEAT_HEIGHT across the strip
     // and REPEAT_MAX_WIDTH around (before folding).
