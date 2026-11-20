@@ -26,8 +26,9 @@ export function useAutosave<T>(
   }: {
     delay?: number
     /** What's actually written (e.g. with large parts stored apart); `value` itself by
-     *  default. Called when saving, not on every change. */
-    serialize?: (value: T) => unknown
+     *  default. May be async (assets are written before the document refers to them): the
+     *  save only completes once it has. Called when saving, not on every change. */
+    serialize?: (value: T) => unknown | Promise<unknown>
   } = {},
 ): void {
   const serializeRef = useRef(serialize)
@@ -37,12 +38,40 @@ export function useAutosave<T>(
   const latest = useRef(value)
   const initial = useRef(value)
   const dirty = useRef(false)
+  // Writes run one after another, so an async asset write can't be overtaken by a later save.
+  const writing = useRef<Promise<void>>(Promise.resolve())
+  const busy = useRef(false)
 
   const flush = useCallback(() => {
-    if (!dirty.current) return
+    if (!dirty.current) return writing.current
     dirty.current = false
+    const value = latest.current
     const write = serializeRef.current
-    writeSaved(slot, write ? write(latest.current) : latest.current)
+    // Nothing async before it and the serialization is synchronous (no image asset to store):
+    // write it now, as autosave always has (e.g. leaving the page).
+    if (!busy.current) {
+      const serialized = write ? write(value) : value
+      if (!isThenable(serialized)) {
+        writeSaved(slot, serialized)
+        return writing.current
+      }
+      busy.current = true
+      const run = Promise.resolve(serialized)
+        .then((result) => {
+          writeSaved(slot, result)
+        })
+        .finally(() => {
+          busy.current = false
+        })
+      writing.current = run
+      return run
+    }
+    const run = writing.current.catch(() => {}).then(async () => {
+      const serialized = write ? await write(value) : value
+      writeSaved(slot, serialized)
+    })
+    writing.current = run.catch(() => {})
+    return run
   }, [slot])
 
   useEffect(() => {
@@ -67,6 +96,14 @@ export function useAutosave<T>(
       document.removeEventListener('visibilitychange', onHidden)
     }
   }, [flush])
+}
+
+function isThenable(value: unknown): value is Promise<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === 'function'
+  )
 }
 
 /** The save status (last autosave, failures, the project file), re-rendering on change. */

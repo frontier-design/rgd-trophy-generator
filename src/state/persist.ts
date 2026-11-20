@@ -1,5 +1,6 @@
 // Saving work: autosave to the browser's storage, and project files on disk. No React: the
 // hooks (hooks/useAutosave, useSaveStatus) and the save controls build on this.
+import { inlineImageAssets, storeEmbeddedImageAssets } from './imageAssets'
 
 /** What each page autosaves, under its own key. */
 export type SaveSlot = 'canvas' | 'generator'
@@ -140,6 +141,11 @@ export function getSaveStatus(): SaveStatus {
   return status
 }
 
+/** Surface a storage/asset failure in the save status (e.g. images missing after a load). */
+export function setSaveError(message: string | null): void {
+  setStatus({ error: message })
+}
+
 export function subscribeSaveStatus(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
@@ -170,18 +176,26 @@ watchOtherTabs()
 
 // Pending autosaves ----------------------------------------------------------------------------
 
-const flushes = new Set<() => void>()
+type Flush = () => void | Promise<void>
+const flushes = new Set<Flush>()
 let suspended = false
+/** Flushes run in order: an autosave that stores assets asynchronously can't be overtaken by
+ *  the next one (or by a manual save that must include its latest state). */
+let flushing: Promise<void> = Promise.resolve()
 
 /** Register a page's pending-autosave flush (so a manual save includes its latest state). */
-export function registerFlush(flush: () => void): () => void {
+export function registerFlush(flush: Flush): () => void {
   flushes.add(flush)
   return () => flushes.delete(flush)
 }
 
-/** Write every pending autosave now. */
-export function flushAutosaves(): void {
-  flushes.forEach((flush) => flush())
+/** Write every pending autosave now, and resolve once the (possibly async) writes are done. */
+export function flushAutosaves(): Promise<void> {
+  const run = flushing.catch(() => {}).then(async () => {
+    for (const flush of [...flushes]) await flush()
+  })
+  flushing = run.catch(() => {})
+  return run
 }
 
 /** Stop autosaving until the page reloads: an opened project was just written to storage,
@@ -205,14 +219,15 @@ export interface ProjectFile {
   timeline?: unknown
 }
 
-/** The project as it is now (pending autosaves written first). */
-export function buildProjectFile(timeline: unknown = undefined): ProjectFile {
-  flushAutosaves()
+/** The project as it is now: pending autosaves and their asset writes are awaited first,
+ *  and every referenced image is put back in, so the file is whole and stands on its own. */
+export async function buildProjectFile(timeline: unknown = undefined): Promise<ProjectFile> {
+  await flushAutosaves()
   const file: ProjectFile = { app: APP, version: 1, savedAt: new Date().toISOString() }
   for (const slot of SAVE_SLOTS) {
     // Images are stored apart from the documents: put them back in, so the file is whole.
     const value = readSaved(slot)
-    if (value !== undefined) file[slot] = inlineBlobs(value)
+    if (value !== undefined) file[slot] = await inlineImageAssets(value)
   }
   if (timeline !== undefined && timeline !== null) file.timeline = timeline
   return file
@@ -229,15 +244,25 @@ export function parseProjectFile(text: string): ProjectFile | null {
   }
 }
 
-/** Put an opened project's pages in storage (reload to show them). */
-export function restoreProjectFile(file: ProjectFile): void {
+/**
+ * Put an opened project's pages in storage (reload to show them). Embedded images are written
+ * to IndexedDB first; the lightweight documents then refer to them. Throws (rather than
+ * reporting success) if an asset or the storage itself refuses the write.
+ */
+export async function restoreProjectFile(file: ProjectFile): Promise<void> {
   for (const slot of SAVE_SLOTS) {
-    try {
-      if (file[slot] === undefined) window.localStorage.removeItem(storageKey(slot))
-      else window.localStorage.setItem(storageKey(slot), JSON.stringify(file[slot]))
+    if (file[slot] === undefined) {
+      window.localStorage.removeItem(storageKey(slot))
       known.delete(slot)
-    } catch {
-      // Reported by the next autosave; nothing else to do here.
+      continue
+    }
+    const value = await storeEmbeddedImageAssets(file[slot])
+    try {
+      window.localStorage.setItem(storageKey(slot), JSON.stringify(value))
+      known.delete(slot)
+    } catch (error) {
+      setStatus({ error: `Open failed: ${String(error)}` })
+      throw error
     }
   }
 }

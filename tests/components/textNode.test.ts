@@ -33,14 +33,14 @@ describe('text nodes', () => {
     expect(resolve(links.slice(0, 1), [a, b], new Map()).get('s1')?.text).toBe('first')
   })
 
-  it('round-trips counters through autosave and recovers missing or corrupt legacy counters', () => {
+  it('round-trips counters through autosave and recovers missing or corrupt legacy counters', async () => {
     const node = createModifier('text', 'text-4', 'text 4', 0, 0)
     const legacy = parseCanvasDocument({ modifiers: [node], inserted: { text: null } })
     expect(legacy.inserted.text).toBe(4)
     expect(
       writeSaved(
         'canvas',
-        storeCanvasDocument({ ...legacy, inserted: { ...legacy.inserted, text: 9 } }),
+        await storeCanvasDocument({ ...legacy, inserted: { ...legacy.inserted, text: 9 } }),
       ),
     ).toBe(true)
     expect(loadCanvasDocument().inserted.text).toBe(9)

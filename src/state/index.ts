@@ -20,6 +20,21 @@ export {
   type GeneratorDocument,
 } from './generatorDocument'
 export {
+  ASSET_PREFIX,
+  LEGACY_BLOB_PREFIX,
+  clearImageAssetCaches,
+  inlineImageAssets,
+  isEmbeddedImage,
+  isImageAssetRef,
+  loadImageAsset,
+  pruneImageAssets,
+  resolveImageAssetSync,
+  setImageAssetStore,
+  storeEmbeddedImageAssets,
+  storeImageAsset,
+  type ImageAssetStore,
+} from './imageAssets'
+export {
   BLOB_PREFIX,
   buildProjectFile,
   inlineBlobs,
@@ -32,6 +47,7 @@ export {
   readSaved,
   restoreProjectFile,
   saveProjectToDisk,
+  setSaveError,
   suspendAutosave,
   writeSaved,
   type ProjectFile,

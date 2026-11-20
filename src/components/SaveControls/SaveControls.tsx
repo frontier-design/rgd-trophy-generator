@@ -26,7 +26,10 @@ export function SaveControls() {
 
   const save = useCallback(async (saveAs = false) => {
     try {
-      const name = await saveProjectToDisk(buildProjectFile(exportTimelineState()), { saveAs })
+      // Every pending autosave and its image writes are awaited before the file is written,
+      // and its images are embedded: no save is reported with unresolved assets.
+      const project = await buildProjectFile(exportTimelineState())
+      const name = await saveProjectToDisk(project, { saveAs })
       if (name) setMessage(`saved ${name} at ${time(Date.now())}`)
     } catch (error) {
       setMessage(`couldn't save: ${String(error)}`)
@@ -51,7 +54,14 @@ export function SaveControls() {
       setMessage(`${file.name} isn't an RGD project file`)
       return
     }
-    restoreProjectFile(project)
+    try {
+      // Assets are stored before the documents refer to them; failures are reported, not
+      // mistaken for a successful open.
+      await restoreProjectFile(project)
+    } catch (error) {
+      setMessage(`couldn't open ${file.name}: ${String(error)}`)
+      return
+    }
     // Don't let this page's closing autosave overwrite what was just opened.
     suspendAutosave()
     window.location.reload()

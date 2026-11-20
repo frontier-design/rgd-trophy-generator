@@ -1,7 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { CanvasPage } from '../../src/components/CanvasPage'
 import { SaveControls } from '../../src/components/SaveControls'
-import { readSaved } from '../../src/state'
+import {
+  clearImageAssetCaches,
+  readSaved,
+  setImageAssetStore,
+  storeImageAsset,
+  writeSaved,
+} from '../../src/state'
+import { createFakeIndexedDb } from '../support/fakeIndexedDb'
 
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
 vi.mock('../../src/timeline', () => import('../support/timelineStub'))
@@ -78,5 +85,49 @@ describe('manual save', () => {
     } finally {
       Reflect.deleteProperty(window, 'showSaveFilePicker')
     }
+  })
+})
+
+
+describe('portable project save with image assets', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    setImageAssetStore(null)
+    clearImageAssetCaches()
+    Reflect.deleteProperty(window, 'showSaveFilePicker')
+  })
+
+  it('waits for stored images and embeds them in the saved project file', async () => {
+    const image = 'data:image/png;base64,' + 'P'.repeat(4000)
+    vi.stubGlobal('indexedDB', createFakeIndexedDb())
+    setImageAssetStore(null)
+    clearImageAssetCaches()
+    const ref = await storeImageAsset(image)
+    writeSaved('canvas', {
+      modifiers: [{ id: 'pattern-1', kind: 'pattern', params: { image: ref } }],
+    })
+
+    const write = vi.fn()
+    Object.assign(window, {
+      showSaveFilePicker: async () => ({
+        name: 'portable.json',
+        createWritable: async () => ({ write, close: async () => {} }),
+      }),
+    })
+    render(<SaveControls />)
+    // Shift asks for a file, even if an earlier test picked one in this module.
+    fireEvent.click(screen.getByRole('button', { name: 'save' }), { shiftKey: true })
+    expect(await screen.findByText(/saved portable\.json/)).toBeInTheDocument()
+    const file = JSON.parse(write.mock.calls[0]?.[0] as string)
+    expect(file.canvas.modifiers[0].params.image).toBe(image)
+  })
+
+  it('reports a missing image instead of saving a broken project', async () => {
+    writeSaved('canvas', {
+      modifiers: [{ id: 'pattern-1', kind: 'pattern', params: { image: 'rgd-asset:missing' } }],
+    })
+    render(<SaveControls />)
+    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    expect(await screen.findByText(/couldn't save: .*Missing image asset/)).toBeInTheDocument()
   })
 })

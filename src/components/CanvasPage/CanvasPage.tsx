@@ -13,9 +13,14 @@ import {
 import { downloadBlob, maxImageScale } from '../../export'
 import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled, useUndo } from '../../hooks'
 import type { HeightMap } from '../../render3d'
-import { ARTBOARD } from '../../state'
+import { ARTBOARD, isImageAssetRef, setSaveError } from '../../state'
 import { ControlPanel, type HideableField } from '../ControlPanel'
-import { loadCanvasDocument, storeCanvasDocument, type CanvasDocument } from './canvasDocument'
+import {
+  hydrateCanvasDocument,
+  loadCanvasDocument,
+  storeCanvasDocument,
+  type CanvasDocument,
+} from './canvasDocument'
 import { CanvasScene, type SceneExporter } from './CanvasScene'
 import { CanvasComposition } from './CanvasComposition'
 import { ClusterFrame } from './ClusterFrame'
@@ -249,6 +254,60 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     [scenes, compositions, modifiers, links, master, clusters, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
+
+  // Images are stored apart from the document (IndexedDB): read the ones this session doesn't
+  // already have back asynchronously, and say so if one is missing. Only apply an image the
+  // node still shows (a quick upload before hydration wins).
+  useEffect(() => {
+    let cancelled = false
+    const storedImages = saved.modifiers.some(
+      (node) => node.kind === 'pattern' && isImageAssetRef(node.params.image),
+    )
+    const loadedImages = new Map(
+      saved.modifiers.flatMap((node) =>
+        node.kind === 'pattern' ? ([[node.id, node.params.image]] as const) : [],
+      ),
+    )
+    void hydrateCanvasDocument(saved)
+      .then(({ document, missing }) => {
+        if (cancelled) return
+        const hydrated = new Map(
+          document.modifiers.flatMap((node) =>
+            node.kind === 'pattern' ? ([[node.id, node.params.image]] as const) : [],
+          ),
+        )
+        // Nothing to replace: a URL source (e.g. the sample) never needs this update.
+        if (storedImages) {
+          setModifiers((current) => {
+            let changed = false
+            const next = current.map((node) => {
+              if (node.kind !== 'pattern') return node
+              const image = hydrated.get(node.id)
+              if (
+                image === undefined ||
+                image === node.params.image ||
+                loadedImages.get(node.id) !== node.params.image
+              )
+                return node
+              changed = true
+              return { ...node, params: { ...node.params, image } }
+            })
+            return changed ? next : current
+          })
+        }
+        if (missing.length) {
+          setSaveError(
+            `Couldn't load ${missing.length === 1 ? 'a saved image asset' : `${missing.length} saved image assets`}: re-upload the image to restore it.`,
+          )
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setSaveError(`Couldn't load saved images: ${String(error)}`)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [saved])
 
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.

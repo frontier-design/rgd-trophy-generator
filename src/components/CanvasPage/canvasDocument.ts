@@ -7,7 +7,13 @@ import {
   DEFAULT_SCENE_PARAMS,
   DEFAULT_SETTINGS,
 } from '../../state'
-import { BLOB_PREFIX, loadBlob, pruneBlobs, readSaved, storeBlob } from '../../state/persist'
+import { BLOB_PREFIX, loadBlob, pruneBlobs, readSaved } from '../../state/persist'
+import {
+  isImageAssetRef,
+  loadImageAsset,
+  resolveImageAssetSync,
+  storeImageAsset,
+} from '../../state/imageAssets'
 import {
   DEFAULT_ETCH,
   DEFAULT_TEXTURE,
@@ -175,12 +181,20 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
     } as ModifierNode
   }
   if (type === 'pattern') {
-    // Its image is stored apart from the document (storeCanvasDocument): load it back.
-    const image = typeof params.image === 'string' ? loadBlob(params.image) : null
+    // Its image is stored apart from the document (storeCanvasDocument): load what this
+    // session already has (IndexedDB assets that need an async read are hydrated after).
+    const saved = typeof params.image === 'string' ? params.image : ''
+    const image = saved ? (resolveImageAssetSync(saved) ?? saved) : SAMPLE_IMAGE
     return {
       ...base,
       kind: 'pattern',
-      params: { ...DEFAULT_PATTERN, ...params, image: image ?? SAMPLE_IMAGE, mode: 'repeat', style: 'raised' },
+      params: {
+        ...DEFAULT_PATTERN,
+        ...params,
+        image,
+        mode: 'repeat',
+        style: 'raised',
+      },
     } as ModifierNode
   }
   if (type === 'texture') {
@@ -368,19 +382,88 @@ export function loadCanvasDocument(): CanvasDocument {
 }
 
 /**
- * The canvas as it's autosaved: pattern images (data URLs of up to hundreds of KB) are stored
- * once each, apart (state/persist storeBlob), and referred to, so the document itself stays
+ * The canvas as it's autosaved: pattern images (large data URLs) are stored once each, by
+ * content, in IndexedDB (state/imageAssets), and referred to, so the document itself stays
  * small and every autosave (a pan, a slider) writes a few KB rather than every image again.
- * Images no longer used are removed.
+ * Resolves only after the durable asset writes: a saved document never refers to an image
+ * that isn't stored. Legacy localStorage blobs are migrated on the way and kept until then.
  */
-export function storeCanvasDocument(doc: CanvasDocument): CanvasDocument {
-  const refs = new Set<string>()
-  const modifiers = doc.modifiers.map((node) => {
-    if (node.kind !== 'pattern' || !node.params.image.startsWith('data:')) return node
-    const image = storeBlob(node.params.image)
-    if (image.startsWith(BLOB_PREFIX)) refs.add(image)
-    return { ...node, params: { ...node.params, image } }
-  })
-  pruneBlobs(refs)
+export function storeCanvasDocument(doc: CanvasDocument): CanvasDocument | Promise<CanvasDocument> {
+  // Only an image that needs a durable asset write makes this async: a document without one
+  // (the common case, e.g. every autosave while panning) is still written at once.
+  const needsWrite = doc.modifiers.some(
+    (node) =>
+      node.kind === 'pattern' &&
+      (node.params.image.startsWith('data:') || node.params.image.startsWith(BLOB_PREFIX)),
+  )
+  const legacyRefs = new Set(
+    doc.modifiers.flatMap((node) =>
+      node.kind === 'pattern' && node.params.image.startsWith(BLOB_PREFIX)
+        ? [node.params.image]
+        : [],
+    ),
+  )
+  if (!needsWrite) {
+    pruneBlobs(legacyRefs)
+    return doc
+  }
+  return storeCanvasDocumentAsync(doc)
+}
+
+async function storeCanvasDocumentAsync(doc: CanvasDocument): Promise<CanvasDocument> {
+  const legacyRefs = new Set<string>()
+  const modifiers = await Promise.all(
+    doc.modifiers.map(async (node) => {
+      if (node.kind !== 'pattern') return node
+      const saved = node.params.image
+      // A legacy localStorage reference: read it, store it in IndexedDB, and refer to that.
+      const fromLegacy = saved.startsWith(BLOB_PREFIX)
+      const data = fromLegacy ? loadBlob(saved) : saved
+      if (!data) return node
+      const image = await storeImageAsset(data)
+      if (image.startsWith(BLOB_PREFIX)) legacyRefs.add(image)
+      return image === saved ? node : { ...node, params: { ...node.params, image } }
+    }),
+  )
+  pruneBlobs(legacyRefs)
   return { ...doc, modifiers }
+}
+
+/** A loaded canvas with its images read back from storage, and any asset that couldn't be
+ *  read (so the page can say so instead of quietly drawing something else). */
+export interface HydratedCanvas {
+  document: CanvasDocument
+  missing: string[]
+}
+
+/**
+ * Read the canvas's pattern images back into data URLs (IndexedDB assets asynchronously,
+ * legacy blobs and already-embedded data URLs too). Embedded images are written to
+ * IndexedDB as they're migrated. A missing asset keeps its reference and is reported in
+ * `missing` rather than silently replaced (the pattern then says it couldn't load one).
+ */
+export async function hydrateCanvasDocument(doc: CanvasDocument): Promise<HydratedCanvas> {
+  const missing: string[] = []
+  const modifiers = await Promise.all(
+    doc.modifiers.map(async (node) => {
+      if (node.kind !== 'pattern') return node
+      const saved = node.params.image
+      if (!saved) return node
+      if (!isImageAssetRef(saved)) {
+        // Embedded data URLs (older saves) migrate now; plain URLs stay as they are.
+        if (saved.startsWith('data:image/')) await storeImageAsset(saved).catch(() => {})
+        return node
+      }
+      const data = await loadImageAsset(saved)
+      if (data === null) {
+        // Keep the reference (a later manual save must not silently drop it); report it.
+        missing.push(saved)
+        return node
+      }
+      // (A legacy blob read is migrated by loadImageAsset; this also stores embedded data.)
+      await storeImageAsset(data).catch(() => {})
+      return data === saved ? node : { ...node, params: { ...node.params, image: data } }
+    }),
+  )
+  return { document: { ...doc, modifiers }, missing }
 }
