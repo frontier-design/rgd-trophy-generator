@@ -89,8 +89,8 @@ import { SelectionMarquee } from './SelectionMarquee'
 
 /** Grid spacing at 100% (px). */
 const GRID = 24
-/** Below this on-screen spacing (px), the fine lines are dropped (too dense to read). */
-const MIN_FINE_SPACING = 6
+/** Keep dots readable when zoomed out by showing progressively coarser grid points. */
+const MIN_GRID_SPACING = 12
 /** The selected scene's controls: their width, their gap to the scene, how close they come
  *  to the window's edges, and the least height they keep on screen (px). */
 const CONTROLS = { width: 340, gap: 16, inset: 12, minHeight: 240 }
@@ -1066,12 +1066,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       ]),
     )
   })
-  const fine = GRID * view.zoom
+  const spacing = GRID * view.zoom
+  const fine = spacing * 2 ** Math.max(0, Math.ceil(Math.log2(MIN_GRID_SPACING / spacing)))
   const grid = {
     '--grid-x': `${view.x}px`,
     '--grid-y': `${view.y}px`,
     '--grid-fine': `${fine}px`,
-    '--grid-fine-color': fine < MIN_FINE_SPACING ? 'transparent' : undefined,
   } as CSSProperties
 
   // The selected artboard's controls sit just right of it, top-aligned, kept on screen.
