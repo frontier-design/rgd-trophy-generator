@@ -340,10 +340,10 @@ describe('ControlPanel', () => {
     expect(radius).toBeEnabled()
     fireEvent.change(radius, { target: { value: '30' } })
     expect(radius).toHaveValue('30')
-    // Up to 200 px.
-    expect(radius).toHaveAttribute('max', '200')
-    fireEvent.change(radius, { target: { value: '160' } })
-    expect(radius).toHaveValue('160')
+    // Large radii remain available; geometry caps the actual curve safely.
+    expect(radius).toHaveAttribute('max', '400')
+    fireEvent.change(radius, { target: { value: '350' } })
+    expect(radius).toHaveValue('350')
   })
 
   it('has a taper slider in percent, 0 by default', () => {

@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 ## Parent
 
@@ -25,4 +25,6 @@
 Use the spec's testing decisions: observable workspace behavior and saved-project round trips, focused geometry/map tests where appropriate, and real-browser validation where mocked rendering/storage cannot prove correctness. Run relevant tests, typecheck and lint; preserve unrelated working-tree changes. Record commands/results when completing this ticket.
 
 ## Comments
+
+- Partial work: raised the existing top-radius control to 400 px; the shape node and remaining acceptance criteria are not implemented. Targeted ControlPanel test passes. Browser verification not done.
 

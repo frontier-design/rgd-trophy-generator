@@ -409,7 +409,7 @@ export function ControlPanel({
           label="top radius"
           value={params.topRadius}
           min={0}
-          max={200}
+          max={400}
           disabled={!params.roundTop}
           keyframe={keyframe?.('top.radius')}
           onChange={(topRadius) => onParamsChange({ topRadius })}
