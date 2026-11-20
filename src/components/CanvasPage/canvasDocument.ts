@@ -180,7 +180,7 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
     return {
       ...base,
       kind: 'pattern',
-      params: { ...DEFAULT_PATTERN, ...params, image: image ?? SAMPLE_IMAGE },
+      params: { ...DEFAULT_PATTERN, ...params, image: image ?? SAMPLE_IMAGE, mode: 'repeat', style: 'raised' },
     } as ModifierNode
   }
   if (type === 'texture') {

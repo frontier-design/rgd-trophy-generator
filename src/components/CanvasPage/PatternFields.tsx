@@ -4,21 +4,15 @@ import type { Gray } from '../../pattern'
 import type {
   PatternFold,
   PatternMapping,
-  PatternMode,
   PatternParams,
-  PatternStyle,
-  PatternSymmetry,
 } from '../../types'
 import { RangeField } from '../ControlPanel/RangeField'
 import { SelectField } from '../ControlPanel/SelectField'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import { imageFileToUrl } from './patternImage'
 
-const MODES: readonly PatternMode[] = ['repeat', 'generate', 'image']
 const MAPPINGS: readonly PatternMapping[] = ['strip', 'surface']
-const SYMMETRIES: readonly PatternSymmetry[] = ['none', 'mirror', 'all']
 const FOLDS: readonly PatternFold[] = ['none', 'across', 'around', 'both']
-const STYLES: readonly PatternStyle[] = ['raised', 'cut', 'bright', 'dark']
 
 interface PatternFieldsProps {
   params: PatternParams
@@ -31,9 +25,6 @@ interface PatternFieldsProps {
  *  how it's laid on the trophy. */
 export function PatternFields({ params, set, status }: PatternFieldsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
-  const generate = params.mode === 'generate'
-  // Image mode uses the image as is: no threshold, no folding.
-  const asIs = params.mode === 'image'
   return (
     <>
       <div className="node-card-wide">
@@ -44,14 +35,6 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         <div className="control-actions">
           <button type="button" className="control-button" onClick={() => fileRef.current?.click()}>
             load image
-          </button>
-          <button
-            type="button"
-            className="control-button"
-            disabled={!generate}
-            onClick={() => set({ seed: Math.floor(Math.random() * 100000) })}
-          >
-            new seed
           </button>
         </div>
         <input
@@ -67,18 +50,6 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
           }}
         />
       </div>
-      {/* Generate: new ornament from the image's pieces (Wave Function Collapse), read at
-          'detail' cells across the strip, 'length' cells around each repeat, learning
-          'size' × 'size' neighborhoods (with their mirror images, or every rotation too),
-          folded into symmetric motifs. Repeat: the image's ornament around the strip (fold
-          around mirrors every other repeat, so they meet seamlessly). Image: the image
-          itself, as is (its brightness the relief), repeated around. */}
-      <SelectField
-        label="mode"
-        value={params.mode}
-        options={MODES}
-        onChange={(mode) => set({ mode })}
-      />
       {/* Strip: the ornament stretched over its strip (from/to). Surface: following the
           trophy's surface, keeping its proportions everywhere, repeating in rows (smaller
           where the trophy narrows), so it can cover the whole shape (from 0 to 100). */}
@@ -177,45 +148,10 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         unit="%"
         onChange={(shapeScale) => set({ shapeScale })}
       />
-      <RangeField
-        label="detail"
-        value={params.detail}
-        min={6}
-        max={40}
-        unit=""
-        disabled={!generate}
-        onChange={(detail) => set({ detail })}
-      />
-      <RangeField
-        label="length"
-        value={params.length}
-        min={8}
-        max={120}
-        unit=""
-        disabled={!generate}
-        onChange={(length) => set({ length })}
-      />
-      <RangeField
-        label="size"
-        value={params.size}
-        min={2}
-        max={4}
-        unit=""
-        disabled={!generate}
-        onChange={(size) => set({ size })}
-      />
-      <SelectField
-        label="symmetry"
-        value={params.symmetry}
-        options={SYMMETRIES}
-        disabled={!generate}
-        onChange={(symmetry) => set({ symmetry })}
-      />
       <SelectField
         label="fold"
         value={params.fold}
         options={FOLDS}
-        disabled={asIs}
         onChange={(fold) => set({ fold })}
       />
       <RangeField
@@ -224,7 +160,6 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={1}
         max={99}
         unit="%"
-        disabled={asIs}
         onChange={(threshold) => set({ threshold })}
       />
       <ToggleField label="invert" checked={params.invert} onChange={(invert) => set({ invert })} />
@@ -235,12 +170,6 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         max={12}
         unit=""
         onChange={(softness) => set({ softness })}
-      />
-      <SelectField
-        label="style"
-        value={params.style}
-        options={STYLES}
-        onChange={(style) => set({ style })}
       />
       <RangeField
         label="strength"

@@ -230,8 +230,8 @@ describe('CanvasPage', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'insert pattern' }))
     const pattern = screen.getByRole('group', { name: 'pattern 1' })
     expect(within(pattern).getByRole('button', { name: 'load image' })).toBeInTheDocument()
-    // Repeat (the image itself) by default: the WFC fields don't apply.
-    expect(within(pattern).getByRole('combobox', { name: 'mode' })).toHaveValue('repeat')
+    expect(within(pattern).queryByRole('combobox', { name: 'mode' })).not.toBeInTheDocument()
+    expect(within(pattern).queryByRole('combobox', { name: 'style' })).not.toBeInTheDocument()
     expect(within(pattern).getByRole('combobox', { name: 'mapping' })).toHaveValue('surface')
     for (const name of [
       'fade',
@@ -242,32 +242,15 @@ describe('CanvasPage', () => {
       'shape scale',
       'spin',
       'angle',
-      'detail',
-      'length',
-      'size',
       'threshold',
       'softness',
       'strength',
     ]) {
       expect(within(pattern).getByRole('slider', { name })).toBeInTheDocument()
     }
-    expect(within(pattern).getByRole('slider', { name: 'detail' })).toBeDisabled()
-    expect(within(pattern).getByRole('button', { name: 'new seed' })).toBeDisabled()
+    expect(within(pattern).queryByRole('slider', { name: 'detail' })).not.toBeInTheDocument()
+    expect(within(pattern).queryByRole('button', { name: 'new seed' })).not.toBeInTheDocument()
     expect(within(pattern).getByRole('combobox', { name: 'fold' })).toHaveValue('around')
-    // Generate: they do.
-    fireEvent.change(within(pattern).getByRole('combobox', { name: 'mode' }), {
-      target: { value: 'generate' },
-    })
-    expect(within(pattern).getByRole('slider', { name: 'detail' })).toBeEnabled()
-    expect(within(pattern).getByRole('button', { name: 'new seed' })).toBeEnabled()
-    // Image: the image as is, so no threshold or folding.
-    fireEvent.change(within(pattern).getByRole('combobox', { name: 'mode' }), {
-      target: { value: 'image' },
-    })
-    expect(within(pattern).getByRole('slider', { name: 'threshold' })).toBeDisabled()
-    expect(within(pattern).getByRole('combobox', { name: 'fold' })).toBeDisabled()
-    expect(within(pattern).getByRole('slider', { name: 'angle' })).toBeEnabled()
-    expect(within(pattern).getByRole('combobox', { name: 'style' })).toHaveValue('raised')
   })
 
   it('texture nodes insert with their fields (angle for brushed only)', () => {
