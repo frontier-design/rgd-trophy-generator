@@ -96,6 +96,9 @@ export function SceneArtboard({
       ref={artboardRef}
       className="artboard"
       data-mirror={mirror ? 'on' : 'off'}
+      data-top-radius={scene.topRadius}
+      data-round-top={scene.roundTop ? 'on' : 'off'}
+      data-taper={scene.taper}
       style={
         {
           '--artboard-padding': `${ARTBOARD.padding}px`,

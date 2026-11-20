@@ -4,6 +4,7 @@ import { ensureFontLoaded, measureFontMetrics, measureLines, toFontLoadQuery } f
 import { fitToFrame } from '../../rag'
 import { ARTBOARD, DEFAULT_BANNER_TEXT, DEFAULT_SCENE_PARAMS, DEFAULT_SETTINGS } from '../../state'
 import type { AnimatedParams, FontMetrics, SceneParams, Settings } from '../../types'
+import type { ShapeParams } from './graph'
 
 /** A new scene's look, RGD's reference layout: the text and its mirror spanning the frame's
  *  margins, the widest line carving `carve` of the radius, the top band up to the top
@@ -262,6 +263,13 @@ export function createSceneNode(
 }
 
 /** A scene's params, as the control panel edits them. */
+/** A scene with a linked shape node's profile in place of its saved fallback (which stays
+ *  untouched, so disconnecting the node restores it). */
+export function withShape<T extends Pick<SceneNode, 'scene'>>(node: T, shape?: ShapeParams): T {
+  if (!shape) return node
+  return { ...node, scene: { ...node.scene, ...shape, lineBox: { ...shape.lineBox } } }
+}
+
 export function sceneParams({ settings, scene }: SceneNode): AnimatedParams {
   const { fontSize, lineHeight, columnWidth, material } = settings
   return { fontSize, lineHeight, columnWidth, material, ...scene }

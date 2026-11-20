@@ -23,6 +23,8 @@ import {
 } from './canvasDocument'
 import { CanvasScene, type SceneExporter } from './CanvasScene'
 import { CanvasComposition } from './CanvasComposition'
+import { RepeatArtboard } from './RepeatArtboard'
+import { RepeatControls } from './RepeatControls'
 import { ClusterFrame } from './ClusterFrame'
 import {
   clusterBounds,
@@ -63,6 +65,7 @@ import {
   withParams,
   type SceneNode,
 } from './sceneNode'
+import { createRepeatNode, type RepeatNode } from './repeatNode'
 import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './master'
 import { NodeCard, type ParamsPatch } from './NodeCard'
 import { useTypingPlayback } from './useTypingPlayback'
@@ -152,7 +155,10 @@ function isTyping(target: EventTarget | null): boolean {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** What a right-click was on. */
-type MenuTarget = { kind: 'scene' | 'composition' | 'cluster' | ModifierKind; id: string } | null
+type MenuTarget = {
+  kind: 'scene' | 'composition' | 'repeat' | 'cluster' | ModifierKind
+  id: string
+} | null
 
 /** What was copied (⌘C, or the right-click menu): kept for the session, so it pastes into
  *  this canvas again after switching pages. */
@@ -183,6 +189,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const { view, size, reset } = useInfiniteCanvas(canvasRef, saved.view)
   const [scenes, setScenes] = useState<SceneNode[]>(saved.scenes)
   const [compositions, setCompositions] = useState<CompositionNode[]>(saved.compositions)
+  const [repeats, setRepeats] = useState<RepeatNode[]>(saved.repeats)
   const [modifiers, setModifiers] = useState<ModifierNode[]>(saved.modifiers)
   const typing = useTypingPlayback(modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
@@ -244,6 +251,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       version: 1,
       scenes,
       compositions,
+      repeats,
       modifiers,
       links,
       master,
@@ -251,7 +259,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       inserted,
       view,
     }),
-    [scenes, compositions, modifiers, links, master, clusters, inserted, view],
+    [scenes, compositions, repeats, modifiers, links, master, clusters, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
 
@@ -312,12 +320,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
   const content = useMemo(
-    () => ({ scenes, compositions, modifiers, links, master, clusters }),
-    [scenes, compositions, modifiers, links, master, clusters],
+    () => ({ scenes, compositions, repeats, modifiers, links, master, clusters }),
+    [scenes, compositions, repeats, modifiers, links, master, clusters],
   )
   const history = useUndo(content, (state) => {
     setScenes(state.scenes)
     setCompositions(state.compositions)
+    setRepeats(state.repeats)
     setModifiers(state.modifiers)
     setLinks(state.links)
     setMaster(state.master)
@@ -330,6 +339,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         MASTER_ID,
         ...state.scenes.map((node) => node.id),
         ...state.compositions.map((node) => node.id),
+        ...state.repeats.map((node) => node.id),
         ...state.modifiers.map((node) => node.id),
         ...state.clusters.map((node) => node.id),
       ]),
@@ -349,9 +359,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const boardNodes = useRef(new Map<string, NodePosition & { id: string }>())
   useEffect(() => {
     boardNodes.current = new Map(
-      [...scenes, ...compositions, ...modifiers, master].map((node) => [node.id, node]),
+      [...scenes, ...compositions, ...repeats, ...modifiers, master].map((node) => [node.id, node]),
     )
-  }, [scenes, compositions, modifiers, master])
+  }, [scenes, compositions, repeats, modifiers, master])
   // Clusters' frames (canvas px) and members, for drags (set each render, below).
   const clusterFrames = useRef(new Map<string, { bounds: Rect; members: string[] }>())
   const participants = useCallback((id: string) => {
@@ -376,6 +386,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         : current,
     )
     setCompositions((current) =>
+      current.some((node) => moves.has(node.id))
+        ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
+        : current,
+    )
+    setRepeats((current) =>
       current.some((node) => moves.has(node.id))
         ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
         : current,
@@ -538,6 +553,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       moveCommitted.current = true
       setScenes((current) => current.filter((node) => !removed.has(node.id)))
       setCompositions((current) => current.filter((node) => !removed.has(node.id)))
+      setRepeats((current) => current.filter((node) => !removed.has(node.id)))
       setModifiers((current) => current.filter((node) => !removed.has(node.id)))
       setClusters((current) => {
         const kept = current.filter((cluster) => !removed.has(cluster.id))
@@ -599,19 +615,20 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           ? (rayTarget(
               sourcePort(source, viewRef.current.zoom),
               toCanvas(e.clientX, e.clientY),
-              (sourceIsScene ? compositions : scenes)
+              (sourceIsScene ? compositions : [...scenes, ...repeats])
                 .filter((node) => node.id !== pendingFrom)
                 .map((node) => ({ id: node.id, x: node.x, y: node.y, ...node.frame })),
             ) ?? undefined)
           : undefined)
       const targetIsComposition = compositions.some((node) => node.id === to)
+      const targetIsRepeat = repeats.some((node) => node.id === to)
       const valid =
         to &&
         (sourceIsScene
           ? targetIsComposition
           : (modifiers.some((node) => node.id === pendingFrom) ||
               clusterFrames.current.has(pendingFrom)) &&
-            scenes.some((node) => node.id === to))
+            (scenes.some((node) => node.id === to) || targetIsRepeat))
       if (valid) {
         setLinks((current) =>
           connect(
@@ -655,7 +672,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [pendingFrom, toCanvas, scenes, compositions, modifiers])
+  }, [pendingFrom, toCanvas, scenes, compositions, repeats, modifiers])
 
   /** A new scene centered on a point of the canvas element (px), selected. Its layout is
    *  fitted to the frame, from its text measured once the font has loaded. */
@@ -695,6 +712,42 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     ])
     selectOnly(id)
   }
+  const insertRepeat = (x: number, y: number) => {
+    const count = reserveCount('repeat')
+    const id = `repeat-${count}`
+    setRepeats((current) => [
+      ...current,
+      createRepeatNode(
+        id,
+        `repeat ${count}`,
+        (x - view.x) / view.zoom - ARTBOARD.width / 2,
+        (y - view.y) / view.zoom - ARTBOARD.height / 2,
+      ),
+    ])
+    selectOnly(id)
+  }
+  const moveRepeat = useCallback((id: string, x: number, y: number) => {
+    setRepeats((current) => current.map((node) => (node.id === id ? { ...node, x, y } : node)))
+  }, [])
+  const resizeRepeat = useCallback((id: string, rect: FrameRect) => {
+    setRepeats((current) =>
+      current.map((node) =>
+        node.id === id
+          ? { ...node, x: rect.x, y: rect.y, frame: { width: rect.width, height: rect.height } }
+          : node,
+      ),
+    )
+  }, [])
+  const updateRepeat = useCallback(
+    (id: string, update: (node: RepeatNode) => RepeatNode) =>
+      setRepeats((current) => current.map((node) => (node.id === id ? update(node) : node))),
+    [],
+  )
+  const setRepeatLayout = useCallback(
+    (id: string, patch: Partial<RepeatNode['layout']>) =>
+      updateRepeat(id, (node) => ({ ...node, layout: { ...node.layout, ...patch } })),
+    [updateRepeat],
+  )
   const moveComposition = useCallback((id: string, x: number, y: number) => {
     setCompositions((current) => current.map((node) => (node.id === id ? { ...node, x, y } : node)))
   }, [])
@@ -732,7 +785,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const [hasCopy, setHasCopy] = useState(copied !== null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
   const copyNodes = (selected: Selection = selectionRef.current) => {
-    const snapshot = copySelection(selected, scenes, modifiers, links, compositions)
+    const snapshot = copySelection(selected, scenes, modifiers, links, compositions, repeats)
     copied = snapshot.ids.length ? snapshot : null
     setHasCopy(copied !== null)
   }
@@ -758,6 +811,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       ...pasted.scenes.map((node) => withMaster(node, masterRef.current)),
     ])
     setCompositions((current) => [...current, ...pasted.compositions])
+    setRepeats((current) => [...current, ...pasted.repeats])
     setModifiers((current) => [...current, ...pasted.modifiers])
     setLinks((current) => [...current, ...pasted.links])
     setSelection(replaceSelection(pasted.ids, pasted.activeId))
@@ -802,13 +856,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setSelection(replaceSelection(ungrouped.flatMap((cluster) => cluster.members)))
   }
   const duplicateNodes = (selected: Selection = selectionRef.current) => {
-    pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions))
+    pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions, repeats))
   }
   useEffect(() => {
     duplicateMovesRef.current = (ids, offset) =>
       pasteCopy(
         null,
-        copySelection(replaceSelection(ids), scenes, modifiers, links, compositions),
+        copySelection(replaceSelection(ids), scenes, modifiers, links, compositions, repeats),
         offset,
       )
   })
@@ -1020,8 +1074,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     '--grid-fine-color': fine < MIN_FINE_SPACING ? 'transparent' : undefined,
   } as CSSProperties
 
-  // The selected scene's controls sit just right of it, top-aligned, kept on screen.
-  const selected = scenes.find((node) => node.id === selection.activeId)
+  // The selected artboard's controls sit just right of it, top-aligned, kept on screen.
+  const selectedScene = scenes.find((node) => node.id === selection.activeId)
+  const selectedRepeat = repeats.find((node) => node.id === selection.activeId)
 
   // The links' curves, from each node's output to each scene's input.
   const sourcesById = new Map<string, LinkSource>([
@@ -1031,8 +1086,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       { id: cluster.id, cluster: true, ...bounds },
     ]),
   ])
-  const targetsById = new Map<string, SceneNode | CompositionNode>(
-    [...scenes, ...compositions].map((node) => [node.id, node]),
+  const targetsById = new Map<string, SceneNode | CompositionNode | RepeatNode>(
+    [...scenes, ...compositions, ...repeats].map((node) => [node.id, node]),
   )
   const linkPaths = links.flatMap((link) => {
     const from = sourcesById.get(link.from)
@@ -1054,12 +1109,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   })
   const subject = selection.ids.length > 1 ? 'selection' : menu?.target?.kind
   const disconnectTarget =
-    menu?.target?.kind === 'scene' || menu?.target?.kind === 'composition' ? menu.target.id : null
+    menu?.target?.kind === 'scene' ||
+    menu?.target?.kind === 'composition' ||
+    menu?.target?.kind === 'repeat'
+      ? menu.target.id
+      : null
   const menuItems: ContextMenuItem[] = menu
     ? [
         { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
         { label: 'insert composition', onSelect: () => insertComposition(menu.x, menu.y) },
+        { label: 'insert repeat', onSelect: () => insertRepeat(menu.x, menu.y) },
         { label: 'insert text', onSelect: () => insertModifier('text', menu.x, menu.y) },
+        { label: 'insert shape', onSelect: () => insertModifier('shape', menu.x, menu.y) },
         { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
         { label: 'insert etch', onSelect: () => insertModifier('etch', menu.x, menu.y) },
         { label: 'insert pattern', onSelect: () => insertModifier('pattern', menu.x, menu.y) },
@@ -1135,6 +1196,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
             e.preventDefault()
             const rect = e.currentTarget.getBoundingClientRect()
+            const repeatId = target.closest<HTMLElement>('[data-repeat-node]')?.dataset.sceneId
             const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
             const compositionId =
               target.closest<HTMLElement>('[data-composition-node]')?.dataset.sceneId
@@ -1142,7 +1204,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             const nodeId = nodeElement?.dataset.nodeId
             const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
             const clusterId = target.closest<HTMLElement>('[data-cluster-id]')?.dataset.clusterId
-            const menuTarget: MenuTarget = sceneId
+            const menuTarget: MenuTarget = repeatId
+              ? { kind: 'repeat', id: repeatId }
+              : sceneId
               ? { kind: 'scene', id: sceneId }
               : !nodeElement && clusterId
                 ? { kind: 'cluster', id: clusterId }
@@ -1208,6 +1272,22 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onExporter={setExporter}
                 onVisualChange={onVisualChange}
                 onResize={resizeScene}
+              />
+            ))}
+            {repeats.map((node) => (
+              <RepeatArtboard
+                key={node.id}
+                node={node}
+                selected={selectedIds.has(node.id)}
+                getZoom={getZoom}
+                renderZoom={renderZoom}
+                modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
+                onSelect={selectNode}
+                onInputDown={pickUpLink}
+                onMove={moveRepeat}
+                onResize={resizeRepeat}
+                onLayoutChange={setRepeatLayout}
+                onExporter={setExporter}
               />
             ))}
             {fittedCompositions.map((node) => {
@@ -1278,18 +1358,33 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             ))}
           </div>
           <SelectionMarquee canvasRef={canvasRef} onSelect={addSelected} onClear={clearSelected} />
-          {scenes.length === 0 && compositions.length === 0 && modifiers.length === 0 && (
+          {scenes.length === 0 &&
+            compositions.length === 0 &&
+            repeats.length === 0 &&
+            modifiers.length === 0 && (
             <p className="canvas-hint">Right-click to insert a scene</p>
           )}
-          {selected && (
-            <PositionedSceneControls node={selected} view={view} size={size}>
+          {selectedScene && (
+            <PositionedSceneControls node={selectedScene} view={view} size={size}>
               <SceneControls
-                key={selected.id}
-                node={selected}
-                litByNode={sceneModifiers.get(selected.id)?.lighting !== undefined}
+                key={selectedScene.id}
+                node={selectedScene}
+                litByNode={sceneModifiers.get(selectedScene.id)?.lighting !== undefined}
                 onChange={updateScene}
                 exporter={getExporter}
               />
+            </PositionedSceneControls>
+          )}
+          {selectedRepeat && (
+            <PositionedSceneControls node={selectedRepeat} view={view} size={size}>
+              <div className="scene-controls-panel">
+                <RepeatControls
+                  key={selectedRepeat.id}
+                  node={selectedRepeat}
+                  onUpdate={updateRepeat}
+                  exporter={getExporter}
+                />
+              </div>
             </PositionedSceneControls>
           )}
           {menu && (
@@ -1336,7 +1431,7 @@ const NodeLinkPath = memo(function NodeLinkPath({
   muted,
 }: {
   from: LinkSource
-  to: SceneNode | CompositionNode
+  to: SceneNode | CompositionNode | RepeatNode
   zoom: number
   muted?: boolean
 }) {
@@ -1360,7 +1455,7 @@ function PositionedSceneControls({
   size,
   children,
 }: {
-  node: SceneNode
+  node: Pick<SceneNode, 'id' | 'x' | 'y' | 'frame'>
   view: { x: number; y: number; zoom: number }
   size: { width: number; height: number }
   children: ReactNode
@@ -1440,6 +1535,7 @@ const SceneControls = memo(function SceneControls({
       onParamsChange={(patch) => update((current) => withParams(current, patch))}
       revealControls={false}
       hidden={litByNode ? MASTER_AND_LIGHTING_FIELDS : MASTER_FIELDS}
+      hideShapeMaterial
       frame={{
         width: frame.width,
         height: frame.height,

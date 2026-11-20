@@ -2,17 +2,17 @@
 
 [Canonical specification](spec.md) · [Tracker conventions](../../docs/agents/issue-tracker.md)
 
-All seven implementation tickets are `ready-for-agent`. This means specified, not implemented; a ticket can start only when its blockers are complete. Initially, **01, 02, 03 and 05** are unblocked.
+All seven implementation tickets are `done` and verified on `integration/tool-updates`.
 
-| Ticket | Delivers | Blocked by |
-| --- | --- | --- |
-| [01](issues/01-shape-node-editing.md) | Shape-node editing, inspector cleanup and 400 px top radius | None |
-| [02](issues/02-repeat-raised-patterns.md) | Repeat + raised patterns and silent legacy conversion | None |
-| [03](issues/03-indexeddb-image-assets.md) | IndexedDB image assets, 5000 px imports and portable save/open | None |
-| [04](issues/04-pattern-crop-viewer.md) | Reversible crop viewer with bounded zoom/pan | 03 |
-| [05](issues/05-centered-repeat-artboard.md) | Independent centered single-text repeat artboard | None |
-| [06](issues/06-repeat-layout-export.md) | Repeat spacing/scale/offset and transparent PNG export | 05 |
-| [07](issues/07-repeat-shared-modifiers.md) | Shared shape/material/surface modifiers on repeat artboards | 01, 05 |
+| Ticket | Delivers | Blocked by | Status |
+| --- | --- | --- | --- |
+| [01](issues/01-shape-node-editing.md) | Shape-node editing, inspector cleanup and 400 px top radius | None | `done` |
+| [02](issues/02-repeat-raised-patterns.md) | Repeat + raised patterns and silent legacy conversion | None | `done` |
+| [03](issues/03-indexeddb-image-assets.md) | IndexedDB image assets, 5000 px imports and portable save/open | None | `done` |
+| [04](issues/04-pattern-crop-viewer.md) | Reversible crop viewer with bounded zoom/pan | 03 | `done` |
+| [05](issues/05-centered-repeat-artboard.md) | Independent centered single-text repeat artboard | None | `done` |
+| [06](issues/06-repeat-layout-export.md) | Repeat spacing/scale/offset and transparent PNG export | 05 | `done` |
+| [07](issues/07-repeat-shared-modifiers.md) | Shared shape/material/surface modifiers on repeat artboards | 01, 05 | `done` |
 
 ## Working conventions
 

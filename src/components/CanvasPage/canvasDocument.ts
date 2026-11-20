@@ -17,6 +17,7 @@ import {
 import { FULL_CROP, clampCrop } from '../../pattern'
 import {
   DEFAULT_ETCH,
+  DEFAULT_SHAPE,
   DEFAULT_TEXTURE,
   DEFAULT_PATTERN,
   SAMPLE_IMAGE,
@@ -35,6 +36,13 @@ import {
   type MasterParams,
 } from './master'
 import { DEFAULT_FRAME, DEFAULT_IMAGE_EXPORT, type SceneNode } from './sceneNode'
+import {
+  repeatOffset,
+  repeatScale,
+  repeatSpacing,
+  repeatTypography,
+  type RepeatNode,
+} from './repeatNode'
 import type { ClusterNode } from './cluster'
 
 /** Everything on the canvas page, as autosaved and put in project files. */
@@ -42,6 +50,8 @@ export interface CanvasDocument {
   version: 1
   scenes: SceneNode[]
   compositions: CompositionNode[]
+  /** Independent repeat artboards. */
+  repeats: RepeatNode[]
   /** Twist and etch nodes. */
   modifiers: ModifierNode[]
   links: NodeLink[]
@@ -53,6 +63,8 @@ export interface CanvasDocument {
   inserted: {
     scene: number
     composition: number
+    repeat: number
+    shape: number
     twist: number
     etch: number
     pattern: number
@@ -70,6 +82,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   version: 1,
   scenes: [],
   compositions: [],
+  repeats: [],
   modifiers: [],
   links: [],
   master: createMasterNode(),
@@ -77,6 +90,8 @@ export const EMPTY_CANVAS: CanvasDocument = {
   inserted: {
     scene: 0,
     composition: 0,
+    repeat: 0,
+    shape: 0,
     twist: 0,
     etch: 0,
     pattern: 0,
@@ -162,6 +177,31 @@ function parseScene(value: unknown): SceneNode | null {
   }
 }
 
+/** A saved repeat artboard, its settings over the defaults. */
+function parseRepeat(value: unknown): RepeatNode | null {
+  if (!isObject(value) || typeof value.id !== 'string') return null
+  const frame = parseFrame(value.frame)
+  const settings = asObject(value.typography)
+  const layout = asObject(value.layout)
+  return {
+    id: value.id,
+    name: typeof value.name === 'string' ? value.name : value.id,
+    x: isFiniteNumber(value.x) ? value.x : 0,
+    y: isFiniteNumber(value.y) ? value.y : 0,
+    frame,
+    typography: repeatTypography(settings as Partial<RepeatNode['typography']>),
+    layout: {
+      scale: repeatScale(layout.scale),
+      spacingX: repeatSpacing(layout.spacingX),
+      spacingY: repeatSpacing(layout.spacingY),
+      offsetX: repeatOffset(layout.offsetX),
+      offsetY: repeatOffset(layout.offsetY),
+    },
+    background: typeof value.background === 'string' ? value.background : '#ffffff',
+    imageExport: parseImageExport(value.imageExport),
+  }
+}
+
 /** A saved modifier node (saves from before etch have only twists, without a kind). */
 function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode | null {
   if (!isObject(value) || typeof value.id !== 'string') return null
@@ -198,6 +238,18 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
         style: 'raised',
       },
     } as ModifierNode
+  }
+  if (type === 'shape') {
+    const shape = { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } }
+    for (const key of ['roundTop', 'topRadius', 'taper', 'smoothJoins', 'joinRadius', 'overshoot'] as const) {
+      const saved = params[key]
+      if (typeof saved === typeof shape[key] && (typeof saved !== 'number' || Number.isFinite(saved)))
+        (shape as unknown as Record<string, unknown>)[key] = saved
+    }
+    const lineBox = asObject(params.lineBox)
+    for (const key of ['padX', 'padY', 'radius'] as const)
+      if (isFiniteNumber(lineBox[key])) shape.lineBox[key] = lineBox[key]
+    return { ...base, kind: 'shape', params: shape }
   }
   if (type === 'texture') {
     return {
@@ -308,8 +360,10 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       },
     ]
   })
+  const repeats: RepeatNode[] = list('repeats').flatMap((item) => parseRepeat(item) ?? [])
   const sceneIds = new Set(scenes.map((node) => node.id))
   const compositionIds = new Set(compositions.map((node) => node.id))
+  const repeatIds = new Set(repeats.map((node) => node.id))
   const modifierIds = new Set(modifiers.map((node) => node.id))
   // Clusters: existing modifier members, each in one cluster only; empty ones dropped.
   const clustered = new Set<string>()
@@ -327,7 +381,8 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     const link = asObject(item)
     return typeof link.from === 'string' &&
       typeof link.to === 'string' &&
-      (((modifierIds.has(link.from) || clusterIds.has(link.from)) && sceneIds.has(link.to)) ||
+      (((modifierIds.has(link.from) || clusterIds.has(link.from)) &&
+        (sceneIds.has(link.to) || repeatIds.has(link.to))) ||
         (sceneIds.has(link.from) && compositionIds.has(link.to)))
       ? [{ from: link.from, to: link.to, ...(link.muted === true ? { muted: true } : {}) }]
       : []
@@ -338,6 +393,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     version: 1,
     scenes,
     compositions,
+    repeats,
     modifiers,
     links,
     master,
@@ -349,6 +405,8 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
         isCounter(inserted.composition) ? inserted.composition : 0,
         highestId(compositions, 'composition'),
       ),
+      repeat: Math.max(isCounter(inserted.repeat) ? inserted.repeat : 0, highestId(repeats, 'repeat')),
+      shape: Math.max(isCounter(inserted.shape) ? inserted.shape : 0, highestId(modifiers, 'shape')),
       twist: Math.max(
         isCounter(inserted.twist) ? inserted.twist : 0,
         highestId(modifiers, 'twist'),

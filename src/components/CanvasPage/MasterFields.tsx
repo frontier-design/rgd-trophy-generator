@@ -32,33 +32,6 @@ export function MasterFields({ params, set }: MasterFieldsProps) {
         onChange={(textAlign) => set({ textAlign })}
       />
       <ToggleField label="mirror" checked={params.mirror} onChange={(mirror) => set({ mirror })} />
-      <RangeField
-        label="overshoot"
-        value={params.overshoot}
-        min={0}
-        max={20}
-        step={0.5}
-        digits={1}
-        onChange={(overshoot) => set({ overshoot })}
-      />
-      <ToggleField
-        label="round top"
-        checked={params.roundTop}
-        onChange={(roundTop) => set({ roundTop })}
-      />
-      <RangeField
-        label="taper"
-        value={params.taper}
-        min={0}
-        max={90}
-        unit="%"
-        onChange={(taper) => set({ taper })}
-      />
-      <ToggleField
-        label="smooth joins"
-        checked={params.smoothJoins}
-        onChange={(smoothJoins) => set({ smoothJoins })}
-      />
       <Group title="material" />
       <SelectField
         label="shading"

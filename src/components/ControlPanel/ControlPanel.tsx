@@ -148,6 +148,7 @@ interface ControlPanelProps {
   banner?: BannerControls
   /** Fields to leave out (set elsewhere, e.g. on the canvas's master node). */
   hidden?: ReadonlySet<HideableField>
+  hideShapeMaterial?: boolean
   /** Show the reveal's fields (the text's and the banner's): they're for animating. */
   revealControls?: boolean
   /** The frame's size (canvas scenes). */
@@ -173,6 +174,7 @@ export function ControlPanel({
   transport,
   banner,
   hidden,
+  hideShapeMaterial = false,
   revealControls = true,
   frame,
   imageExport,
@@ -396,7 +398,7 @@ export function ControlPanel({
           </>
         )}
       </ControlSection>
-      <ControlSection {...sectionProps('top')}>
+      {!hideShapeMaterial && <ControlSection {...sectionProps('top')}>
         {shown('roundTop') && (
           <ToggleField
             label="round top"
@@ -409,7 +411,7 @@ export function ControlPanel({
           label="top radius"
           value={params.topRadius}
           min={0}
-          max={200}
+          max={400}
           disabled={!params.roundTop}
           keyframe={keyframe?.('top.radius')}
           onChange={(topRadius) => onParamsChange({ topRadius })}
@@ -426,7 +428,8 @@ export function ControlPanel({
           />
         )}
       </ControlSection>
-      <ControlSection {...sectionProps('line boxes')}>
+      }
+      {!hideShapeMaterial && <ControlSection {...sectionProps('line boxes')}>
         <RangeField
           label="pad x"
           value={lineBox.padX}
@@ -471,7 +474,8 @@ export function ControlPanel({
           onChange={(joinRadius) => onParamsChange({ joinRadius })}
         />
       </ControlSection>
-      <ControlSection {...sectionProps('material')}>
+      }
+      {!hideShapeMaterial && <ControlSection {...sectionProps('material')}>
         {shown('shading') && (
           <SelectField
             label="shading"
@@ -638,6 +642,7 @@ export function ControlPanel({
           </>
         )}
       </ControlSection>
+      }
       {/* Lit mode's key light and highlight, like Illustrator's 3D shading options. */}
       {shown('lighting') && (
         <ControlSection {...sectionProps('lighting')}>

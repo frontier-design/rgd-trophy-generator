@@ -149,6 +149,8 @@ describe('saved documents', () => {
     expect(doc.inserted).toEqual({
       scene: 4,
       composition: 0,
+      repeat: 0,
+      shape: 0,
       twist: 2,
       etch: 3,
       pattern: 5,
