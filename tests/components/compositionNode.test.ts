@@ -1,5 +1,6 @@
 import {
   IMAGE_CORNERS,
+  fitImageToRatio,
   resizeCompositionImage,
 } from '../../src/components/CanvasPage/compositionNode'
 
@@ -53,5 +54,32 @@ describe('resizeCompositionImage', () => {
     const corner0 = pinned(corner, result)
     expect(corner0.x).toBeCloseTo(anchor[corner].x)
     expect(corner0.y).toBeCloseTo(anchor[corner].y)
+  })
+})
+
+describe('fitImageToRatio', () => {
+  it('reshapes the box to a new ratio, keeping its center and area', () => {
+    const box = { x: 0, y: 0, width: 160, height: 90 }
+    const square = fitImageToRatio(box, 1)
+    expect(square.width).toBeCloseTo(120)
+    expect(square.height).toBeCloseTo(120)
+    expect(square.x + square.width / 2).toBeCloseTo(80)
+    expect(square.y + square.height / 2).toBeCloseTo(45)
+  })
+
+  it('is the same box at its own ratio, and returns to it exactly', () => {
+    const box = { x: 10, y: 20, width: 160, height: 90 }
+    expect(fitImageToRatio(box, 16 / 9)).toBe(box)
+    const back = fitImageToRatio(fitImageToRatio(box, 9 / 16), 16 / 9)
+    expect(back.x).toBeCloseTo(10)
+    expect(back.y).toBeCloseTo(20)
+    expect(back.width).toBeCloseTo(160)
+    expect(back.height).toBeCloseTo(90)
+  })
+
+  it('ignores unusable ratios', () => {
+    const box = { x: 0, y: 0, width: 10, height: 10 }
+    expect(fitImageToRatio(box, 0)).toBe(box)
+    expect(fitImageToRatio(box, Number.NaN)).toBe(box)
   })
 })

@@ -107,6 +107,7 @@ describe('saved documents', () => {
       material: 0,
       lighting: 0,
       text: 0,
+      cluster: 0,
     })
     const pattern = doc.modifiers[2]
     expect(pattern?.kind === 'pattern' && pattern.params.repeats).toBe(3)

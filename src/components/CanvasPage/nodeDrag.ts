@@ -97,7 +97,16 @@ export function useNodePosition(id: string, fallback: NodePosition) {
   return useSyncExternalStore(subscribe, snapshot, noPosition) ?? fallback
 }
 
-/** Share pointer ownership and preview/commit semantics between scenes and node cards. */
+/** The parts of a pointer event a drag reads (React's or the window's). */
+type DragPointer = Pick<globalThis.PointerEvent, 'pointerId' | 'clientX' | 'clientY' | 'altKey'>
+
+/**
+ * Share pointer ownership and preview/commit semantics between scenes and node cards.
+ *
+ * However the gesture ends, a moved node stays where it was let go: pointerup (on the node,
+ * or anywhere in the window if capture was lost), pointercancel and lostpointercapture all
+ * drop it there. Only disposing the previews (Escape, undo, paste, delete) cancels a drag.
+ */
 export function useNodeDrag(
   node: NodePosition & { id: string },
   getZoom: () => number,
@@ -114,10 +123,13 @@ export function useNodeDrag(
     moved: boolean
     /** Option/Alt was held at the press. */
     duplicate: boolean
+    /** Removes the window listeners that end the drag if the node loses the pointer. */
+    unlisten: () => void
   } | null>(null)
   const { id, x, y } = node
   useEffect(
     () => () => {
+      drag.current?.unlisten()
       const participants = drag.current?.participants ?? [{ id }]
       participants.forEach((node) => controller?.positions.finish(node.id))
       drag.current = null
@@ -125,16 +137,36 @@ export function useNodeDrag(
     [controller, id],
   )
 
-  const end = (event: PointerEvent<HTMLElement>, cancelled: boolean) => {
+  const move = (event: DragPointer) => {
+    const start = drag.current
+    if (
+      !start ||
+      start.pointer !== event.pointerId ||
+      start.revision !== controller?.positions.revision()
+    )
+      return
+    const dx = event.clientX - start.clientX
+    const dy = event.clientY - start.clientY
+    start.moved ||= Math.hypot(dx, dy) > 3
+    if (!start.moved) return
+    const zoom = getZoom()
+    if (controller) {
+      for (const node of start.participants)
+        controller.positions.preview(node.id, node.x + dx / zoom, node.y + dy / zoom)
+    } else onMove(id, start.origin.x + dx / zoom, start.origin.y + dy / zoom)
+  }
+
+  const end = (event: Pick<DragPointer, 'pointerId' | 'altKey'>) => {
     const start = drag.current
     if (!start || start.pointer !== event.pointerId) return
     drag.current = null
+    start.unlisten()
     const changes = new Map<string, NodePosition>()
     for (const origin of start.participants) {
       const last = controller?.positions.finish(origin.id)
       if (last && (last.x !== origin.x || last.y !== origin.y)) changes.set(origin.id, last)
     }
-    if (cancelled || start.revision !== controller?.positions.revision()) return
+    if (start.revision !== controller?.positions.revision()) return
     if (!start.moved) {
       controller?.onTap?.(id)
       return
@@ -151,6 +183,12 @@ export function useNodeDrag(
     if (changes.size && controller?.commit) controller.commit(changes)
     else if (last) onMove(id, last.x, last.y)
   }
+  // The latest handlers, for the window listeners added at the press.
+  const handlers = useRef({ move, end })
+  useEffect(() => {
+    handlers.current = { move, end }
+  })
+
   return {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0) return
@@ -160,6 +198,13 @@ export function useNodeDrag(
       const active = document.activeElement
       if (active instanceof HTMLElement && !event.currentTarget.contains(active)) active.blur()
       controller?.checkpoint()
+      drag.current?.unlisten()
+      // If the node loses the pointer (capture lost or never taken), the window still sees it.
+      const onWindowMove = (e: globalThis.PointerEvent) => handlers.current.move(e)
+      const onWindowEnd = (e: globalThis.PointerEvent) => handlers.current.end(e)
+      window.addEventListener('pointermove', onWindowMove)
+      window.addEventListener('pointerup', onWindowEnd)
+      window.addEventListener('pointercancel', onWindowEnd)
       drag.current = {
         pointer: event.pointerId,
         clientX: event.clientX,
@@ -169,6 +214,11 @@ export function useNodeDrag(
         revision: controller?.positions.revision(),
         moved: false,
         duplicate: event.altKey,
+        unlisten: () => {
+          window.removeEventListener('pointermove', onWindowMove)
+          window.removeEventListener('pointerup', onWindowEnd)
+          window.removeEventListener('pointercancel', onWindowEnd)
+        },
       }
       try {
         event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -176,28 +226,12 @@ export function useNodeDrag(
         // Synthetic pointer events may not have an active browser pointer.
       }
     },
-    onPointerMove(event: PointerEvent<HTMLElement>) {
-      const start = drag.current
-      if (
-        !start ||
-        start.pointer !== event.pointerId ||
-        start.revision !== controller?.positions.revision()
-      )
-        return
-      const dx = event.clientX - start.clientX
-      const dy = event.clientY - start.clientY
-      start.moved ||= Math.hypot(dx, dy) > 3
-      if (!start.moved) return
-      const zoom = getZoom()
-      if (controller) {
-        for (const node of start.participants)
-          controller.positions.preview(node.id, node.x + dx / zoom, node.y + dy / zoom)
-      } else onMove(id, start.origin.x + dx / zoom, start.origin.y + dy / zoom)
-    },
-    onPointerUp: (event: PointerEvent<HTMLElement>) => end(event, false),
-    onPointerCancel: (event: PointerEvent<HTMLElement>) => end(event, true),
+    onPointerMove: (event: PointerEvent<HTMLElement>) => move(event),
+    onPointerUp: (event: PointerEvent<HTMLElement>) => end(event),
+    // A drag the browser cuts short still lands where it was let go.
+    onPointerCancel: (event: PointerEvent<HTMLElement>) => end(event),
     onLostPointerCapture: (event: PointerEvent<HTMLElement>) => {
-      if (event.target === event.currentTarget) end(event, true)
+      if (event.target === event.currentTarget) end(event)
     },
   }
 }

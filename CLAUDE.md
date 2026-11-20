@@ -1,5 +1,19 @@
 # RGD Generator
 
+## Agent skills
+
+### Issue tracker
+
+Use local Markdown: specs at `.scratch/<feature>/spec.md`, one implementation issue per file under `.scratch/<feature>/issues/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the standard `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` and `wontfix` vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `GLOSSARY.md` and lazily created `docs/adr/`. Read relevant domain docs before design or implementation. See `docs/agents/domain.md`.
+
 A typography tool that measures the rag (ragged edge) of a text block, turns it into
 2D vector shapes, and renders those shapes in 3D.
 
@@ -309,8 +323,8 @@ are editor overlays and are not included in exports.
   gridded pasteboard. Dragging the empty canvas (or middle-dragging anywhere) and the wheel
   pan; ⌘/Ctrl + wheel or a trackpad pinch zooms about the cursor (0.1–8×, `zoomAt` from
   `usePanZoom`); **Reset** (bottom right, with the zoom %) recenters. The grid is CSS
-  backgrounds following the view (`--grid-x/y`, `--grid-fine` = 24 px × zoom, major lines
-  every 5; fine lines fade out when too dense); the world layer (`.infinite-canvas-world`,
+  backgrounds following the view (`--grid-x/y`, `--grid-fine` = 24 px × zoom, one
+  weight of line, no major lines; they fade out when too dense); the world layer (`.infinite-canvas-world`,
   `--zoom`) is transformed with the view and holds the scenes. `data-no-pan` elements don't
   start a pan; over `data-own-wheel` ones (the controls) the wheel scrolls them.
 - **Selection** (`CanvasPage/selection.ts`): view-only selected IDs plus an active ID; never
@@ -335,7 +349,10 @@ are editor overlays and are not included in exports.
   edits as in the generator; a click on the empty canvas deselects; Delete/Backspace
   (unless typing) or right-click → **delete scene** removes it. **Copy / paste**: right-click
   a scene or node → **copy** / **duplicate** (beside it), right-click anywhere → **paste**
-  (at the click); ⌘/Ctrl C, V (at the pointer), D (not while typing). The clipboard is the
+  (at the click); ⌘/Ctrl C, V (at the pointer), D (not while typing: only text fields count,
+  `isTyping`; sliders, switches and buttons keep focus after a node press, and pressing a
+  node blurs a field focused elsewhere). Option/Alt-drag duplicates: the originals stay and
+  copies land at the drop (`NodeDragContext` `duplicate`). The clipboard is the
   module's (`copied`, a deep copy), so it survives switching pages; a paste gets the next id
   and name of its kind and is selected. **Undo / redo** (⌘/Ctrl Z, ⇧⌘Z or Ctrl Y;
   `hooks/useUndo`): over the scenes, nodes and links (not the view, selection or id
@@ -363,7 +380,9 @@ are editor overlays and are not included in exports.
   % from the top), **ends** (fade, or round: each cut closes in an arch) and **end size** (%
   of the height). Drag from its output port onto a scene's input port (mid-left) to link
   (`NodeLink`, curves in `.node-links`, an SVG in canvas px); dragging from a linked input
-  picks its last link up; deleting a node drops its links. An output can feed several
+  picks its last link up; deleting a node drops its links. A link dropped short of any input
+  goes to the first valid scene (or, from a scene, composition) on the line from the outlet
+  through the drop point (`graph.ts` `rayTarget`; targets the outlet sits over are skipped). An output can feed several
   scenes; a scene takes the first `MAX_TWISTS` (8), multiplied (etches: `MAX_ETCHES`, 8).
   - The math (`render3d/twist.ts`, pure, tested; `twistScale`): the radius is scaled by
     m = 1 − depth·fade·cut, cuts centered on the creases (lobes 1 − sin(x/2)^p, grooves
@@ -490,6 +509,14 @@ are editor overlays and are not included in exports.
   `DEFAULT_ETCH`, `DEFAULT_PATTERN`) follow how nodes were actually used in saved projects
   (shallow straight lobes; bold horizontal rings; surface-mapped bands with no fade, all on a
   band in the lower body); the render3d math tests pin their own fixtures instead.
+- **Clusters** (`cluster.ts`, `ClusterFrame`; ⌘G groups the selected modifier nodes, ⇧⌘G
+  takes clusters apart, also in the right-click menu): a frame behind the members' cards
+  (measured with a ResizeObserver) with a header (select, drag: moves every member, via the
+  drag participants) and one output port. A link from a cluster stands for a link from each
+  member (`expandClusterLinks`, in canvas order; scenes, range handles and port fills use the
+  expanded links). Ungrouping or regrouping carries a cluster's links on to its members.
+  Deleting a cluster deletes its nodes. Saved under `clusters` (members must exist, one
+  cluster each). Clusters aren't copied (copying their nodes copies them ungrouped).
 - **Master node** (`master.ts`, `MasterFields`; one per canvas, `MASTER_ID`, saved under
   `master`): the settings every scene shares (align, mirror, overshoot, round top, taper,
   smooth joins; shading, banding, gradient scale, tilt, wobble, edge hue, ledge, grain, grain

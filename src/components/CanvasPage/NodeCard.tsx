@@ -9,6 +9,7 @@ import type {
   MaterialSettings,
 } from '../../types'
 import { MaterialFields } from './MaterialFields'
+import { paletteColors, paletteGradient } from '../../material'
 import { EtchFields } from './EtchFields'
 import type { LightingParams, ModifierNode } from './graph'
 import { LightingFields } from './LightingFields'
@@ -189,7 +190,15 @@ export const NodeCard = memo(function NodeCard({
           }
         }}
       >
-        <div className="node-card-header">
+        <div
+          className="node-card-header"
+          // The material node's header shows its palette (the gradient its swatch has).
+          style={
+            kind === 'material'
+              ? { background: paletteGradient(paletteColors(params as MaterialSettings)) }
+              : undefined
+          }
+        >
           <button
             type="button"
             className="node-card-fold"

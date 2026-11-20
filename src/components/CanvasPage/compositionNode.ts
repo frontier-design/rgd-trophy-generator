@@ -43,3 +43,24 @@ export function resizeCompositionImage(
     height,
   }
 }
+
+/**
+ * The image's box at `ratio` (width / height, the source scene's frame): same center and area
+ * as `image`, so when the scene's artboard changes shape the image follows it instead of being
+ * stretched, and changing it back restores the box exactly. The same box if it already has the
+ * ratio (or the ratio isn't usable).
+ */
+export function fitImageToRatio(image: CompositionImageRect, ratio: number): CompositionImageRect {
+  if (!(ratio > 0) || !Number.isFinite(ratio) || !(image.width > 0) || !(image.height > 0))
+    return image
+  if (Math.abs(image.width / image.height - ratio) < 1e-6) return image
+  const area = image.width * image.height
+  const width = Math.sqrt(area * ratio)
+  const height = width / ratio
+  return {
+    x: image.x + (image.width - width) / 2,
+    y: image.y + (image.height - height) / 2,
+    width,
+    height,
+  }
+}

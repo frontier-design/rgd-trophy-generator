@@ -6,6 +6,7 @@ import {
   MAX_STOPS,
   PALETTE_NAMES,
   paletteColors,
+  paletteGradient,
   PALETTES,
   paletteStops,
   stopsFromColors,
@@ -70,5 +71,12 @@ describe('custom palettes', () => {
   it('caps the stop count at MAX_STOPS (the shader limit)', () => {
     const many = Array.from({ length: MAX_STOPS + 3 }, () => '#123456')
     expect(stopsFromColors(many)).toHaveLength(MAX_STOPS)
+  })
+})
+
+describe('paletteGradient', () => {
+  it('lays a palette out left to right, or is one color', () => {
+    expect(paletteGradient(['#000000', '#ffffff'])).toBe('linear-gradient(90deg, #000000, #ffffff)')
+    expect(paletteGradient(['#123456'])).toBe('#123456')
   })
 })

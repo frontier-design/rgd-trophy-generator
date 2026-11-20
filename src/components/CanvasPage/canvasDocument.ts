@@ -28,6 +28,7 @@ import {
   type MasterParams,
 } from './master'
 import { DEFAULT_FRAME, DEFAULT_IMAGE_EXPORT, type SceneNode } from './sceneNode'
+import type { ClusterNode } from './cluster'
 
 /** Everything on the canvas page, as autosaved and put in project files. */
 export interface CanvasDocument {
@@ -39,6 +40,8 @@ export interface CanvasDocument {
   links: NodeLink[]
   /** The settings every scene shares (applied to all of them). */
   master: MasterNode
+  /** Modifier nodes grouped under one output (⌘G). */
+  clusters: ClusterNode[]
   /** Nodes inserted so far of each kind (their names and ids continue from here). */
   inserted: {
     scene: number
@@ -50,6 +53,7 @@ export interface CanvasDocument {
     material: number
     lighting: number
     text: number
+    cluster: number
   }
   /** Where the canvas was looking. */
   view: PanZoomView | null
@@ -62,6 +66,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   modifiers: [],
   links: [],
   master: createMasterNode(),
+  clusters: [],
   inserted: {
     scene: 0,
     composition: 0,
@@ -72,6 +77,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
     material: 0,
     lighting: 0,
     text: 0,
+    cluster: 0,
   },
   view: null,
 }
@@ -284,11 +290,23 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
   const sceneIds = new Set(scenes.map((node) => node.id))
   const compositionIds = new Set(compositions.map((node) => node.id))
   const modifierIds = new Set(modifiers.map((node) => node.id))
+  // Clusters: existing modifier members, each in one cluster only; empty ones dropped.
+  const clustered = new Set<string>()
+  const clusters: ClusterNode[] = list('clusters').flatMap((item) => {
+    if (!isObject(item) || typeof item.id !== 'string' || !Array.isArray(item.members)) return []
+    const members = item.members.filter(
+      (id): id is string => typeof id === 'string' && modifierIds.has(id) && !clustered.has(id),
+    )
+    members.forEach((id) => clustered.add(id))
+    if (!members.length) return []
+    return [{ id: item.id, name: typeof item.name === 'string' ? item.name : item.id, members }]
+  })
+  const clusterIds = new Set(clusters.map((node) => node.id))
   const links = list('links').flatMap((item) => {
     const link = asObject(item)
     return typeof link.from === 'string' &&
       typeof link.to === 'string' &&
-      ((modifierIds.has(link.from) && sceneIds.has(link.to)) ||
+      (((modifierIds.has(link.from) || clusterIds.has(link.from)) && sceneIds.has(link.to)) ||
         (sceneIds.has(link.from) && compositionIds.has(link.to)))
       ? [{ from: link.from, to: link.to, ...(link.muted === true ? { muted: true } : {}) }]
       : []
@@ -302,6 +320,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     modifiers,
     links,
     master,
+    clusters,
     // Never reuse an id: past every id's number.
     inserted: {
       scene: Math.max(isCounter(inserted.scene) ? inserted.scene : 0, highestId(scenes, 'scene')),
@@ -325,6 +344,10 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       lighting: Math.max(
         isCounter(inserted.lighting) ? inserted.lighting : 0,
         highestId(modifiers, 'lighting'),
+      ),
+      cluster: Math.max(
+        isCounter(inserted.cluster) ? inserted.cluster : 0,
+        highestId(clusters, 'cluster'),
       ),
       text: Math.max(isCounter(inserted.text) ? inserted.text : 0, highestId(modifiers, 'text')),
       texture: Math.max(

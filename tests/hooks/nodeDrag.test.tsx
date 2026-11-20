@@ -129,7 +129,7 @@ describe('node drag gestures', () => {
   })
 
   it.each(['pointerCancel', 'lostPointerCapture'] as const)(
-    'rolls back on %s without committing',
+    'drops the node where it was let go on %s (a cut-short gesture is still a drop)',
     (event) => {
       const store = createNodePositionStore()
       const onMove = vi.fn()
@@ -143,12 +143,47 @@ describe('node drag gestures', () => {
       fireEvent.pointerMove(node, { pointerId: 1, clientX: 40, clientY: 20 })
       act(paint)
       fireEvent[event](node, { pointerId: 1 })
-      expect(node).toHaveTextContent('10,20')
-      expect(onMove).not.toHaveBeenCalled()
+      // 40, 20 screen px at zoom 2.
+      expect(onMove).toHaveBeenCalledExactlyOnceWith('a', 30, 30)
       fireEvent.pointerUp(node, { pointerId: 1 })
-      expect(onMove).not.toHaveBeenCalled()
+      expect(onMove).toHaveBeenCalledTimes(1)
     },
   )
+
+  it('drops the node when the pointer is released away from it (on the window)', () => {
+    const store = createNodePositionStore()
+    const onMove = vi.fn()
+    render(
+      <NodeDragContext.Provider value={{ positions: store, checkpoint: () => {} }}>
+        <Draggable onMove={onMove} />
+      </NodeDragContext.Provider>,
+    )
+    const node = screen.getByTestId('node')
+    fireEvent.pointerDown(node, { button: 0, pointerId: 1, clientX: 0, clientY: 0 })
+    // The node lost the pointer: moves and the release only reach the window.
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 40, clientY: 20 })
+    act(paint)
+    fireEvent.pointerUp(document.body, { pointerId: 1 })
+    expect(onMove).toHaveBeenCalledExactlyOnceWith('a', 30, 30)
+  })
+
+  it('still cancels when the previews are disposed (Escape) mid-drag', () => {
+    const store = createNodePositionStore()
+    const onMove = vi.fn()
+    render(
+      <NodeDragContext.Provider value={{ positions: store, checkpoint: () => {} }}>
+        <Draggable onMove={onMove} />
+      </NodeDragContext.Provider>,
+    )
+    const node = screen.getByTestId('node')
+    fireEvent.pointerDown(node, { button: 0, pointerId: 1, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(node, { pointerId: 1, clientX: 40, clientY: 20 })
+    act(paint)
+    act(() => store.dispose())
+    fireEvent.pointerUp(node, { pointerId: 1 })
+    expect(onMove).not.toHaveBeenCalled()
+    expect(node).toHaveTextContent('10,20')
+  })
 
   it('previews every selected node and commits them together; child capture loss does not cancel the owner', () => {
     const store = createNodePositionStore()

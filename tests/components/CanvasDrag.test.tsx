@@ -120,12 +120,15 @@ describe('CanvasPage drag previews', () => {
     expect(path().getAttribute('d')).not.toBe(beforePath)
     expect(sceneArtboardRender).not.toHaveBeenCalled()
 
-    fireEvent.pointerCancel(card, { pointerId: 2 })
+    // Escape cancels the drag: the card and its edge go back.
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.pointerUp(card, { pointerId: 2 })
     expect(wrapper.style.transform).toBe('')
+    expect(wrapper.style.left).toBe(before.left)
     expect(path().getAttribute('d')).toBe(beforePath)
   })
 
-  it('cancels a scene drag without changing the saved position, and a committed drag is one undo step', async () => {
+  it('Escape cancels a scene drag, a cut-short one still drops, and a drag is one undo step', async () => {
     render(<CanvasPage tools={null} />)
     const scene = await insertScene()
     await settleArtwork()
@@ -134,10 +137,23 @@ describe('CanvasPage drag previews', () => {
     fireEvent.pointerDown(scene, { button: 0, pointerId: 3, clientX: 0, clientY: 0 })
     fireEvent.pointerMove(scene, { pointerId: 3, clientX: 40, clientY: 25 })
     flushRaf()
-    fireEvent.pointerCancel(scene, { pointerId: 3 })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.pointerUp(scene, { pointerId: 3 })
     expect(scene.style.left).toBe(original.left)
     expect(scene.style.top).toBe(original.top)
     expect(scene.style.transform).toBe('')
+
+    // The browser cutting the gesture short (pointercancel) still drops it.
+    fireEvent.pointerDown(scene, { button: 0, pointerId: 5, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(scene, { pointerId: 5, clientX: 20, clientY: 10 })
+    flushRaf()
+    fireEvent.pointerCancel(scene, { pointerId: 5 })
+    expect(scene.style.left).not.toBe(original.left)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350))
+    })
+    fireEvent.keyDown(window, { key: 'z', metaKey: true })
+    expect(scene.style.left).toBe(original.left)
 
     fireEvent.pointerDown(scene, { button: 0, pointerId: 4, clientX: 0, clientY: 0 })
     fireEvent.pointerMove(scene, { pointerId: 4, clientX: 30, clientY: 15 })

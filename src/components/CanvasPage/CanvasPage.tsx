@@ -2,6 +2,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,7 +18,17 @@ import { ControlPanel, type HideableField } from '../ControlPanel'
 import { loadCanvasDocument, storeCanvasDocument, type CanvasDocument } from './canvasDocument'
 import { CanvasScene, type SceneExporter } from './CanvasScene'
 import { CanvasComposition } from './CanvasComposition'
-import type { CompositionImageRect, CompositionNode } from './compositionNode'
+import { ClusterFrame } from './ClusterFrame'
+import {
+  clusterBounds,
+  clusterPort,
+  expandClusterLinks,
+  groupNodes,
+  pruneClusters,
+  type ClusterNode,
+  type Rect,
+} from './cluster'
+import { fitImageToRatio, type CompositionImageRect, type CompositionNode } from './compositionNode'
 import { useSceneImages } from './useSceneImages'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import {
@@ -27,6 +38,7 @@ import {
   createModifier,
   inputPort,
   linkPath,
+  NODE_CARD,
   outputPort,
   rayTarget,
   createSceneModifiersResolver,
@@ -67,9 +79,8 @@ import {
 } from './selection'
 import { SelectionMarquee } from './SelectionMarquee'
 
-/** Grid spacing at 100% (px): fine lines, and a heavier line every MAJOR of them. */
+/** Grid spacing at 100% (px). */
 const GRID = 24
-const MAJOR = 5
 /** Below this on-screen spacing (px), the fine lines are dropped (too dense to read). */
 const MIN_FINE_SPACING = 6
 /** The selected scene's controls: their width, their gap to the scene, how close they come
@@ -136,7 +147,7 @@ function isTyping(target: EventTarget | null): boolean {
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
 /** What a right-click was on. */
-type MenuTarget = { kind: 'scene' | 'composition' | ModifierKind; id: string } | null
+type MenuTarget = { kind: 'scene' | 'composition' | 'cluster' | ModifierKind; id: string } | null
 
 /** What was copied (⌘C, or the right-click menu): kept for the session, so it pastes into
  *  this canvas again after switching pages. */
@@ -171,6 +182,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const typing = useTypingPlayback(modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
   const [master, setMaster] = useState<MasterNode>(saved.master)
+  const [clusters, setClusters] = useState<ClusterNode[]>(saved.clusters)
   // The master's settings, for updates made in callbacks (every scene keeps them).
   const masterRef = useRef(master.params)
   useEffect(() => {
@@ -223,16 +235,26 @@ export function CanvasPage({ tools }: CanvasPageProps) {
 
   // Autosaved shortly after every change (and when leaving the page or closing the tab).
   const autosaved = useMemo<CanvasDocument>(
-    () => ({ version: 1, scenes, compositions, modifiers, links, master, inserted, view }),
-    [scenes, compositions, modifiers, links, master, inserted, view],
+    () => ({
+      version: 1,
+      scenes,
+      compositions,
+      modifiers,
+      links,
+      master,
+      clusters,
+      inserted,
+      view,
+    }),
+    [scenes, compositions, modifiers, links, master, clusters, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
 
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
   const content = useMemo(
-    () => ({ scenes, compositions, modifiers, links, master }),
-    [scenes, compositions, modifiers, links, master],
+    () => ({ scenes, compositions, modifiers, links, master, clusters }),
+    [scenes, compositions, modifiers, links, master, clusters],
   )
   const history = useUndo(content, (state) => {
     setScenes(state.scenes)
@@ -240,6 +262,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setModifiers(state.modifiers)
     setLinks(state.links)
     setMaster(state.master)
+    setClusters(state.clusters)
     masterRef.current = state.master.params
     setPending(null)
     // Selection is view state: prune missing nodes, never restore it from undo.
@@ -249,6 +272,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         ...state.scenes.map((node) => node.id),
         ...state.compositions.map((node) => node.id),
         ...state.modifiers.map((node) => node.id),
+        ...state.clusters.map((node) => node.id),
       ]),
     )
   })
@@ -269,9 +293,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       [...scenes, ...compositions, ...modifiers, master].map((node) => [node.id, node]),
     )
   }, [scenes, compositions, modifiers, master])
+  // Clusters' frames (canvas px) and members, for drags (set each render, below).
+  const clusterFrames = useRef(new Map<string, { bounds: Rect; members: string[] }>())
   const participants = useCallback((id: string) => {
     const ids = selectionRef.current.ids.includes(id) ? selectionRef.current.ids : [id]
-    return ids.flatMap((key) => {
+    // A cluster moves its frame (its preview, for the frame and its links) and its members.
+    const expanded = ids.flatMap((key) => {
+      const cluster = clusterFrames.current.get(key)
+      return cluster ? [key, ...cluster.members] : [key]
+    })
+    return [...new Set(expanded)].flatMap((key) => {
+      const cluster = clusterFrames.current.get(key)
+      if (cluster) return [{ id: key, x: cluster.bounds.x, y: cluster.bounds.y }]
       const node = boardNodes.current.get(key)
       return node ? [{ id: node.id, x: node.x, y: node.y }] : []
     })
@@ -438,6 +471,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const deleteNodes = useCallback(
     (ids: readonly string[]) => {
       const removed = new Set(ids.filter((id) => id !== MASTER_ID))
+      // A cluster goes with its members.
+      for (const id of ids) clusterFrames.current.get(id)?.members.forEach((m) => removed.add(m))
       if (!removed.size) return
       positions.dispose()
       checkpoint()
@@ -445,6 +480,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       setScenes((current) => current.filter((node) => !removed.has(node.id)))
       setCompositions((current) => current.filter((node) => !removed.has(node.id)))
       setModifiers((current) => current.filter((node) => !removed.has(node.id)))
+      setClusters((current) => {
+        const kept = current.filter((cluster) => !removed.has(cluster.id))
+        const remaining = new Set(kept.flatMap((cluster) => cluster.members))
+        removed.forEach((id) => remaining.delete(id))
+        return pruneClusters(kept, remaining)
+      })
       setLinks((current) =>
         current.filter((link) => !removed.has(link.from) && !removed.has(link.to)),
       )
@@ -488,9 +529,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       const under = document.elementFromPoint?.(e.clientX, e.clientY) ?? e.target
       const port = under instanceof Element ? under.closest<HTMLElement>('[data-port="in"]') : null
       const sourceIsScene = scenes.some((node) => node.id === pendingFrom)
-      const source =
+      const clusterFrame = clusterFrames.current.get(pendingFrom)
+      const source: LinkSource | undefined =
         scenes.find((node) => node.id === pendingFrom) ??
-        modifiers.find((node) => node.id === pendingFrom)
+        modifiers.find((node) => node.id === pendingFrom) ??
+        (clusterFrame ? { id: pendingFrom, cluster: true, ...clusterFrame.bounds } : undefined)
       const to =
         port?.dataset.sceneId ??
         (source
@@ -507,7 +550,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         to &&
         (sourceIsScene
           ? targetIsComposition
-          : modifiers.some((node) => node.id === pendingFrom) &&
+          : (modifiers.some((node) => node.id === pendingFrom) ||
+              clusterFrames.current.has(pendingFrom)) &&
             scenes.some((node) => node.id === to))
       if (valid) {
         setLinks((current) =>
@@ -659,6 +703,45 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setLinks((current) => [...current, ...pasted.links])
     setSelection(replaceSelection(pasted.ids, pasted.activeId))
   }
+  /** ⌘G: the selected modifier nodes (and the members of selected clusters) into a new
+   *  cluster, selected. Scenes, compositions and the master node stay out. */
+  const groupSelection = () => {
+    const ids = selectionRef.current.ids.flatMap((id) => {
+      const cluster = clusters.find((item) => item.id === id)
+      if (cluster) return cluster.members
+      return modifiers.some((node) => node.id === id) ? [id] : []
+    })
+    if (!ids.length) return
+    checkpoint()
+    const count = reserveCount('cluster')
+    const id = `cluster-${count}`
+    const merged = clusters.filter((item) => selectionRef.current.ids.includes(item.id))
+    // Links from merged clusters carry on from their members (they leave those clusters).
+    if (merged.length) setLinks((current) => expandClusterLinks(current, merged))
+    setClusters((current) =>
+      groupNodes(
+        current,
+        ids,
+        { id, name: `cluster ${count}` },
+        modifiers.map((node) => node.id),
+      ),
+    )
+    selectOnly(id)
+  }
+  /** ⇧⌘G: selected clusters (and those holding selected nodes) back to separate nodes, their
+   *  links carried on by each member. */
+  const ungroupSelection = () => {
+    const selected = new Set(selectionRef.current.ids)
+    const ungrouped = clusters.filter(
+      (cluster) => selected.has(cluster.id) || cluster.members.some((id) => selected.has(id)),
+    )
+    if (!ungrouped.length) return
+    checkpoint()
+    const gone = new Set(ungrouped.map((cluster) => cluster.id))
+    setLinks((current) => expandClusterLinks(current, ungrouped))
+    setClusters((current) => current.filter((cluster) => !gone.has(cluster.id)))
+    setSelection(replaceSelection(ungrouped.flatMap((cluster) => cluster.members)))
+  }
   const duplicateNodes = (selected: Selection = selectionRef.current) => {
     pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions))
   }
@@ -686,6 +769,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         positions.dispose()
         if (key === 'z' && !e.shiftKey) history.undo()
         else history.redo()
+        return
+      }
+      // ⌘G clusters the selection, ⇧⌘G takes clusters apart (not the browser's find).
+      if (key === 'g') {
+        e.preventDefault()
+        if (e.shiftKey) ungroupSelection()
+        else groupSelection()
         return
       }
       if (e.shiftKey) return
@@ -733,11 +823,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     for (const [id, status] of patternStatuses) if (status.map) maps.set(id, status.map)
     return maps
   }, [patternStatuses])
+  // The links as scenes see them: a cluster's output stands for each of its members.
+  const effectiveLinks = useMemo(() => expandClusterLinks(links, clusters), [links, clusters])
   // Position/name/fold changes don't invalidate artwork, and unrelated scenes keep their inputs.
   const resolveModifiers = useMemo(() => createSceneModifiersResolver(), [])
   const sceneModifiers = useMemo(
-    () => resolveModifiers(links, typing.previewNodes, patternMaps),
-    [resolveModifiers, links, typing.previewNodes, patternMaps],
+    () => resolveModifiers(effectiveLinks, typing.previewNodes, patternMaps),
+    [resolveModifiers, effectiveLinks, typing.previewNodes, patternMaps],
   )
   const [visualRevisions, setVisualRevisions] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
@@ -745,8 +837,30 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const onVisualChange = useCallback((id: string) => {
     setVisualRevisions((current) => new Map(current).set(id, (current.get(id) ?? 0) + 1))
   }, [])
-  const sceneImages = useSceneImages(scenes, links, sceneModifiers, getExporter, visualRevisions)
-  const linkedNodes = useMemo(() => new Set(links.map((link) => link.from)), [links])
+  // Each composition's image laid out at its scene's current shape (fitImageToRatio), so
+  // resizing the scene's artboard never stretches it. Unchanged compositions stay the same
+  // objects (CanvasComposition is memoized).
+  const fittedCompositions = useMemo(() => {
+    const frames = new Map(scenes.map((scene) => [scene.id, scene.frame]))
+    return compositions.map((node) => {
+      const link = links.findLast((item) => item.to === node.id && !item.muted)
+      const frame = link ? frames.get(link.from) : undefined
+      if (!frame) return node
+      const image = fitImageToRatio(node.image, frame.width / frame.height)
+      return image === node.image ? node : { ...node, image }
+    })
+  }, [compositions, scenes, links])
+  const sceneImages = useSceneImages(
+    scenes,
+    effectiveLinks,
+    sceneModifiers,
+    getExporter,
+    visualRevisions,
+  )
+  const linkedNodes = useMemo(
+    () => new Set([...links, ...effectiveLinks].map((link) => link.from)),
+    [links, effectiveLinks],
+  )
   const mutedNodes = useMemo(() => {
     const muted = new Set(links.filter((link) => link.muted).map((link) => link.from))
     for (const link of links) if (!link.muted) muted.delete(link.from)
@@ -764,7 +878,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const rangeModifiersByScene = useMemo(() => {
     const byId = new Map(modifiers.map((node) => [node.id, node]))
     const grouped = new Map<string, ModifierNode[]>()
-    for (const link of links) {
+    for (const link of effectiveLinks) {
       if (link.muted) continue
       const modifier = byId.get(link.from)
       if (
@@ -776,16 +890,74 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         grouped.set(link.to, [...(grouped.get(link.to) ?? []), modifier])
     }
     return grouped
-  }, [modifiers, links])
+  }, [modifiers, effectiveLinks])
 
   // Zoomed out far, node cards show only their headers (they're small, and it's less to draw).
   const compactCards = cardScale(view.zoom) < CARD_COMPACT_SCALE
+
+  // Clusters' frames, around their members' cards. A card's height comes from the page (its
+  // fields, folded or not), measured after each render (only for clustered cards).
+  const cardOnCanvas = cardScale(view.zoom) / view.zoom
+  const [cardHeights, setCardHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const clusteredKey = clusters.flatMap((cluster) => cluster.members).join(' ')
+  const modifierKey = modifiers.map((node) => node.id).join(' ')
+  useLayoutEffect(() => {
+    const ids = clusteredKey ? clusteredKey.split(' ') : []
+    if (!ids.length || typeof ResizeObserver === 'undefined') return
+    const cards = new Map<Element, string>()
+    for (const id of ids) {
+      const card = canvasRef.current?.querySelector<HTMLElement>(
+        `[data-canvas-node][data-node-id="${CSS.escape(id)}"] .node-card`,
+      )
+      if (card) cards.set(card, id)
+    }
+    // Fires once for each card at once, then whenever one folds, compacts or grows.
+    const observer = new ResizeObserver((entries) => {
+      setCardHeights((current) => {
+        let next: Map<string, number> | null = null
+        for (const entry of entries) {
+          const id = cards.get(entry.target)
+          const height = (entry.target as HTMLElement).offsetHeight
+          if (!id || current.get(id) === height) continue
+          next ??= new Map(current)
+          next.set(id, height)
+        }
+        return next ?? current
+      })
+    })
+    cards.forEach((_, card) => observer.observe(card))
+    return () => observer.disconnect()
+  }, [clusteredKey, modifierKey])
+  const modifiersById = new Map(modifiers.map((node) => [node.id, node]))
+  const clusterLayouts = clusters.flatMap((cluster) => {
+    const rects = cluster.members.flatMap((id) => {
+      const node = modifiersById.get(id)
+      if (!node) return []
+      return [
+        {
+          x: node.x,
+          y: node.y,
+          width: NODE_CARD.width * cardOnCanvas,
+          height: (cardHeights.get(id) ?? NODE_CARD.header) * cardOnCanvas,
+        },
+      ]
+    })
+    const bounds = clusterBounds(rects, cardOnCanvas)
+    return bounds ? [{ cluster, bounds }] : []
+  })
+  useEffect(() => {
+    clusterFrames.current = new Map(
+      clusterLayouts.map(({ cluster, bounds }) => [
+        cluster.id,
+        { bounds, members: cluster.members },
+      ]),
+    )
+  })
   const fine = GRID * view.zoom
   const grid = {
     '--grid-x': `${view.x}px`,
     '--grid-y': `${view.y}px`,
     '--grid-fine': `${fine}px`,
-    '--grid-major': `${fine * MAJOR}px`,
     '--grid-fine-color': fine < MIN_FINE_SPACING ? 'transparent' : undefined,
   } as CSSProperties
 
@@ -793,9 +965,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const selected = scenes.find((node) => node.id === selection.activeId)
 
   // The links' curves, from each node's output to each scene's input.
-  const sourcesById = new Map<string, ModifierNode | SceneNode>(
-    [...modifiers, ...scenes].map((node) => [node.id, node]),
-  )
+  const sourcesById = new Map<string, LinkSource>([
+    ...[...modifiers, ...scenes].map((node): [string, LinkSource] => [node.id, node]),
+    ...clusterLayouts.map(({ cluster, bounds }): [string, LinkSource] => [
+      cluster.id,
+      { id: cluster.id, cluster: true, ...bounds },
+    ]),
+  ])
   const targetsById = new Map<string, SceneNode | CompositionNode>(
     [...scenes, ...compositions].map((node) => [node.id, node]),
   )
@@ -843,10 +1019,24 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         ...(hasCopy
           ? [{ label: 'paste', onSelect: () => pasteCopy(toCanvasAt(menu.x, menu.y)) }]
           : []),
+        ...(selection.ids.some((id) => modifiers.some((node) => node.id === id))
+          ? [{ label: 'group (⌘G)', onSelect: () => groupSelection() }]
+          : []),
+        ...(clusters.some(
+          (cluster) =>
+            selectedIds.has(cluster.id) || cluster.members.some((id) => selectedIds.has(id)),
+        )
+          ? [{ label: 'ungroup (⇧⌘G)', onSelect: () => ungroupSelection() }]
+          : []),
         ...(subject
           ? [
-              { label: `copy ${subject}`, onSelect: () => copyNodes() },
-              { label: `duplicate ${subject}`, onSelect: () => duplicateNodes() },
+              // (A cluster isn't copied: copying its nodes copies them ungrouped.)
+              ...(subject === 'cluster'
+                ? []
+                : [
+                    { label: `copy ${subject}`, onSelect: () => copyNodes() },
+                    { label: `duplicate ${subject}`, onSelect: () => duplicateNodes() },
+                  ]),
               { label: `delete ${subject}`, onSelect: () => deleteNodes(selectionRef.current.ids) },
             ]
           : []),
@@ -892,13 +1082,16 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
             const nodeId = nodeElement?.dataset.nodeId
             const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
+            const clusterId = target.closest<HTMLElement>('[data-cluster-id]')?.dataset.clusterId
             const menuTarget: MenuTarget = sceneId
               ? { kind: 'scene', id: sceneId }
-              : compositionId
-                ? { kind: 'composition', id: compositionId }
-                : nodeId && nodeKind && nodeId !== MASTER_ID
-                  ? { kind: nodeKind, id: nodeId }
-                  : null
+              : !nodeElement && clusterId
+                ? { kind: 'cluster', id: clusterId }
+                : compositionId
+                  ? { kind: 'composition', id: compositionId }
+                  : nodeId && nodeKind && nodeId !== MASTER_ID
+                    ? { kind: nodeKind, id: nodeId }
+                    : null
             if (menuTarget) selectNode(menuTarget.id)
             else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
             setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
@@ -914,6 +1107,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
               } as CSSProperties
             }
           >
+            {/* First, so the scenes and compositions (same layer, later) cover the links. */}
+            <svg className="node-links" aria-hidden="true">
+              {linkPaths.map(({ key, from, to, muted }) => (
+                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} muted={muted} />
+              ))}
+              {pendingPath && <path d={pendingPath} data-pending />}
+            </svg>
             {scenes.map((node) => (
               <CanvasScene
                 key={node.id}
@@ -951,7 +1151,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onResize={resizeScene}
               />
             ))}
-            {compositions.map((node) => {
+            {fittedCompositions.map((node) => {
               const link = links.findLast((item) => item.to === node.id && !item.muted)
               return (
                 <CanvasComposition
@@ -969,12 +1169,20 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 />
               )
             })}
-            <svg className="node-links" aria-hidden="true">
-              {linkPaths.map(({ key, from, to, muted }) => (
-                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} muted={muted} />
-              ))}
-              {pendingPath && <path d={pendingPath} data-pending />}
-            </svg>
+            {clusterLayouts.map(({ cluster, bounds }) => (
+              <ClusterFrame
+                key={cluster.id}
+                cluster={cluster}
+                bounds={bounds}
+                scale={cardOnCanvas}
+                selected={selectedIds.has(cluster.id)}
+                connected={links.some((link) => link.from === cluster.id)}
+                getZoom={getZoom}
+                onSelect={selectNode}
+                onMove={moveModifier}
+                onOutputDown={startLink}
+              />
+            ))}
             <NodeCard
               node={master}
               selected={selectedIds.has(MASTER_ID)}
@@ -1050,7 +1258,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
 }
 
-function sourcePort(node: ModifierNode | SceneNode, zoom: number) {
+/** What a link can come from: a modifier node, a scene (to compositions), or a cluster (its
+ *  frame, canvas px). */
+type LinkSource = ModifierNode | SceneNode | ({ id: string; cluster: true } & Rect)
+
+function sourcePort(node: LinkSource, zoom: number) {
+  if ('cluster' in node) return clusterPort(node, cardScale(zoom) / zoom)
   return 'frame' in node
     ? { x: node.x + node.frame.width, y: node.y + node.frame.height * 0.25 }
     : outputPort(node, zoom)
@@ -1063,7 +1276,7 @@ const NodeLinkPath = memo(function NodeLinkPath({
   zoom,
   muted,
 }: {
-  from: ModifierNode | SceneNode
+  from: LinkSource
   to: SceneNode | CompositionNode
   zoom: number
   muted?: boolean

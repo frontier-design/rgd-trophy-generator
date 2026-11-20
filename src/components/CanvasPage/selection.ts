@@ -113,8 +113,8 @@ export interface PastedSubgraph extends Selection {
  * Pass the latest counters on every invocation, including after undo, to avoid reusing ids. */
 export function pasteSelection(
   copy: CopiedSubgraph,
-  counters: Omit<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition'> &
-    Partial<Pick<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition'>>,
+  counters: Omit<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition' | 'cluster'> &
+    Partial<Pick<InsertedCounters, 'material' | 'lighting' | 'text' | 'composition' | 'cluster'>>,
   placement: PastePlacement,
 ): PastedSubgraph {
   const snapshot = structuredClone(copy)
@@ -123,7 +123,7 @@ export function pasteSelection(
   const minY = nodes.length ? Math.min(...nodes.map((node) => node.y)) : 0
   const delta =
     'at' in placement ? { x: placement.at.x - minX, y: placement.at.y - minY } : placement.offset
-  const inserted = { material: 0, lighting: 0, text: 0, composition: 0, ...counters }
+  const inserted = { material: 0, lighting: 0, text: 0, composition: 0, cluster: 0, ...counters }
   const remap = new Map<string, string>()
   const allocate = (id: string, kind: keyof InsertedCounters) => {
     const count = ++inserted[kind]

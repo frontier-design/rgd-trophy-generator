@@ -13,6 +13,11 @@ background dragging pans. Copy/paste and duplicate preserve the selected graph's
 connections. All selected modifiers keep their editable range lines on linked artboards.
 Click empty space or press Escape to clear selection.
 
+Right-click to insert a composition, then drag a scene's right-hand output to its input.
+The composition accepts one scene as a live image: drag the image and its corner handles
+inside the frame, or resize the frame using its edge handles. Select the composition to
+export it as a PNG. Command-click a source node to mute or restore its outgoing links.
+
 Work autosaves in the browser; **save** / **open** use portable JSON project files.
 The standalone generator page has been removed. Animation/video modules and legacy
 project data are retained, but timeline, reveal, and banner editing aren't exposed on the

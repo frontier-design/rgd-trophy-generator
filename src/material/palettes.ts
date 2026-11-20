@@ -96,6 +96,14 @@ export function paletteColors(
   return look.customColors.length > 0 ? look.customColors : PALETTES.studio
 }
 
+/** A palette as one CSS background: its colors left to right, shadow (top stop) to
+ *  highlight. The material node's swatches and header. */
+export function paletteGradient(colors: readonly string[]): string {
+  return colors.length > 1
+    ? `linear-gradient(90deg, ${colors.join(', ')})`
+    : (colors[0] ?? '#888888')
+}
+
 /** The material's gradient stops (preset or custom). */
 export function materialStops(
   look: Pick<MaterialSettings, 'palette' | 'customColors'>,

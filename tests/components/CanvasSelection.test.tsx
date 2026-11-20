@@ -137,6 +137,48 @@ describe('CanvasPage multiselection', () => {
     expect(container.querySelectorAll('.node-links path')).toHaveLength(2)
   })
 
+  it('⌘G clusters nodes: one output linking them all, moved together; ⇧⌘G and delete', async () => {
+    const { container } = render(<CanvasPage tools={null} />)
+    await insertScene()
+    const twist = insertModifier('twist', 40, 40)
+    const etch = insertModifier('etch', 40, 400)
+    clickNode(twist)
+    shiftClick(etch)
+    fireEvent.keyDown(window, { key: 'g', metaKey: true })
+    const cluster = node('cluster 1')
+    expect(cluster.closest('[data-cluster-id]')).toHaveAttribute('data-selected')
+
+    // Its one output links every member to the scene.
+    link(screen.getByLabelText('cluster 1 output'), screen.getByLabelText('scene 1 input'))
+    expect(container.querySelectorAll('.node-links path')).toHaveLength(1)
+    expect(screen.getByLabelText('twist 1 output')).toHaveAttribute('data-connected')
+    expect(screen.getByLabelText('etch 1 output')).toHaveAttribute('data-connected')
+
+    // Dragging its header moves the members.
+    const left = (name: string) => parseFloat(node(name).parentElement!.style.left)
+    const before = { twist: left('twist 1'), etch: left('etch 1') }
+    fireEvent.pointerDown(cluster, { button: 0, pointerId: 11, clientX: 0, clientY: 0 })
+    fireEvent.pointerMove(cluster, { pointerId: 11, clientX: 50, clientY: 0 })
+    fireEvent.pointerUp(cluster, { pointerId: 11 })
+    expect(left('twist 1')).toBeCloseTo(before.twist + 50)
+    expect(left('etch 1')).toBeCloseTo(before.etch + 50)
+
+    // ⇧⌘G takes it apart; each member keeps the link.
+    fireEvent.keyDown(window, { key: 'g', metaKey: true, shiftKey: true })
+    expect(screen.queryByRole('group', { name: 'cluster 1' })).toBeNull()
+    expect(container.querySelectorAll('.node-links path')).toHaveLength(2)
+
+    // Deleting a cluster deletes its nodes.
+    clickNode(node('twist 1'))
+    shiftClick(node('etch 1'))
+    fireEvent.keyDown(window, { key: 'g', metaKey: true })
+    clickNode(node('cluster 2'))
+    fireEvent.keyDown(window, { key: 'Delete' })
+    expect(screen.queryByRole('group', { name: 'twist 1' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'etch 1' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'cluster 2' })).toBeNull()
+  })
+
   it('Option-drag leaves the node and drops a copy where it was dragged to', () => {
     render(<CanvasPage tools={null} />)
     const twist = insertModifier('twist')

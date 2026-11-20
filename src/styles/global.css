@@ -851,11 +851,10 @@ body {
   height: 100vh;
 }
 
-/* The grid is a background that follows the view (App sets --grid-*): fine lines every
-   --grid-fine, heavier ones every --grid-major, both anchored at the canvas's origin. */
+/* The grid is a background that follows the view (CanvasPage sets --grid-*): fine lines
+   every --grid-fine, anchored at the canvas's origin. */
 .infinite-canvas {
   --grid-fine-color: #e1e1e1;
-  --grid-major-color: #cfcfcf;
   position: relative;
   height: 100%;
   overflow: hidden;
@@ -864,13 +863,9 @@ body {
   user-select: none;
   background-color: #f4f4f4;
   background-image:
-    linear-gradient(var(--grid-major-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-major-color) 1px, transparent 1px),
     linear-gradient(var(--grid-fine-color) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-fine-color) 1px, transparent 1px);
   background-size:
-    var(--grid-major) var(--grid-major),
-    var(--grid-major) var(--grid-major),
     var(--grid-fine) var(--grid-fine),
     var(--grid-fine) var(--grid-fine);
   background-position: var(--grid-x) var(--grid-y);
@@ -1107,6 +1102,25 @@ body {
   opacity: 0.7;
 }
 
+/* The material node's header is its palette's gradient (dark to light, so its name, on the
+   dark end, is white). */
+.canvas-node[data-kind='material'] .node-card-header {
+  color: #ffffff;
+}
+
+.canvas-node[data-kind='material'] .node-card-fold {
+  color: #ffffff;
+  background: rgb(255 255 255 / 0.2);
+}
+
+/* The lighting node: a pastel yellow card (its header, fields and ports follow). */
+.canvas-node[data-kind='lighting'] .node-card {
+  --color-panel-bg: #fffbe6;
+  --color-panel-border: #efe6b8;
+
+  background: var(--color-panel-bg);
+}
+
 /* A group's heading inside a card's fields. */
 .node-card-group {
   grid-column: 1 / -1;
@@ -1119,6 +1133,47 @@ body {
 .node-card-group:first-child {
   padding-top: 0;
   border-top: 0;
+}
+
+/* A cluster (⌘G): a frame behind its members' cards (under them, over the links). Only its
+   header takes presses (select, drag the whole cluster, link from its output); the body lets
+   them through to the cards. Header and port scale like cards (--cluster-scale). */
+.cluster-frame {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  pointer-events: none;
+  background: rgb(0 0 0 / 0.035);
+  border: calc(1px * var(--cluster-scale, 1)) dashed #9a9a9a;
+}
+
+.cluster-frame[data-selected] {
+  border: calc(2px * var(--cluster-scale, 1)) solid var(--color-text);
+}
+
+.cluster-frame-header {
+  position: relative;
+  display: flex;
+  gap: calc(8px * var(--cluster-scale, 1));
+  align-items: center;
+  height: var(--cluster-header);
+  padding: 0 calc(12px * var(--cluster-scale, 1));
+  font-size: calc(13px * var(--cluster-scale, 1));
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: capitalize;
+  cursor: grab;
+  pointer-events: auto;
+  background: var(--color-text);
+}
+
+.cluster-frame-count {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.cluster-frame-header .node-port-out {
+  transform: translate(50%, -50%) scale(var(--cluster-scale, 1));
 }
 
 /* Ports: circles on a node's edge, filled when linked. Kept at screen size. */
@@ -1162,12 +1217,12 @@ body {
   transform: translate(-50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
 }
 
-/* Links, in canvas px over the scenes and under the node cards. */
+/* Links, in canvas px under the scenes (drawn before them, same layer) and the node cards. */
 .node-links {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 2;
+  z-index: 0;
   width: 1px;
   height: 1px;
   overflow: visible;
@@ -1176,8 +1231,8 @@ body {
 
 .node-links path {
   fill: none;
-  stroke: var(--color-text);
-  stroke-width: 2px;
+  stroke: #a8a8a3;
+  stroke-width: 3px;
   vector-effect: non-scaling-stroke;
 }
 

@@ -63,6 +63,20 @@ describe('CanvasPage', () => {
     expect(screen.getByRole('group', { name: 'master' })).toBeInTheDocument()
   })
 
+  it('a material node’s header is the gradient of its palette', () => {
+    render(<CanvasPage tools={null} />)
+    fireEvent.contextMenu(canvas(), { clientX: 40, clientY: 40 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert material' }))
+    const card = screen.getByRole('group', { name: 'material 1' })
+    const header = card.querySelector<HTMLElement>('.node-card-header')!
+    // (jsdom keeps the gradient as written, its colors as rgb().)
+    expect(header.style.background).toMatch(/linear-gradient/)
+    const before = header.style.background
+    fireEvent.click(within(card).getByRole('radio', { name: 'gold' }))
+    expect(header.style.background).toMatch(/linear-gradient/)
+    expect(header.style.background).not.toBe(before)
+  })
+
   it('edits only the selected scene', async () => {
     render(<CanvasPage tools={null} />)
     const first = await insertScene()

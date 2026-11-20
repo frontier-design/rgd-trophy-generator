@@ -34,6 +34,7 @@ export {
   MIN_CUSTOM_COLORS,
   PALETTE_NAMES,
   paletteColors,
+  paletteGradient,
   PALETTES,
   paletteStops,
   stopsFromColors,

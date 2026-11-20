@@ -1,11 +1,7 @@
-import { PALETTE_NAMES, paletteColors } from '../../material'
+import { PALETTE_NAMES, paletteColors, paletteGradient } from '../../material'
 import type { MaterialSettings, PaletteChoice } from '../../types'
 import { SelectField } from '../ControlPanel/SelectField'
 import { RangeField } from '../ControlPanel/RangeField'
-
-/** A palette as one box: its colors as a gradient, shadow (top stop) to highlight. */
-const swatch = (colors: readonly string[]) =>
-  colors.length > 1 ? `linear-gradient(90deg, ${colors.join(', ')})` : (colors[0] ?? '#888888')
 
 /**
  * The palette, picked from the presets: one box each (no editing). A custom palette (from an
@@ -33,7 +29,7 @@ function PaletteSwatches({
             aria-checked={params.palette === name}
             aria-label={name}
             title={name}
-            style={{ background: swatch(paletteColors({ ...params, palette: name })) }}
+            style={{ background: paletteGradient(paletteColors({ ...params, palette: name })) }}
             onClick={() => set({ palette: name })}
           />
         ))}
