@@ -10,6 +10,7 @@ import {
 import { BLOB_PREFIX, loadBlob, pruneBlobs, readSaved, storeBlob } from '../../state/persist'
 import {
   DEFAULT_ETCH,
+  DEFAULT_SHAPE,
   DEFAULT_TEXTURE,
   DEFAULT_PATTERN,
   SAMPLE_IMAGE,
@@ -46,6 +47,7 @@ export interface CanvasDocument {
   inserted: {
     scene: number
     composition: number
+    shape: number
     twist: number
     etch: number
     pattern: number
@@ -70,6 +72,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   inserted: {
     scene: 0,
     composition: 0,
+    shape: 0,
     twist: 0,
     etch: 0,
     pattern: 0,
@@ -182,6 +185,18 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
       kind: 'pattern',
       params: { ...DEFAULT_PATTERN, ...params, image: image ?? SAMPLE_IMAGE },
     } as ModifierNode
+  }
+  if (type === 'shape') {
+    const shape = { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } }
+    for (const key of ['roundTop', 'topRadius', 'taper', 'smoothJoins', 'joinRadius', 'overshoot'] as const) {
+      const saved = params[key]
+      if (typeof saved === typeof shape[key] && (typeof saved !== 'number' || Number.isFinite(saved)))
+        (shape as unknown as Record<string, unknown>)[key] = saved
+    }
+    const lineBox = asObject(params.lineBox)
+    for (const key of ['padX', 'padY', 'radius'] as const)
+      if (isFiniteNumber(lineBox[key])) shape.lineBox[key] = lineBox[key]
+    return { ...base, kind: 'shape', params: shape }
   }
   if (type === 'texture') {
     return {
@@ -328,6 +343,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
         isCounter(inserted.composition) ? inserted.composition : 0,
         highestId(compositions, 'composition'),
       ),
+      shape: Math.max(isCounter(inserted.shape) ? inserted.shape : 0, highestId(modifiers, 'shape')),
       twist: Math.max(
         isCounter(inserted.twist) ? inserted.twist : 0,
         highestId(modifiers, 'twist'),

@@ -26,6 +26,7 @@ import {
   type FrameRect,
   type ImageExportOptions,
   type SceneNode,
+  withShape,
 } from './sceneNode'
 
 /** Renders a scene's frame as an image file's contents. */
@@ -355,7 +356,8 @@ const SceneArtwork = memo(function SceneArtwork({
   const setPaper = useCallback((s: PaperScene | null) => {
     paperRef.current = s
   }, [])
-  const { id, scene, bannerPosition, bannerText, frame } = node
+  const { id, bannerPosition, bannerText, frame } = node
+  const scene = useMemo(() => withShape(node, modifiers.shape).scene, [node, modifiers.shape])
   const settings = useMemo(
     () =>
       modifiers.material || modifiers.lighting || modifiers.text !== undefined
@@ -370,8 +372,8 @@ const SceneArtwork = memo(function SceneArtwork({
     [node.settings, modifiers],
   )
   const effectiveNode = useMemo(
-    () => (settings === node.settings ? node : { ...node, settings }),
-    [node, settings],
+    () => (settings === node.settings && scene === node.scene ? node : { ...node, settings, scene }),
+    [node, settings, scene],
   )
   const model = useSceneModel(
     settings,

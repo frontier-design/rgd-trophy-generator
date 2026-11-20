@@ -1,11 +1,12 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
-import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS } from '../../state'
+import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS, DEFAULT_SCENE_PARAMS } from '../../state'
 import type {
   EtchParams,
   PatternParams,
   TextureParams,
   TwistParams,
   MaterialSettings,
+  AnimatedParams,
 } from '../../types'
 
 /** A node on the canvas that changes the scenes its output links to: where it sits. */
@@ -41,6 +42,13 @@ export interface PatternNode extends ModifierBase {
 export interface TextureNode extends ModifierBase {
   kind: 'texture'
   params: TextureParams
+}
+
+export type ShapeParams = Pick<AnimatedParams, 'roundTop' | 'topRadius' | 'taper' | 'lineBox' | 'smoothJoins' | 'joinRadius' | 'overshoot'>
+
+export interface ShapeNode extends ModifierBase {
+  kind: 'shape'
+  params: ShapeParams
 }
 
 export interface MaterialNode extends ModifierBase {
@@ -97,9 +105,10 @@ export interface TextNode extends ModifierBase {
 }
 
 export type ModifierNode =
-  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | LightingNode | TextNode
+  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | LightingNode | TextNode | ShapeNode
 export type ModifierKind = ModifierNode['kind']
 export const MODIFIER_KINDS: readonly ModifierKind[] = [
+  'shape',
   'twist',
   'etch',
   'pattern',
@@ -199,6 +208,16 @@ export const DEFAULT_TEXTURE: TextureParams = {
   depthBottom: 100,
 }
 
+export const DEFAULT_SHAPE: ShapeParams = {
+  roundTop: true,
+  topRadius: 200,
+  taper: DEFAULT_SCENE_PARAMS.taper,
+  lineBox: { ...DEFAULT_SCENE_PARAMS.lineBox },
+  smoothJoins: DEFAULT_SCENE_PARAMS.smoothJoins,
+  joinRadius: DEFAULT_SCENE_PARAMS.joinRadius,
+  overshoot: DEFAULT_SCENE_PARAMS.overshoot,
+}
+
 /** Node cards' size at full scale (px): their width, and their header's height (the output
  *  port sits at its right end). */
 export const NODE_CARD = { width: 260, header: 34 }
@@ -225,6 +244,8 @@ export function createModifier(
   y: number,
 ): ModifierNode {
   switch (kind) {
+    case 'shape':
+      return { kind, id, name, x, y, params: { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } } }
     case 'twist':
       return { kind, id, name, x, y, params: DEFAULT_TWIST }
     case 'etch':
@@ -334,6 +355,7 @@ export interface SceneModifiers {
   /** Anything linked at all (patterns still generating included). */
   linked: boolean
   material?: MaterialSettings
+  shape?: ShapeParams
   /** A linked lighting node's (the last linked one wins). */
   lighting?: LightingParams
   /** The last linked text node wins. */
@@ -362,6 +384,7 @@ export function modifiersByScene(
     if (node.kind === 'twist') current.twists = [...current.twists, node.params]
     else if (node.kind === 'etch') current.etches = [...current.etches, node.params]
     else if (node.kind === 'texture') current.textures = [...current.textures, node.params]
+    else if (node.kind === 'shape') current.shape = node.params
     else if (node.kind === 'material') current.material = node.params
     else if (node.kind === 'lighting') current.lighting = node.params
     else if (node.kind === 'text') current.text = node.params.text

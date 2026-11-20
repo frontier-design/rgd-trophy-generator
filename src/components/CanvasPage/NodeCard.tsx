@@ -11,7 +11,8 @@ import type {
 import { MaterialFields } from './MaterialFields'
 import { paletteColors, paletteGradient } from '../../material'
 import { EtchFields } from './EtchFields'
-import type { LightingParams, ModifierNode } from './graph'
+import type { LightingParams, ModifierNode, ShapeParams } from './graph'
+import { ShapeFields } from './ShapeFields'
 import { LightingFields } from './LightingFields'
 import type { MasterNode, MasterParams } from './master'
 import { MasterFields } from './MasterFields'
@@ -29,6 +30,7 @@ export type ParamsPatch =
   | Partial<MasterParams>
   | Partial<MaterialSettings>
   | Partial<LightingParams>
+  | Partial<ShapeParams>
   | { text?: string }
 
 /** Where a press edits rather than drags the node. */
@@ -96,6 +98,8 @@ export const NodeCard = memo(function NodeCard({
     switch (kind) {
       case 'master':
         return <MasterFields params={params as MasterParams} set={set} />
+      case 'shape':
+        return <ShapeFields params={params as ShapeParams} set={set} />
       case 'twist':
         return <TwistFields params={params as TwistParams} set={set} />
       case 'etch':

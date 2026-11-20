@@ -1001,6 +1001,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
         { label: 'insert composition', onSelect: () => insertComposition(menu.x, menu.y) },
         { label: 'insert text', onSelect: () => insertModifier('text', menu.x, menu.y) },
+        { label: 'insert shape', onSelect: () => insertModifier('shape', menu.x, menu.y) },
         { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
         { label: 'insert etch', onSelect: () => insertModifier('etch', menu.x, menu.y) },
         { label: 'insert pattern', onSelect: () => insertModifier('pattern', menu.x, menu.y) },
@@ -1381,6 +1382,7 @@ const SceneControls = memo(function SceneControls({
       onParamsChange={(patch) => update((current) => withParams(current, patch))}
       revealControls={false}
       hidden={litByNode ? MASTER_AND_LIGHTING_FIELDS : MASTER_FIELDS}
+      hideShapeMaterial
       frame={{
         width: frame.width,
         height: frame.height,
