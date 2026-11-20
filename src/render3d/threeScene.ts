@@ -74,6 +74,11 @@ export interface ThreeScene {
    * the next setPixelRatio.
    */
   snapshot(pixelRatio: number): HTMLCanvasElement
+  /** Call `listener` with the canvas right after every draw (on demand, sweep frames and
+   *  commits alike), so a copy of the render (e.g. a repeat's tiles) can follow renders
+   *  that happen outside a commit. Draw from it at once: the buffer isn't kept. Returns
+   *  the unsubscribe. */
+  onDraw(listener: (canvas: HTMLCanvasElement) => void): () => void
   /** Stop the loop and dispose geometries, materials and the renderer. */
   dispose(): void
 }
@@ -315,8 +320,11 @@ export function createThreeScene(canvas: HTMLCanvasElement): ThreeScene {
   // drawn by its render() call; others (resizes, observers) ask for the next frame here.
   // Only the sweep animates, with a loop that stops when it's done.
   let frame = 0
+  const drawListeners = new Set<(canvas: HTMLCanvasElement) => void>()
   const draw = () => {
-    if (!disposed) renderer.render(scene, camera)
+    if (disposed) return
+    renderer.render(scene, camera)
+    drawListeners.forEach((listener) => listener(canvas))
   }
   const requestRender = () => {
     if (frame || disposed) return
@@ -436,6 +444,10 @@ export function createThreeScene(canvas: HTMLCanvasElement): ThreeScene {
         requestRender()
       }
       material.setPixelRatio(renderer.getPixelRatio())
+    },
+    onDraw(listener) {
+      drawListeners.add(listener)
+      return () => drawListeners.delete(listener)
     },
     snapshot(pixelRatio) {
       // Exports never use a draft.

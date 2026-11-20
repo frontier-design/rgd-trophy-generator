@@ -15,6 +15,17 @@ export interface RepeatTrophy {
   /** Where its center sits in the source frame. */
   centerX: number
   centerY: number
+  /** The horizontal repeat unit (px at scale 1), when it isn't the trophy's width: for
+   *  centered text, the column width (trophy axis to axis, one text gap between), so each
+   *  trophy's mirrored half meets the next copy's rag. */
+  pitchWidth?: number
+  /** Where the trophy's center naturally sits in the repeat frame (y, px at scale 1). Given,
+   *  the grid is placed relative to the frame: a text gap centered across it, the row at
+   *  this height (scaled about the frame's middle), and the layout's offsets add to that. */
+  restY?: number
+  /** The vertical repeat unit (px at scale 1), when it isn't the trophy's height: the
+   *  tile's height (trophy plus its bottom margin). */
+  pitchHeight?: number
 }
 
 export interface RepeatGrid {
@@ -65,15 +76,22 @@ function visibleRange(
 export function repeatGrid(
   frame: { width: number; height: number },
   node: Pick<RepeatNode, 'layout'>,
-  trophy: Pick<RepeatTrophy, 'width' | 'height'>,
+  trophy: Pick<RepeatTrophy, 'width' | 'height' | 'pitchWidth' | 'pitchHeight' | 'restY'>,
 ): RepeatGrid {
   const scale = repeatScale(node.layout.scale)
   const tileWidth = Math.max(REPEAT_MIN_PITCH, finite(trophy.width, 1) * scale)
   const tileHeight = Math.max(REPEAT_MIN_PITCH, finite(trophy.height, 1) * scale)
-  const pitchX = repeatPitch(trophy.width, node.layout.spacingX, scale)
-  const pitchY = repeatPitch(trophy.height, node.layout.spacingY, scale)
-  const offsetX = repeatOffset(node.layout.offsetX)
-  const offsetY = repeatOffset(node.layout.offsetY)
+  const pitchX = repeatPitch(trophy.pitchWidth ?? trophy.width, node.layout.spacingX, scale)
+  const pitchY = repeatPitch(trophy.pitchHeight ?? trophy.height, node.layout.spacingY, scale)
+  let offsetX = repeatOffset(node.layout.offsetX)
+  let offsetY = repeatOffset(node.layout.offsetY)
+  if (trophy.restY !== undefined) {
+    const width = finite(frame.width, 1)
+    const height = finite(frame.height, 1)
+    // A trophy half a pitch right of the middle: a text gap centered on the frame.
+    offsetX += width / 2 + pitchX / 2
+    offsetY += height / 2 + (finite(trophy.restY, height / 2) - height / 2) * scale
+  }
   const columns = visibleRange(offsetX, pitchX, finite(frame.width, 1), tileWidth / 2, 1)
   const rows = visibleRange(offsetY, pitchY, finite(frame.height, 1), tileHeight / 2, 0)
   // Keep the number of drawn copies bounded even with an extreme frame/scale.
@@ -192,10 +210,10 @@ function finiteScale(value: unknown): number {
 /** A malformed saved layout's effective pitch (for persistence tests and UI readouts). */
 export function repeatNodePitch(
   node: RepeatNode,
-  trophy: { width: number; height: number },
+  trophy: { width: number; height: number; pitchWidth?: number; pitchHeight?: number },
 ): { pitchX: number; pitchY: number } {
   return {
-    pitchX: repeatPitch(trophy.width, node.layout.spacingX, node.layout.scale),
-    pitchY: repeatPitch(trophy.height, node.layout.spacingY, node.layout.scale),
+    pitchX: repeatPitch(trophy.pitchWidth ?? trophy.width, node.layout.spacingX, node.layout.scale),
+    pitchY: repeatPitch(trophy.pitchHeight ?? trophy.height, node.layout.spacingY, node.layout.scale),
   }
 }

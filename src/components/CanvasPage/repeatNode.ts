@@ -11,7 +11,9 @@ export interface RepeatTypography {
   fontSize: number
   /** Line height in px (at scale 1). */
   lineHeight: number
-  /** The text column's width, also the repeat tile's width (px at scale 1). */
+  /** The text column's width, which is also the tile's width (px at scale 1): trophies repeat
+   *  axis to axis by it, so each one's halves meet the rag of the text either side. Shown
+   *  as **tile width**. */
   columnWidth: number
 }
 
@@ -19,6 +21,10 @@ export interface RepeatTypography {
 export interface RepeatLayout {
   /** Scale of a tile (proportional: trophy and type together). */
   scale: number
+  /** One row's height (px at scale 1), independent of the artboard: the trophy from the
+   *  tile's top (its top band bleeding just past it) down to its bottom margin
+   *  (`ARTBOARD.padding`), where the text's last baseline sits. Taller text grows it. */
+  tileHeight: number
   /** Extra gap between tiles (negative overlaps them; the pitch stays positive). */
   spacingX: number
   spacingY: number
@@ -43,18 +49,24 @@ export interface RepeatNode {
   imageExport: ImageExportOptions
 }
 
+/** RGD's repeat artwork on a 16:9 frame: big type (tight 1.0 leading) centered between
+ *  trophies, the column half the frame, so a text gap sits in the middle with a trophy on
+ *  each side and half a text block at each edge. */
 export const DEFAULT_REPEAT_TYPOGRAPHY: RepeatTypography = {
   fontFamily: DEFAULT_SETTINGS.fontFamily,
-  fontSize: DEFAULT_SETTINGS.fontSize,
-  lineHeight: DEFAULT_SETTINGS.lineHeight,
-  columnWidth: DEFAULT_SETTINGS.columnWidth,
+  fontSize: 128,
+  lineHeight: 128,
+  columnWidth: 960,
 }
 
 export const DEFAULT_REPEAT_LAYOUT: RepeatLayout = {
   scale: 1,
-  // A trophy-width gap is the default: one regular tile per column.
-  spacingX: 180,
-  spacingY: 24,
+  // A 16:9 frame's height: one row fills the default artboard.
+  tileHeight: 1080,
+  // Trophies repeat axis to axis by the column width: each one's halves meet the rag of the
+  // text on either side. Rows abut: the tile already ends in a margin.
+  spacingX: 0,
+  spacingY: 0,
   offsetX: 0,
   offsetY: 0,
 }
@@ -101,6 +113,7 @@ export function finite(value: unknown, fallback: number): number {
 
 /** Scale limits keep a malformed save from making an unusable grid. */
 export const REPEAT_SCALE = { min: 0.05, max: 20 } as const
+export const REPEAT_TILE_HEIGHT = { min: 64, max: 8192 } as const
 export const REPEAT_SPACING = { min: -100_000, max: 100_000 } as const
 export const REPEAT_OFFSET = { min: -1_000_000, max: 1_000_000 } as const
 
@@ -108,6 +121,13 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 export function repeatScale(value: unknown, fallback = DEFAULT_REPEAT_LAYOUT.scale): number {
   return clamp(finite(value, fallback), REPEAT_SCALE.min, REPEAT_SCALE.max)
+}
+
+export function repeatTileHeight(
+  value: unknown,
+  fallback = DEFAULT_REPEAT_LAYOUT.tileHeight,
+): number {
+  return clamp(finite(value, fallback), REPEAT_TILE_HEIGHT.min, REPEAT_TILE_HEIGHT.max)
 }
 
 export function repeatSpacing(value: unknown, fallback = 0): number {

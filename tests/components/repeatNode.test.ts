@@ -77,13 +77,43 @@ describe('repeat geometry', () => {
     expect(grid.rows.count).toBeGreaterThan(1)
   })
 
+  it('repeats by the column width with a text gap centered on the frame', () => {
+    // A trophy 60 wide (radius 30) revolving around its axis, repeating every 50 (column).
+    const grid = repeatGrid(
+      { width: 400, height: 300 },
+      node({ layout: { scale: 1, tileHeight: 1080, spacingX: 0, spacingY: 20, offsetX: 0, offsetY: 0 } }),
+      { width: 60, height: 200, pitchWidth: 50, restY: 140 },
+    )
+    expect(grid.pitchX).toBe(50)
+    expect(grid.pitchY).toBe(220)
+    // Axes half a pitch either side of the frame's middle, so text centers on it.
+    expect(grid.offsetX).toBe(225)
+    expect(grid.offsetY).toBe(140)
+    const scaled = repeatGrid(
+      { width: 400, height: 300 },
+      node({ layout: { scale: 0.5, tileHeight: 1080, spacingX: 0, spacingY: 20, offsetX: 10, offsetY: -4 } }),
+      { width: 60, height: 200, pitchWidth: 50, restY: 140 },
+    )
+    // A tile height (trophy plus its bottom margin) sets the rows' pitch, not the trophy.
+    expect(
+      repeatGrid(
+        { width: 400, height: 300 },
+        node({ layout: { scale: 1, tileHeight: 260, spacingX: 0, spacingY: 20, offsetX: 0, offsetY: 0 } }),
+        { width: 60, height: 200, pitchWidth: 50, pitchHeight: 260, restY: 140 },
+      ).pitchY,
+    ).toBe(280)
+    // Scaled about the frame's middle, then offset.
+    expect(scaled.offsetX).toBe(200 + 12.5 + 10)
+    expect(scaled.offsetY).toBe(150 - 5 - 4)
+  })
+
   it('keeps pitch positive for negative spacing and malformed saved values', () => {
     expect(repeatPitch(20, -10_000, 1)).toBe(1)
     expect(repeatScale(Number.NaN)).toBe(DEFAULT_REPEAT.layout.scale)
     expect(repeatSpacing(Number.POSITIVE_INFINITY)).toBe(0)
     const grid = repeatGrid(
       { width: 100, height: 100 },
-      node({ layout: { scale: 1, spacingX: -500, spacingY: -500, offsetX: 0, offsetY: 0 } }),
+      node({ layout: { scale: 1, tileHeight: 1080, spacingX: -500, spacingY: -500, offsetX: 0, offsetY: 0 } }),
       trophy,
     )
     expect(grid.pitchX).toBe(1)
@@ -94,7 +124,7 @@ describe('repeat geometry', () => {
   it('covers large offsets with a bounded number of visible copies', () => {
     const grid = repeatGrid(
       { width: 1920, height: 1080 },
-      node({ layout: { scale: 1, spacingX: 0, spacingY: 0, offsetX: 999_999, offsetY: -999_999 } }),
+      node({ layout: { scale: 1, tileHeight: 1080, spacingX: 0, spacingY: 0, offsetX: 999_999, offsetY: -999_999 } }),
       trophy,
     )
     expect(Number.isFinite(grid.offsetX)).toBe(true)
@@ -182,7 +212,7 @@ describe('repeat persistence', () => {
     const repeat = createRepeatNode('repeat-2', 'repeat 2', 120, 80)
     repeat.frame = { width: 800, height: 600 }
     repeat.typography = { ...repeat.typography, fontSize: 72, lineHeight: 66, columnWidth: 420 }
-    repeat.layout = { scale: 0.75, spacingX: -30, spacingY: 12, offsetX: 40, offsetY: -5 }
+    repeat.layout = { scale: 0.75, tileHeight: 700, spacingX: -30, spacingY: 12, offsetX: 40, offsetY: -5 }
     repeat.background = '#112233'
     repeat.imageExport = { format: 'png', scale: 3, transparent: true }
     const text = createModifier('text', 'text-1', 'text 1', 0, 0)
@@ -226,6 +256,13 @@ describe('repeat persistence', () => {
     expect(repeat.layout.scale).toBeGreaterThanOrEqual(0.05)
     expect(repeat.layout.spacingX).toBe(0)
     expect(repeat.layout.offsetX).toBe(0)
+    // Saves from before tile height keep their row sized by the frame.
+    expect(repeat.layout.tileHeight).toBe(1080)
+    expect(
+      parseCanvasDocument({
+        repeats: [{ id: 'repeat-1', frame: { width: 1080, height: 1350 }, layout: {} }],
+      }).repeats[0]!.layout.tileHeight,
+    ).toBe(1350)
     expect(repeat.background).toBe('#ffffff')
     expect(doc.inserted.repeat).toBe(9)
     const sceneLink = parseCanvasDocument({

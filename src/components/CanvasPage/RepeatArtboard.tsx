@@ -57,17 +57,31 @@ const NO_MODIFIERS: SceneModifiers = {
   linked: false,
 }
 
-/** The source scene's frame: wide enough for the text's column plus the artboard's margins,
- *  tall enough for its lines, with room for the trophy above them. */
-function sourceFrame(settings: RepeatNode['typography'], text: string) {
+/** How far the trophy's top band bleeds past the repeat frame's top (px), so it reads as
+ *  running off the frame (as in RGD's repeat artwork) without a sliver of background. */
+const TOP_BLEED = 8
+
+/** The source scene's frame: the full revolved trophy (the column, then its mirrored half
+ *  past the axis) between margins, one tile tall plus the source's top margin and the
+ *  bleed, so the text sits on the tile's bottom margin and the top band runs up past the
+ *  tile's top. Taller when the text needs it. */
+function sourceFrame(settings: RepeatNode['typography'], text: string, tileHeight: number) {
   const rows = Math.max(1, text.split('\n').length)
   const estimatedWrap = Math.max(1, Math.ceil(text.length / Math.max(8, settings.columnWidth / (settings.fontSize * 0.55))))
+  const textHeight = Math.max(rows, estimatedWrap) * settings.lineHeight
   const height = Math.max(
-    360,
-    Math.max(rows, estimatedWrap) * settings.lineHeight + 2 * ARTBOARD.padding + 80,
+    tileHeight + ARTBOARD.padding + TOP_BLEED,
+    textHeight + 2 * ARTBOARD.padding + 80,
   )
-  return { width: settings.columnWidth + 2 * ARTBOARD.padding, height: Math.min(10_000, height) }
+  return {
+    width: 2 * settings.columnWidth + 2 * ARTBOARD.padding,
+    height: Math.min(10_000, Math.round(height)),
+  }
 }
+
+/** The default shape's sizes (line boxes, corners, joins, top radius) are set for the
+ *  default type size; a repeat's own size scales them, like fitting a scene does. */
+const REPEAT_TOP_RADIUS = 200
 
 /** A repeat artboard: one shared trophy render, tiled with centered text in the gaps. */
 export const RepeatArtboard = memo(function RepeatArtboard({
@@ -121,9 +135,18 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     }),
     [text, typography, material],
   )
+  const typeScale = typography.fontSize / DEFAULT_SETTINGS.fontSize
   const sourceScene = useMemo<SceneParams>(
     () => ({
       ...DEFAULT_SCENE_PARAMS,
+      roundTop: true,
+      topRadius: REPEAT_TOP_RADIUS * typeScale,
+      lineBox: {
+        padX: DEFAULT_SCENE_PARAMS.lineBox.padX * typeScale,
+        padY: DEFAULT_SCENE_PARAMS.lineBox.padY * typeScale,
+        radius: DEFAULT_SCENE_PARAMS.lineBox.radius * typeScale,
+      },
+      joinRadius: DEFAULT_SCENE_PARAMS.joinRadius * typeScale,
       ...(modifiers.shape ?? {}),
       textAlign: 'center',
       mirror: false,
@@ -132,9 +155,12 @@ export const RepeatArtboard = memo(function RepeatArtboard({
       revealFill: 0,
       canvasColors: { background: '#ffffff', text: '#111111' },
     }),
-    [modifiers.shape],
+    [modifiers.shape, typeScale],
   )
-  const source = useMemo(() => sourceFrame(typography, text), [typography, text])
+  const source = useMemo(
+    () => sourceFrame(typography, text, layout.tileHeight),
+    [typography, text, layout.tileHeight],
+  )
   const model = useSceneModel(
     sourceSettings,
     sourceScene,
@@ -145,18 +171,34 @@ export const RepeatArtboard = memo(function RepeatArtboard({
   )
 
   const trophy = useMemo<RepeatTrophy>(() => {
-    const left = model.anchor.x + shapeLeft(typography.columnWidth, 'center', sourceScene.lineBox.padX)
-    const right = model.anchor.x + typography.columnWidth
+    // The solid revolves around the column's right edge: its left silhouette starts half a
+    // gap past the column's middle (centered text) and its mirrored half reaches as far past
+    // the axis. Copies repeat axis to axis by the column width, a text gap between each.
+    const axis = model.anchor.x + typography.columnWidth
+    const radius = typography.columnWidth - shapeLeft(typography.columnWidth, 'center', sourceScene.lineBox.padX)
     const rows = Math.max(1, model.lines.length || text.split('\n').length)
     const top = model.anchor.y + (model.extent?.top ?? 0)
     const bottom = model.anchor.y + (model.extent?.bottom ?? rows * typography.lineHeight)
+    const centerY = (top + bottom) / 2
     return {
-      width: Math.max(1, right - left),
+      width: Math.max(1, 2 * radius),
       height: Math.max(1, bottom - top),
-      centerX: (left + right) / 2,
-      centerY: (top + bottom) / 2,
+      centerX: axis,
+      centerY,
+      pitchWidth: typography.columnWidth,
+      // The source frame's bottom is the tile's bottom; a tile row starts at the frame's top.
+      pitchHeight: source.height - ARTBOARD.padding - TOP_BLEED,
+      restY: centerY - ARTBOARD.padding - TOP_BLEED,
     }
-  }, [model.anchor, model.extent, model.lines.length, sourceScene.lineBox.padX, text, typography])
+  }, [
+    model.anchor,
+    model.extent,
+    model.lines.length,
+    sourceScene.lineBox.padX,
+    text,
+    typography,
+    source.height,
+  ])
 
   const grid = useMemo(
     () => repeatGrid(frame, node, trophy),
@@ -197,23 +239,37 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     Math.max(0.5, Math.round((window.devicePixelRatio || 1) * renderZoom * 4) / 4),
   )
   const latest = useRef<RepeatArtwork>(artwork)
+  /** Draw the tiles from `image` (the shared render, drawn this task). */
+  const paint = useCallback(
+    (next: RepeatArtwork, image: CanvasImageSource | null) => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const live = { ...next, image }
+      latest.current = live
+      const width = Math.max(1, Math.round(next.frame.width * pixelRatio))
+      const height = Math.max(1, Math.round(next.frame.height * pixelRatio))
+      if (canvas.width !== width) canvas.width = width
+      if (canvas.height !== height) canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      drawRepeatArtwork(ctx, live)
+    },
+    [pixelRatio],
+  )
   useLayoutEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
     // Snapshot now: child layout effects have already updated the shared trophy render.
-    const live = { ...artwork, image: threeRef.current?.snapshot(1) ?? null }
-    latest.current = live
-    canvas.width = Math.max(1, Math.round(frame.width * pixelRatio))
-    canvas.height = Math.max(1, Math.round(frame.height * pixelRatio))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
-    drawRepeatArtwork(ctx, live)
-  }, [artwork, frame.width, frame.height, pixelRatio])
-
+    paint(artwork, threeRef.current?.snapshot(1) ?? null)
+  }, [artwork, paint])
+  // The shared render also draws outside commits (fonts, anchor observers, a fluted
+  // solid's full rebuild): repaint the tiles from each draw, or they'd keep a stale (or
+  // empty) trophy.
   useEffect(() => {
-    latest.current = artwork
-  }, [artwork])
+    const three = threeRef.current
+    if (!three) return
+    return three.onDraw((image) => paint(latest.current, image))
+  }, [threeVersion, paint])
+
   useEffect(() => {
     onExporter(id, (options: ImageExportOptions) =>
       renderRepeatArtwork(

@@ -57,7 +57,8 @@ describe('repeat artboard', () => {
     fireEvent.pointerDown(repeat)
     expect(repeat).toHaveAttribute('data-selected')
     expect(screen.getByRole('slider', { name: 'tile scale' })).toBeInTheDocument()
-    expect(screen.getByRole('slider', { name: 'column width' })).toHaveValue('375')
+    expect(screen.getByRole('slider', { name: 'tile width' })).toHaveValue('960')
+    expect(screen.getByRole('slider', { name: 'tile height' })).toHaveValue('1080')
     expect(screen.getByLabelText('font')).toHaveValue('PP Mori')
     expect(within(repeatControls()).getByLabelText('background')).toHaveValue('#ffffff')
 
@@ -145,7 +146,8 @@ describe('repeat shared modifiers', () => {
     // Muting restores the artboard's own shape, and the node keeps its value.
     fireEvent.pointerDown(shape, { button: 0, metaKey: true })
     fireEvent.click(shape, { metaKey: true })
-    expect(source).toHaveAttribute('data-top-radius', '16')
+    // (The artboard's own round top, scaled with its type size.)
+    expect(source).toHaveAttribute('data-top-radius', String((200 * 128) / 53))
     fireEvent.click(shape, { metaKey: true })
     expect(source).toHaveAttribute('data-top-radius', '333')
     expect(within(shape).getByRole('slider', { name: 'top radius' })).toHaveValue('333')

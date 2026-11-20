@@ -19,6 +19,7 @@ export function createThreeScene(): ThreeScene {
     setPixelRatio: () => {},
     render: () => {},
     snapshot: () => document.createElement('canvas'),
+    onDraw: () => () => {},
     dispose: () => {},
   }
 }

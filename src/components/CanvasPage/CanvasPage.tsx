@@ -1377,14 +1377,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           )}
           {selectedRepeat && (
             <PositionedSceneControls node={selectedRepeat} view={view} size={size}>
-              <div className="scene-controls-panel">
-                <RepeatControls
-                  key={selectedRepeat.id}
-                  node={selectedRepeat}
-                  onUpdate={updateRepeat}
-                  exporter={getExporter}
-                />
-              </div>
+              <RepeatControls
+                key={selectedRepeat.id}
+                node={selectedRepeat}
+                onUpdate={updateRepeat}
+                exporter={getExporter}
+              />
             </PositionedSceneControls>
           )}
           {menu && (

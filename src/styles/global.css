@@ -851,8 +851,8 @@ body {
   height: 100vh;
 }
 
-/* The grid is a background that follows the view (CanvasPage sets --grid-*): fine lines
-   every --grid-fine, anchored at the canvas's origin. */
+/* The dotted grid follows the view (CanvasPage sets --grid-*), with dots spaced
+   every --grid-fine and anchored at the canvas's origin. */
 .infinite-canvas {
   --grid-fine-color: #e1e1e1;
   position: relative;
@@ -862,12 +862,8 @@ body {
   touch-action: none;
   user-select: none;
   background-color: #f4f4f4;
-  background-image:
-    linear-gradient(var(--grid-fine-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-fine-color) 1px, transparent 1px);
-  background-size:
-    var(--grid-fine) var(--grid-fine),
-    var(--grid-fine) var(--grid-fine);
+  background-image: radial-gradient(circle, var(--grid-fine-color) 1px, transparent 1px);
+  background-size: var(--grid-fine) var(--grid-fine);
   background-position: var(--grid-x) var(--grid-y);
 }
 
@@ -955,22 +951,6 @@ body {
   z-index: -1;
   visibility: hidden;
   pointer-events: none;
-}
-
-.repeat-controls {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  background: var(--color-panel-bg);
-  border: 1px solid var(--color-panel-border);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
-}
-
-.scene-controls-panel {
-  display: flex;
-  flex: 1;
-  min-width: 0;
 }
 
 /* The selected scene's controls: the sidebar's panel, floating beside the scene

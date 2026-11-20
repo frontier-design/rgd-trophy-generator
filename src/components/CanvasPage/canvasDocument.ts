@@ -40,6 +40,7 @@ import {
   repeatOffset,
   repeatScale,
   repeatSpacing,
+  repeatTileHeight,
   repeatTypography,
   type RepeatNode,
 } from './repeatNode'
@@ -192,6 +193,8 @@ function parseRepeat(value: unknown): RepeatNode | null {
     typography: repeatTypography(settings as Partial<RepeatNode['typography']>),
     layout: {
       scale: repeatScale(layout.scale),
+      // Saves from before tile height sized the row by the frame.
+      tileHeight: repeatTileHeight(layout.tileHeight, frame.height),
       spacingX: repeatSpacing(layout.spacingX),
       spacingY: repeatSpacing(layout.spacingY),
       offsetX: repeatOffset(layout.offsetX),

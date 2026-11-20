@@ -9,7 +9,7 @@ import { TextField } from '../ControlPanel/TextField'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import type { SceneExporter } from './CanvasScene'
 import type { ImageExportOptions } from './sceneNode'
-import type { RepeatNode } from './repeatNode'
+import { REPEAT_TILE_HEIGHT, type RepeatNode } from './repeatNode'
 
 interface RepeatControlsProps {
   node: RepeatNode
@@ -18,6 +18,8 @@ interface RepeatControlsProps {
 }
 
 const FORMATS = ['png', 'jpeg'] as const
+const SECTIONS = ['type', 'repeat', 'frame', 'image'] as const
+type Section = (typeof SECTIONS)[number]
 const SCALE_LABELS = ['×1', '×2', '×3', '×4', '×5'] as const
 
 /** A selected repeat artboard's controls: typography, grid, frame, background and export. */
@@ -25,6 +27,19 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
   const update = (change: (node: RepeatNode) => RepeatNode) => onUpdate(node.id, change)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<ReadonlySet<Section>>(() => new Set())
+  const allCollapsed = collapsed.size === SECTIONS.length
+  const section = (title: Section) => ({
+    title,
+    open: !collapsed.has(title),
+    onOpenChange: (open: boolean) =>
+      setCollapsed((current) => {
+        const next = new Set(current)
+        if (open) next.delete(title)
+        else next.add(title)
+        return next
+      }),
+  })
   const maxScale = maxImageScale(node.frame.width, node.frame.height)
   const scale = Math.min(node.imageExport.scale, maxScale)
   const setExport = (patch: Partial<ImageExportOptions>) =>
@@ -52,8 +67,18 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
   }
 
   return (
-    <div className="repeat-controls" role="complementary" aria-label="Control panel">
-      <ControlSection title="type" open onOpenChange={() => {}}>
+    <aside className="control-panel repeat-controls" aria-label="Control panel">
+      <div className="control-panel-tools">
+        <span className="scene-controls-name">{node.name}</span>
+        <button
+          type="button"
+          className="control-section-all"
+          onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(SECTIONS))}
+        >
+          {allCollapsed ? 'expand all' : 'collapse all'}
+        </button>
+      </div>
+      <ControlSection {...section('type')}>
         <TextField
           label="font"
           value={node.typography.fontFamily}
@@ -73,15 +98,25 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
           max={300}
           onChange={(lineHeight) => update((current) => ({ ...current, typography: { ...current.typography, lineHeight } }))}
         />
+      </ControlSection>
+      <ControlSection {...section('repeat')}>
+        {/* The tile's width is the text column's: trophies repeat axis to axis by it. */}
         <RangeField
-          label="column width"
+          label="tile width"
           value={node.typography.columnWidth}
           min={100}
-          max={1600}
+          max={3000}
+          unit="px"
           onChange={(columnWidth) => update((current) => ({ ...current, typography: { ...current.typography, columnWidth } }))}
         />
-      </ControlSection>
-      <ControlSection title="repeat" open onOpenChange={() => {}}>
+        <RangeField
+          label="tile height"
+          value={node.layout.tileHeight}
+          min={REPEAT_TILE_HEIGHT.min}
+          max={4000}
+          unit="px"
+          onChange={(tileHeight) => update((current) => ({ ...current, layout: { ...current.layout, tileHeight } }))}
+        />
         <RangeField
           label="tile scale"
           value={node.layout.scale}
@@ -121,7 +156,7 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
           onChange={(offsetY) => update((current) => ({ ...current, layout: { ...current.layout, offsetY } }))}
         />
       </ControlSection>
-      <ControlSection title="frame" open onOpenChange={() => {}}>
+      <ControlSection {...section('frame')}>
         <NumberField
           label="width"
           value={node.frame.width}
@@ -142,7 +177,7 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
           onChange={(background) => update((current) => ({ ...current, background }))}
         />
       </ControlSection>
-      <ControlSection title="image" open onOpenChange={() => {}}>
+      <ControlSection {...section('image')}>
         <SelectField
           label="format"
           value={node.imageExport.format}
@@ -175,6 +210,6 @@ export function RepeatControls({ node, onUpdate, exporter }: RepeatControlsProps
           </p>
         )}
       </ControlSection>
-    </div>
+    </aside>
   )
 }
