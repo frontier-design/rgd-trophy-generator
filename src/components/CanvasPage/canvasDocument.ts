@@ -27,6 +27,7 @@ import {
   type ModifierNode,
   type NodeLink,
 } from './graph'
+import { parseTextParams } from './textLines'
 import {
   createMasterNode,
   DEFAULT_MASTER_PARAMS,
@@ -45,6 +46,13 @@ import {
   type RepeatNode,
 } from './repeatNode'
 import type { ClusterNode } from './cluster'
+import {
+  DEFAULT_RECORD_HOLD_IN,
+  DEFAULT_RECORD_HOLD_OUT,
+  recordFps,
+  recordHold,
+  type RecordNode,
+} from './recordNode'
 
 /** Everything on the canvas page, as autosaved and put in project files. */
 export interface CanvasDocument {
@@ -53,6 +61,8 @@ export interface CanvasDocument {
   compositions: CompositionNode[]
   /** Independent repeat artboards. */
   repeats: RepeatNode[]
+  /** MP4 record nodes (their frames are never saved). */
+  records: RecordNode[]
   /** Twist and etch nodes. */
   modifiers: ModifierNode[]
   links: NodeLink[]
@@ -65,6 +75,7 @@ export interface CanvasDocument {
     scene: number
     composition: number
     repeat: number
+    record: number
     shape: number
     twist: number
     etch: number
@@ -84,6 +95,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
   scenes: [],
   compositions: [],
   repeats: [],
+  records: [],
   modifiers: [],
   links: [],
   master: createMasterNode(),
@@ -92,6 +104,7 @@ export const EMPTY_CANVAS: CanvasDocument = {
     scene: 0,
     composition: 0,
     repeat: 0,
+    record: 0,
     shape: 0,
     twist: 0,
     etch: 0,
@@ -244,9 +257,19 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
   }
   if (type === 'shape') {
     const shape = { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } }
-    for (const key of ['roundTop', 'topRadius', 'taper', 'smoothJoins', 'joinRadius', 'overshoot'] as const) {
+    for (const key of [
+      'roundTop',
+      'topRadius',
+      'taper',
+      'smoothJoins',
+      'joinRadius',
+      'overshoot',
+    ] as const) {
       const saved = params[key]
-      if (typeof saved === typeof shape[key] && (typeof saved !== 'number' || Number.isFinite(saved)))
+      if (
+        typeof saved === typeof shape[key] &&
+        (typeof saved !== 'number' || Number.isFinite(saved))
+      )
         (shape as unknown as Record<string, unknown>)[key] = saved
     }
     const lineBox = asObject(params.lineBox)
@@ -265,7 +288,8 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
     return {
       ...base,
       kind: 'text',
-      params: { text: typeof params.text === 'string' ? params.text : DEFAULT_SETTINGS.text },
+      // Lines with their speed and tracking; saves from before carry one `text`.
+      params: parseTextParams(params, DEFAULT_SETTINGS.text),
     }
   }
   if (type === 'lighting') {
@@ -285,7 +309,9 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
 
 /** A saved crop, clamped inside the image with nonzero dimensions (full by default). */
 function parseCrop(value: unknown): typeof FULL_CROP {
-  return value === undefined ? { ...FULL_CROP } : clampCrop(asObject(value) as Partial<typeof FULL_CROP>)
+  return value === undefined
+    ? { ...FULL_CROP }
+    : clampCrop(asObject(value) as Partial<typeof FULL_CROP>)
 }
 
 /** Where a master node goes on a canvas that had none: left of the scenes' top-left. */
@@ -364,8 +390,25 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     ]
   })
   const repeats: RepeatNode[] = list('repeats').flatMap((item) => parseRepeat(item) ?? [])
+  const records: RecordNode[] = list('records').flatMap((item) =>
+    isObject(item) && typeof item.id === 'string'
+      ? [
+          {
+            id: item.id,
+            name: typeof item.name === 'string' ? item.name : item.id,
+            x: isFiniteNumber(item.x) ? item.x : 0,
+            y: isFiniteNumber(item.y) ? item.y : 0,
+            fps: recordFps(item.fps),
+            holdIn: recordHold(item.holdIn, DEFAULT_RECORD_HOLD_IN),
+            // Saves from before hold in / out had one hold, after the typing.
+            holdOut: recordHold(item.holdOut ?? item.hold, DEFAULT_RECORD_HOLD_OUT),
+          },
+        ]
+      : [],
+  )
   const sceneIds = new Set(scenes.map((node) => node.id))
-  const compositionIds = new Set(compositions.map((node) => node.id))
+  // Scenes link out to compositions and record nodes.
+  const compositionIds = new Set([...compositions, ...records].map((node) => node.id))
   const repeatIds = new Set(repeats.map((node) => node.id))
   const modifierIds = new Set(modifiers.map((node) => node.id))
   // Clusters: existing modifier members, each in one cluster only; empty ones dropped.
@@ -377,7 +420,13 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     )
     members.forEach((id) => clustered.add(id))
     if (!members.length) return []
-    return [{ id: item.id, name: typeof item.name === 'string' ? item.name : item.id, members }]
+    // Groups were called clusters: their default names ("cluster 3") read as "group 3".
+    const name =
+      typeof item.name === 'string' ? item.name.replace(/^cluster (\d+)$/, 'group $1') : item.id
+    const muted = Array.isArray(item.muted)
+      ? members.filter((id) => (item.muted as unknown[]).includes(id))
+      : []
+    return [{ id: item.id, name, members, ...(muted.length ? { muted } : {}) }]
   })
   const clusterIds = new Set(clusters.map((node) => node.id))
   const links = list('links').flatMap((item) => {
@@ -397,6 +446,7 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
     scenes,
     compositions,
     repeats,
+    records,
     modifiers,
     links,
     master,
@@ -408,8 +458,18 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
         isCounter(inserted.composition) ? inserted.composition : 0,
         highestId(compositions, 'composition'),
       ),
-      repeat: Math.max(isCounter(inserted.repeat) ? inserted.repeat : 0, highestId(repeats, 'repeat')),
-      shape: Math.max(isCounter(inserted.shape) ? inserted.shape : 0, highestId(modifiers, 'shape')),
+      repeat: Math.max(
+        isCounter(inserted.repeat) ? inserted.repeat : 0,
+        highestId(repeats, 'repeat'),
+      ),
+      record: Math.max(
+        isCounter(inserted.record) ? inserted.record : 0,
+        highestId(records, 'record'),
+      ),
+      shape: Math.max(
+        isCounter(inserted.shape) ? inserted.shape : 0,
+        highestId(modifiers, 'shape'),
+      ),
       twist: Math.max(
         isCounter(inserted.twist) ? inserted.twist : 0,
         highestId(modifiers, 'twist'),

@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { downloadBlob, maxImageScale } from '../../export'
 import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled, useUndo } from '../../hooks'
 import type { HeightMap } from '../../render3d'
@@ -21,8 +22,10 @@ import {
   storeCanvasDocument,
   type CanvasDocument,
 } from './canvasDocument'
-import { CanvasScene, type SceneExporter } from './CanvasScene'
+import { CanvasScene, type SceneExporter, type SceneFrameSource } from './CanvasScene'
 import { CanvasComposition } from './CanvasComposition'
+import { CanvasRecord, type RecordTyping } from './CanvasRecord'
+import { createRecordNode, recordFrame, type PlacedRecordNode, type RecordNode } from './recordNode'
 import { RepeatArtboard } from './RepeatArtboard'
 import { RepeatControls } from './RepeatControls'
 import { ClusterFrame } from './ClusterFrame'
@@ -30,8 +33,10 @@ import {
   clusterBounds,
   clusterPort,
   expandClusterLinks,
-  rewireToCluster,
-  groupNodes,
+  groupSelected,
+  copiedGroups,
+  toggleMemberMute,
+  pasteGroups,
   pruneClusters,
   type ClusterNode,
   type Rect,
@@ -70,6 +75,7 @@ import { createRepeatNode, type RepeatNode } from './repeatNode'
 import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './master'
 import { NodeCard, type ParamsPatch } from './NodeCard'
 import { useTypingPlayback } from './useTypingPlayback'
+import { linesFromText } from './textLines'
 import {
   createNodePositionStore,
   NodeDragContext,
@@ -157,7 +163,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 /** What a right-click was on. */
 type MenuTarget = {
-  kind: 'scene' | 'composition' | 'repeat' | 'cluster' | ModifierKind
+  kind: 'scene' | 'composition' | 'record' | 'repeat' | 'cluster' | ModifierKind
   id: string
 } | null
 
@@ -191,11 +197,16 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const [scenes, setScenes] = useState<SceneNode[]>(saved.scenes)
   const [compositions, setCompositions] = useState<CompositionNode[]>(saved.compositions)
   const [repeats, setRepeats] = useState<RepeatNode[]>(saved.repeats)
+  const [records, setRecords] = useState<RecordNode[]>(saved.records)
   const [modifiers, setModifiers] = useState<ModifierNode[]>(saved.modifiers)
   const typing = useTypingPlayback(modifiers)
   const [links, setLinks] = useState<NodeLink[]>(saved.links)
   const [master, setMaster] = useState<MasterNode>(saved.master)
   const [clusters, setClusters] = useState<ClusterNode[]>(saved.clusters)
+  const clustersRef = useRef(clusters)
+  useEffect(() => {
+    clustersRef.current = clusters
+  })
   // The master's settings, for updates made in callbacks (every scene keeps them).
   const masterRef = useRef(master.params)
   useEffect(() => {
@@ -274,6 +285,27 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setInserted(insertedRef.current)
     return count
   }
+  // Record nodes take their input scene's frame (and record at its export scale).
+  const recordInputs = useMemo(() => {
+    const byId = new Map(scenes.map((scene) => [scene.id, scene]))
+    return new Map(
+      records.flatMap((node) => {
+        const link = links.findLast((item) => item.to === node.id && !item.muted)
+        const scene = link ? byId.get(link.from) : undefined
+        return scene ? [[node.id, scene] as const] : []
+      }),
+    )
+  }, [records, scenes, links])
+  const placedRecords = useMemo(
+    () =>
+      records.map(
+        (node): PlacedRecordNode => ({
+          ...node,
+          frame: recordFrame(recordInputs.get(node.id)?.frame),
+        }),
+      ),
+    [records, recordInputs],
+  )
   /** A link being dragged from a node's output, its loose end at the pointer (canvas px). */
   const [pending, setPending] = useState<{ from: string; x: number; y: number } | null>(null)
 
@@ -284,6 +316,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       scenes,
       compositions,
       repeats,
+      records,
       modifiers,
       links,
       master,
@@ -291,7 +324,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       inserted,
       view,
     }),
-    [scenes, compositions, repeats, modifiers, links, master, clusters, inserted, view],
+    [scenes, compositions, repeats, records, modifiers, links, master, clusters, inserted, view],
   )
   useAutosave('canvas', autosaved, { serialize: storeCanvasDocument })
 
@@ -352,13 +385,14 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   // Undo / redo (⌘Z, ⇧⌘Z) over the scenes, nodes and links: each change once it settles
   // (a drag or a slider's whole move is one step). Not the view, selection or id counters.
   const content = useMemo(
-    () => ({ scenes, compositions, repeats, modifiers, links, master, clusters }),
-    [scenes, compositions, repeats, modifiers, links, master, clusters],
+    () => ({ scenes, compositions, repeats, records, modifiers, links, master, clusters }),
+    [scenes, compositions, repeats, records, modifiers, links, master, clusters],
   )
   const history = useUndo(content, (state) => {
     setScenes(state.scenes)
     setCompositions(state.compositions)
     setRepeats(state.repeats)
+    setRecords(state.records)
     setModifiers(state.modifiers)
     setLinks(state.links)
     setMaster(state.master)
@@ -372,6 +406,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         ...state.scenes.map((node) => node.id),
         ...state.compositions.map((node) => node.id),
         ...state.repeats.map((node) => node.id),
+        ...state.records.map((node) => node.id),
         ...state.modifiers.map((node) => node.id),
         ...state.clusters.map((node) => node.id),
       ]),
@@ -391,9 +426,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const boardNodes = useRef(new Map<string, NodePosition & { id: string }>())
   useEffect(() => {
     boardNodes.current = new Map(
-      [...scenes, ...compositions, ...repeats, ...modifiers, master].map((node) => [node.id, node]),
+      [...scenes, ...compositions, ...repeats, ...records, ...modifiers, master].map((node) => [
+        node.id,
+        node,
+      ]),
     )
-  }, [scenes, compositions, repeats, modifiers, master])
+  }, [scenes, compositions, repeats, records, modifiers, master])
   // Clusters' frames (canvas px) and members, for drags (set each render, below).
   const clusterFrames = useRef(new Map<string, { bounds: Rect; members: string[] }>())
   const participants = useCallback((id: string) => {
@@ -427,6 +465,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
         : current,
     )
+    setRecords((current) =>
+      current.some((node) => moves.has(node.id))
+        ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
+        : current,
+    )
     setModifiers((current) =>
       current.some((node) => moves.has(node.id))
         ? current.map((node) => (moves.has(node.id) ? { ...node, ...moves.get(node.id)! } : node))
@@ -437,9 +480,14 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     )
   }, [])
   // Option-drag duplicates (set below, once the clipboard's paste exists).
-  const duplicateMovesRef = useRef<(ids: readonly string[], offset: NodePosition) => void>(() => {})
-  const duplicateMoves = useCallback(
-    (ids: readonly string[], offset: NodePosition) => duplicateMovesRef.current(ids, offset),
+  type DuplicateMoves = (
+    ids: readonly string[],
+    offset: NodePosition,
+    options?: { ungrouped?: boolean },
+  ) => void
+  const duplicateMovesRef = useRef<DuplicateMoves>(() => {})
+  const duplicateMoves = useCallback<DuplicateMoves>(
+    (ids, offset, options) => duplicateMovesRef.current(ids, offset, options),
     [],
   )
   const dragController = useMemo(
@@ -470,6 +518,13 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     else exporters.current.delete(id)
   }, [])
   const getExporter = useCallback((id: string) => exporters.current.get(id), [])
+  // Each mounted scene's frames, for record nodes.
+  const frameSources = useRef(new Map<string, SceneFrameSource>())
+  const setFrameSource = useCallback((id: string, source: SceneFrameSource | null) => {
+    if (source) frameSources.current.set(id, source)
+    else frameSources.current.delete(id)
+  }, [])
+  const getFrameSource = useCallback((id: string) => frameSources.current.get(id), [])
   // Scenes render their 3D view at the zoom once it settles (see CanvasScene).
   const renderZoom = useSettled(view.zoom, 200)
   const toCanvas = useCallback((clientX: number, clientY: number) => {
@@ -528,7 +583,10 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       if (source) {
         setModifiers((current) =>
           current.map((node) =>
-            node.id === source.from && node.kind === 'text' ? { ...node, params: { text } } : node,
+            // Edited on the artboard: the lines keep their speed and tracking by position.
+            node.id === source.from && node.kind === 'text'
+              ? { ...node, params: { lines: linesFromText(text, node.params.lines) } }
+              : node,
           ),
         )
       } else {
@@ -586,6 +644,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       setScenes((current) => current.filter((node) => !removed.has(node.id)))
       setCompositions((current) => current.filter((node) => !removed.has(node.id)))
       setRepeats((current) => current.filter((node) => !removed.has(node.id)))
+      setRecords((current) => current.filter((node) => !removed.has(node.id)))
       setModifiers((current) => current.filter((node) => !removed.has(node.id)))
       setClusters((current) => {
         const kept = current.filter((cluster) => !removed.has(cluster.id))
@@ -621,7 +680,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
 
   // Dragging a link: a node's output starts one; a linked input picks its last one up.
   const startLink = useCallback(
-    (from: string, e: ReactPointerEvent) => setPending({ from, ...toCanvas(e.clientX, e.clientY) }),
+    (from: string, e: ReactPointerEvent) => {
+      // A grouped node links only through its group.
+      if (clustersRef.current.some((cluster) => cluster.members.includes(from))) return
+      setPending({ from, ...toCanvas(e.clientX, e.clientY) })
+    },
     [toCanvas],
   )
   const pickUpLink = useCallback(
@@ -659,24 +722,28 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           ? (rayTarget(
               sourcePort(source, viewRef.current.zoom),
               toCanvas(e.clientX, e.clientY),
-              (sourceIsScene ? compositions : [...scenes, ...repeats])
+              (sourceIsScene ? [...compositions, ...placedRecords] : [...scenes, ...repeats])
                 .filter((node) => node.id !== pendingFrom)
                 .map((node) => ({ id: node.id, x: node.x, y: node.y, ...node.frame })),
             ) ?? undefined)
           : undefined)
       const targetIsComposition = compositions.some((node) => node.id === to)
+      // A record node takes one input, like a composition.
+      const targetIsRecord = records.some((node) => node.id === to)
       const targetIsRepeat = repeats.some((node) => node.id === to)
       const valid =
         to &&
         (sourceIsScene
-          ? targetIsComposition
+          ? targetIsComposition || targetIsRecord
           : (modifiers.some((node) => node.id === pendingFrom) ||
               clusterFrames.current.has(pendingFrom)) &&
             (scenes.some((node) => node.id === to) || targetIsRepeat))
       if (valid) {
         setLinks((current) =>
           connect(
-            targetIsComposition ? current.filter((link) => link.to !== to) : current,
+            targetIsComposition || targetIsRecord
+              ? current.filter((link) => link.to !== to)
+              : current,
             pendingFrom,
             to,
           ),
@@ -716,7 +783,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [pendingFrom, toCanvas, scenes, compositions, repeats, modifiers])
+  }, [pendingFrom, toCanvas, scenes, compositions, records, placedRecords, repeats, modifiers])
 
   /** A new scene centered on a point of the canvas element (px), selected. Its layout is
    *  fitted to the frame, from its text measured once the font has loaded. */
@@ -756,6 +823,32 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     ])
     selectOnly(id)
   }
+  /** A new record node centered on a point of the canvas element (px), selected. */
+  const insertRecord = (x: number, y: number) => {
+    const count = reserveCount('record')
+    const id = `record-${count}`
+    setRecords((current) => [
+      ...current,
+      createRecordNode(
+        id,
+        `record ${count}`,
+        (x - view.x) / view.zoom - ARTBOARD.width / 2,
+        (y - view.y) / view.zoom - ARTBOARD.height / 2,
+      ),
+    ])
+    selectOnly(id)
+  }
+  const moveRecord = useCallback((id: string, x: number, y: number) => {
+    setRecords((current) => current.map((node) => (node.id === id ? { ...node, x, y } : node)))
+  }, [])
+  const updateRecord = useCallback(
+    (id: string, patch: Partial<Pick<RecordNode, 'fps' | 'holdIn' | 'holdOut'>>) => {
+      setRecords((current) =>
+        current.map((node) => (node.id === id ? { ...node, ...patch } : node)),
+      )
+    },
+    [],
+  )
   const insertRepeat = (x: number, y: number) => {
     const count = reserveCount('repeat')
     const id = `repeat-${count}`
@@ -828,15 +921,38 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   // Clipboard snapshots keep relative positions and only the selected subgraph's links.
   const [hasCopy, setHasCopy] = useState(copied !== null)
   const pointer = useRef<{ x: number; y: number } | null>(null)
+  /** A copy of the selection; a selected group stands for its nodes. The copied nodes' groups
+   *  come along, so their copies stay grouped (`pasteGroups`). */
+  const snapshotOf = (selected: Selection): CopiedSubgraph => {
+    const ids = selected.ids.flatMap(
+      (id) => clusters.find((cluster) => cluster.id === id)?.members ?? [id],
+    )
+    const snapshot = copySelection(
+      replaceSelection(ids, selected.activeId),
+      scenes,
+      modifiers,
+      links,
+      compositions,
+      repeats,
+    )
+    const groups = copiedGroups(
+      clusters,
+      selected.ids,
+      new Set(snapshot.modifiers.map((node) => node.id)),
+    )
+    return { ...snapshot, groups }
+  }
   const copyNodes = (selected: Selection = selectionRef.current) => {
-    const snapshot = copySelection(selected, scenes, modifiers, links, compositions, repeats)
+    const snapshot = snapshotOf(selected)
     copied = snapshot.ids.length ? snapshot : null
     setHasCopy(copied !== null)
   }
+  /** `ungrouped` (Option+⌘-drag): copies of grouped nodes land outside their groups. */
   const pasteCopy = (
     at: NodePosition | null,
     entry: CopiedSubgraph | null = copied,
     offset?: NodePosition,
+    { ungrouped = false }: { ungrouped?: boolean } = {},
   ) => {
     if (!entry?.ids.length) return
     positions.dispose()
@@ -858,36 +974,46 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setRepeats((current) => [...current, ...pasted.repeats])
     setModifiers((current) => [...current, ...pasted.modifiers])
     setLinks((current) => [...current, ...pasted.links])
+    if (entry.groups?.length && !ungrouped) {
+      const remap = new Map(
+        entry.modifiers.flatMap((node, i) => {
+          const copy = pasted.modifiers[i]
+          return copy ? [[node.id, copy.id] as const] : []
+        }),
+      )
+      setClusters(
+        pasteGroups(
+          clusters,
+          entry.groups,
+          remap,
+          [...modifiers, ...pasted.modifiers].map((node) => node.id),
+          () => {
+            const count = reserveCount('cluster')
+            return { id: `cluster-${count}`, name: `group ${count}` }
+          },
+        ),
+      )
+    }
     setSelection(replaceSelection(pasted.ids, pasted.activeId))
   }
-  /** ⌘G: the selected modifier nodes (and the members of selected clusters) into a new
-   *  cluster, selected. Scenes, compositions and the master node stay out. */
+  /** ⌘G: groups the selected modifier nodes (scenes, compositions and the master stay out):
+   *  into the first selected group, or a new one (`groupSelected`). The group is selected. */
   const groupSelection = () => {
-    const ids = selectionRef.current.ids.flatMap((id) => {
-      const cluster = clusters.find((item) => item.id === id)
-      if (cluster) return cluster.members
-      return modifiers.some((node) => node.id === id) ? [id] : []
-    })
-    if (!ids.length) return
-    checkpoint()
-    const count = reserveCount('cluster')
-    const id = `cluster-${count}`
-    const merged = clusters.filter((item) => selectionRef.current.ids.includes(item.id))
-    // Links from merged clusters carry on from their members (they leave those clusters);
-    // members that all feed one artboard are fed to it through the new cluster instead.
-    setLinks((current) => {
-      const expanded = merged.length ? expandClusterLinks(current, merged) : current
-      return rewireToCluster(expanded, ids, id) ?? expanded
-    })
-    setClusters((current) =>
-      groupNodes(
-        current,
-        ids,
-        { id, name: `cluster ${count}` },
-        modifiers.map((node) => node.id),
-      ),
+    const result = groupSelected(
+      clusters,
+      links,
+      selectionRef.current.ids,
+      modifiers.map((node) => node.id),
+      () => {
+        const count = reserveCount('cluster')
+        return { id: `cluster-${count}`, name: `group ${count}` }
+      },
     )
-    selectOnly(id)
+    if (!result) return
+    checkpoint()
+    setLinks(result.links)
+    setClusters(result.clusters)
+    selectOnly(result.id)
   }
   /** ⇧⌘G: selected clusters (and those holding selected nodes) back to separate nodes, their
    *  links carried on by each member. */
@@ -904,15 +1030,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     setSelection(replaceSelection(ungrouped.flatMap((cluster) => cluster.members)))
   }
   const duplicateNodes = (selected: Selection = selectionRef.current) => {
-    pasteCopy(null, copySelection(selected, scenes, modifiers, links, compositions, repeats))
+    pasteCopy(null, snapshotOf(selected))
   }
   useEffect(() => {
-    duplicateMovesRef.current = (ids, offset) =>
-      pasteCopy(
-        null,
-        copySelection(replaceSelection(ids), scenes, modifiers, links, compositions, repeats),
-        offset,
-      )
+    duplicateMovesRef.current = (ids, offset, options) =>
+      pasteCopy(null, snapshotOf(replaceSelection(ids)), offset, options)
   })
   // The keys, with this render's state (re-subscribed each render, as it changes). Not while
   // typing: a text field keeps its own undo and clipboard.
@@ -991,6 +1113,32 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   }, [patternStatuses])
   // The links as scenes see them: a cluster's output stands for each of its members.
   const effectiveLinks = useMemo(() => expandClusterLinks(links, clusters), [links, clusters])
+  // Each record node's animation: the text node its scene shows (the last linked one wins,
+  // as in modifiersByScene).
+  const recordTypings = useMemo(() => {
+    const out = new Map<string, RecordTyping>()
+    for (const [recordId, scene] of recordInputs) {
+      const link = effectiveLinks.findLast(
+        (item) =>
+          !item.muted &&
+          item.to === scene.id &&
+          modifiers.some((node) => node.id === item.from && node.kind === 'text'),
+      )
+      const node = link && modifiers.find((item) => item.id === link.from)
+      if (node?.kind === 'text') out.set(recordId, { id: node.id, name: node.name, params: node.params })
+    }
+    return out
+  }, [recordInputs, effectiveLinks, modifiers])
+  // A record node's timeline seeks the text node; its render, frame by frame, commits at
+  // once (`sync`), so the scene is drawn and ready when this returns.
+  const seekTypingNode = typing.seek
+  const seekTyping = useCallback(
+    (id: string, seconds: number | null, sync = false) => {
+      if (sync) flushSync(() => seekTypingNode(id, seconds))
+      else seekTypingNode(id, seconds)
+    },
+    [seekTypingNode],
+  )
   // Position/name/fold changes don't invalidate artwork, and unrelated scenes keep their inputs.
   const resolveModifiers = useMemo(() => createSceneModifiersResolver(), [])
   const sceneModifiers = useMemo(
@@ -1027,12 +1175,23 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     () => new Set([...links, ...effectiveLinks].map((link) => link.from)),
     [links, effectiveLinks],
   )
+  const groupedNodes = useMemo(
+    () => new Set(clusters.flatMap((cluster) => cluster.members)),
+    [clusters],
+  )
   const mutedNodes = useMemo(() => {
     const muted = new Set(links.filter((link) => link.muted).map((link) => link.from))
     for (const link of links) if (!link.muted) muted.delete(link.from)
+    // Grouped nodes are muted within their group.
+    for (const cluster of clusters) cluster.muted?.forEach((id) => muted.add(id))
     return muted
-  }, [links])
+  }, [links, clusters])
   const toggleOutgoingMute = useCallback((id: string) => {
+    // A grouped node has no links of its own: it's muted within its group.
+    if (clustersRef.current.some((cluster) => cluster.members.includes(id))) {
+      setClusters((current) => toggleMemberMute(current, id))
+      return
+    }
     setLinks((current) => {
       const outgoing = current.filter((link) => link.from === id)
       if (!outgoing.length) return current
@@ -1139,8 +1298,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       { id: cluster.id, cluster: true, ...bounds },
     ]),
   ])
-  const targetsById = new Map<string, SceneNode | CompositionNode | RepeatNode>(
-    [...scenes, ...compositions, ...repeats].map((node) => [node.id, node]),
+  const targetsById = new Map<string, LinkTarget>(
+    [...scenes, ...compositions, ...repeats, ...placedRecords].map((node) => [node.id, node]),
   )
   const linkPaths = links.flatMap((link) => {
     const from = sourcesById.get(link.from)
@@ -1160,10 +1319,16 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     x: (x - view.x) / view.zoom,
     y: (y - view.y) / view.zoom,
   })
-  const subject = selection.ids.length > 1 ? 'selection' : menu?.target?.kind
+  const subject =
+    selection.ids.length > 1
+      ? 'selection'
+      : menu?.target?.kind === 'cluster'
+        ? 'group'
+        : menu?.target?.kind
   const disconnectTarget =
     menu?.target?.kind === 'scene' ||
     menu?.target?.kind === 'composition' ||
+    menu?.target?.kind === 'record' ||
     menu?.target?.kind === 'repeat'
       ? menu.target.id
       : null
@@ -1172,6 +1337,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         { label: 'insert scene', onSelect: () => void insertScene(menu.x, menu.y) },
         { label: 'insert composition', onSelect: () => insertComposition(menu.x, menu.y) },
         { label: 'insert repeat', onSelect: () => insertRepeat(menu.x, menu.y) },
+        { label: 'insert record', onSelect: () => insertRecord(menu.x, menu.y) },
         { label: 'insert text', onSelect: () => insertModifier('text', menu.x, menu.y) },
         { label: 'insert shape', onSelect: () => insertModifier('shape', menu.x, menu.y) },
         { label: 'insert twist', onSelect: () => insertModifier('twist', menu.x, menu.y) },
@@ -1203,13 +1369,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           : []),
         ...(subject
           ? [
-              // (A cluster isn't copied: copying its nodes copies them ungrouped.)
-              ...(subject === 'cluster'
-                ? []
-                : [
-                    { label: `copy ${subject}`, onSelect: () => copyNodes() },
-                    { label: `duplicate ${subject}`, onSelect: () => duplicateNodes() },
-                  ]),
+              { label: `copy ${subject}`, onSelect: () => copyNodes() },
+              { label: `duplicate ${subject}`, onSelect: () => duplicateNodes() },
               { label: `delete ${subject}`, onSelect: () => deleteNodes(selectionRef.current.ids) },
             ]
           : []),
@@ -1253,6 +1414,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
             const compositionId =
               target.closest<HTMLElement>('[data-composition-node]')?.dataset.sceneId
+            const recordId = target.closest<HTMLElement>('[data-record-node]')?.dataset.sceneId
             const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
             const nodeId = nodeElement?.dataset.nodeId
             const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
@@ -1265,6 +1427,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 ? { kind: 'cluster', id: clusterId }
                 : compositionId
                   ? { kind: 'composition', id: compositionId }
+                  : recordId
+                  ? { kind: 'record', id: recordId }
                   : nodeId && nodeKind && nodeId !== MASTER_ID
                     ? { kind: nodeKind, id: nodeId }
                     : null
@@ -1343,6 +1507,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onMove={moveScene}
                 onTextChange={setSceneText}
                 onExporter={setExporter}
+                onFrameSource={setFrameSource}
                 onVisualChange={onVisualChange}
                 onResize={resizeScene}
               />
@@ -1381,6 +1546,27 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 />
               )
             })}
+            {placedRecords.map((node) => {
+              const input = recordInputs.get(node.id)
+              return (
+                <CanvasRecord
+                  key={node.id}
+                  node={node}
+                  selected={selectedIds.has(node.id)}
+                  getZoom={getZoom}
+                  inputId={input?.id ?? null}
+                  inputScale={input?.imageExport.scale ?? 1}
+                  typing={recordTypings.get(node.id) ?? null}
+                  getFrameSource={getFrameSource}
+                  seekTyping={seekTyping}
+                  onSelect={selectNode}
+                  onMove={moveRecord}
+                  onInputDown={pickUpLink}
+                  onChange={updateRecord}
+                  onTextChange={setModifierParams}
+                />
+              )
+            })}
             {clusterLayouts.map(({ cluster, bounds }) => (
               <ClusterFrame
                 key={cluster.id}
@@ -1416,12 +1602,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 selected={selectedIds.has(node.id)}
                 getZoom={getZoom}
                 connected={linkedNodes.has(node.id)}
+                grouped={groupedNodes.has(node.id)}
                 muted={mutedNodes.has(node.id)}
                 onToggleMute={toggleOutgoingMute}
                 pattern={patternStatuses.get(node.id)}
-                typingSpeed={typing.speeds[node.id] ?? typing.defaultSpeed}
                 typingPlaying={Boolean(typing.playing[node.id])}
-                onTypingSpeed={typing.setSpeed}
                 onTypingToggle={typing.toggle}
                 compact={compactCards}
                 onCollapsedChange={setModifierCollapsed}
@@ -1435,6 +1620,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           <SelectionMarquee canvasRef={canvasRef} onSelect={addSelected} onClear={clearSelected} />
           {scenes.length === 0 &&
             compositions.length === 0 &&
+            records.length === 0 &&
             repeats.length === 0 &&
             modifiers.length === 0 && (
             <p className="canvas-hint">Right-click to insert a scene</p>
@@ -1496,6 +1682,10 @@ function sourcePort(node: LinkSource, zoom: number) {
     : outputPort(node, zoom)
 }
 
+/** What a link can go to: a scene or repeat (from modifiers), a composition or record node
+ *  (from a scene). */
+type LinkTarget = SceneNode | CompositionNode | RepeatNode | PlacedRecordNode
+
 /** A link's identity, for React keys and edge selection (one link per pair). */
 function linkKey(link: Pick<NodeLink, 'from' | 'to'>) {
   return `${link.from}→${link.to}`
@@ -1505,7 +1695,7 @@ function linkKey(link: Pick<NodeLink, 'from' | 'to'>) {
  *  not the entire canvas document). */
 function useLinkCurve(
   from: LinkSource,
-  to: SceneNode | CompositionNode | RepeatNode,
+  to: LinkTarget,
   zoom: number,
 ) {
   const source = useNodePosition(from.id, from)
@@ -1519,7 +1709,7 @@ function useLinkCurve(
 
 type LinkCurveProps = {
   from: LinkSource
-  to: SceneNode | CompositionNode | RepeatNode
+  to: LinkTarget
   zoom: number
 }
 

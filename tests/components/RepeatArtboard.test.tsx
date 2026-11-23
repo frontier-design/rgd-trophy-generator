@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { CanvasPage } from '../../src/components/CanvasPage'
 
+import { setNodeText } from '../support/textNode'
+
 vi.mock('../../src/render3d', () => import('../support/render3dStub'))
 
 const canvas = () => screen.getByRole('region', { name: 'Canvas' })
@@ -20,7 +22,7 @@ const repeatControls = () => document.querySelector<HTMLElement>('.repeat-contro
 function insertText(index: number, text: string) {
   insert('insert text')
   const node = screen.getByRole('group', { name: `text ${index}` })
-  fireEvent.change(within(node).getByRole('textbox'), { target: { value: text } })
+  setNodeText(node, text)
   return node
 }
 

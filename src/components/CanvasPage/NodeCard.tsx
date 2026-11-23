@@ -19,7 +19,9 @@ import { MasterFields } from './MasterFields'
 import { PatternFields } from './PatternFields'
 import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
-import { RangeField } from '../ControlPanel/RangeField'
+import { TextLinesField } from './TextLinesField'
+import { BackspaceFields } from './BackspaceFields'
+import type { TextParams } from './textLines'
 
 /** A node's field edit: a patch of its params. */
 export type ParamsPatch =
@@ -31,7 +33,7 @@ export type ParamsPatch =
   | Partial<MaterialSettings>
   | Partial<LightingParams>
   | Partial<ShapeParams>
-  | { text?: string }
+  | Partial<TextParams>
 
 /** Where a press edits rather than drags the node. */
 const EDITABLE = 'textarea, input, select, button, a, [data-port]'
@@ -46,13 +48,13 @@ interface NodeCardProps {
   /** Linked to at least one scene. */
   connected: boolean
   muted?: boolean
+  /** In a group: no output port of its own (it links only through the group). */
+  grouped?: boolean
   onToggleMute?: (id: string) => void
   /** A pattern node's map as it's being made. */
   pattern?: PatternStatus
-  typingSpeed?: number
   typingPlaying?: boolean
-  onTypingSpeed?: (id: string, speed: number) => void
-  onTypingToggle?: (id: string, text: string) => void
+  onTypingToggle?: (id: string) => void
   /** Zoomed out so far the card is small: show only its header. */
   compact: boolean
   onCollapsedChange: (id: string, collapsed: boolean) => void
@@ -74,12 +76,11 @@ export const NodeCard = memo(function NodeCard({
   selected,
   getZoom,
   connected,
+  grouped = false,
   muted,
   onToggleMute,
   pattern,
-  typingSpeed,
   typingPlaying,
-  onTypingSpeed,
   onTypingToggle,
   compact,
   onCollapsedChange,
@@ -107,27 +108,18 @@ export const NodeCard = memo(function NodeCard({
       case 'text':
         return (
           <>
-            <label className="text-node-field node-card-wide">
-              <span className="text-node-label">Text</span>
-              <textarea
-                className="control-text text-node-input"
-                aria-label="Text"
-                value={(params as { text: string }).text}
-                onChange={(e) => set({ text: e.target.value })}
-              />
-            </label>
-            <RangeField
-              label="Speed (chars/s)"
-              min={1}
-              max={60}
-              unit=""
-              value={typingSpeed ?? 8}
-              onChange={(speed) => onTypingSpeed?.(id, speed)}
+            <TextLinesField
+              lines={(params as TextParams).lines}
+              onChange={(lines) => set({ lines })}
+            />
+            <BackspaceFields
+              backspace={(params as TextParams).backspace}
+              set={(backspace) => set({ backspace })}
             />
             <button
               type="button"
               className="control-button node-card-wide"
-              onClick={() => onTypingToggle?.(id, (params as { text: string }).text)}
+              onClick={() => onTypingToggle?.(id)}
             >
               {typingPlaying ? 'Stop typing' : 'Play typing'}
             </button>
@@ -148,9 +140,7 @@ export const NodeCard = memo(function NodeCard({
     id,
     onParamsChange,
     pattern,
-    typingSpeed,
     typingPlaying,
-    onTypingSpeed,
     onTypingToggle,
   ])
 
@@ -163,6 +153,7 @@ export const NodeCard = memo(function NodeCard({
       data-no-pan
       data-selected={selected || undefined}
       data-muted={muted || undefined}
+      data-grouped={grouped || undefined}
       data-compact={compact || node.collapsed || undefined}
       style={{
         left: node.x,
@@ -182,13 +173,14 @@ export const NodeCard = memo(function NodeCard({
         onPointerDown={(e) => {
           if (e.button !== 0) return
           const editable = Boolean((e.target as Element).closest(EDITABLE))
-          if (e.metaKey && !editable && !isMaster) return
+          // ⌘-click mutes; Option+⌘-drag copies (outside the node's group).
+          if (e.metaKey && !e.altKey && !editable && !isMaster) return
           onSelect(id, e.shiftKey, !editable)
           if (e.shiftKey || editable) return
           drag.onPointerDown(e)
         }}
         onClick={(e) => {
-          if (e.metaKey && !isMaster && !(e.target as Element).closest(EDITABLE)) {
+          if (e.metaKey && !e.altKey && !isMaster && !(e.target as Element).closest(EDITABLE)) {
             e.preventDefault()
             onToggleMute?.(id)
           }
@@ -215,7 +207,7 @@ export const NodeCard = memo(function NodeCard({
           {node.name}
           {isMaster ? (
             <span className="node-card-note">all scenes</span>
-          ) : (
+          ) : grouped ? null : (
             <span
               className="node-port node-port-out"
               data-port="out"

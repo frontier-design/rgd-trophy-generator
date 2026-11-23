@@ -79,8 +79,13 @@ export const NodeDragContext = createContext<{
   checkpoint: () => void
   participants?: (id: string) => readonly (NodePosition & { id: string })[]
   commit?: (moves: ReadonlyMap<string, NodePosition>) => void
-  /** Option/Alt-drag: copies of the dragged nodes, moved by `offset`; the originals stay. */
-  duplicate?: (ids: readonly string[], offset: NodePosition) => void
+  /** Option/Alt-drag: copies of the dragged nodes, moved by `offset`; the originals stay.
+   *  `ungrouped` (Option+⌘): copies of grouped nodes land outside their groups. */
+  duplicate?: (
+    ids: readonly string[],
+    offset: NodePosition,
+    options?: { ungrouped?: boolean },
+  ) => void
   onTap?: (id: string) => void
 } | null>(null)
 
@@ -98,7 +103,10 @@ export function useNodePosition(id: string, fallback: NodePosition) {
 }
 
 /** The parts of a pointer event a drag reads (React's or the window's). */
-type DragPointer = Pick<globalThis.PointerEvent, 'pointerId' | 'clientX' | 'clientY' | 'altKey'>
+type DragPointer = Pick<
+  globalThis.PointerEvent,
+  'pointerId' | 'clientX' | 'clientY' | 'altKey' | 'metaKey'
+>
 
 /**
  * Share pointer ownership and preview/commit semantics between scenes and node cards.
@@ -123,6 +131,8 @@ export function useNodeDrag(
     moved: boolean
     /** Option/Alt was held at the press. */
     duplicate: boolean
+    /** Option+⌘ was held at the press: copies leave their groups. */
+    ungrouped: boolean
     /** Replaces the controller's tap (a press that didn't move) for this press. */
     onTap: (() => void) | undefined
     /** Removes the window listeners that end the drag if the node loses the pointer. */
@@ -158,7 +168,7 @@ export function useNodeDrag(
     } else onMove(id, start.origin.x + dx / zoom, start.origin.y + dy / zoom)
   }
 
-  const end = (event: Pick<DragPointer, 'pointerId' | 'altKey'>) => {
+  const end = (event: Pick<DragPointer, 'pointerId' | 'altKey' | 'metaKey'>) => {
     const start = drag.current
     if (!start || start.pointer !== event.pointerId) return
     drag.current = null
@@ -174,12 +184,14 @@ export function useNodeDrag(
       else controller?.onTap?.(id)
       return
     }
-    // Option/Alt (at the press or the drop): the originals go back, copies land here.
+    // Option/Alt (at the press or the drop): the originals go back, copies land here; with ⌘
+    // too, outside the originals' groups.
     const last = changes.get(id)
     if ((start.duplicate || event.altKey) && controller?.duplicate && last) {
       controller.duplicate(
         start.participants.map((node) => node.id),
         { x: last.x - start.origin.x, y: last.y - start.origin.y },
+        { ungrouped: start.ungrouped || (event.altKey && event.metaKey) },
       )
       return
     }
@@ -219,6 +231,7 @@ export function useNodeDrag(
         revision: controller?.positions.revision(),
         moved: false,
         duplicate: event.altKey,
+        ungrouped: event.altKey && event.metaKey,
         onTap: options?.onTap,
         unlisten: () => {
           window.removeEventListener('pointermove', onWindowMove)

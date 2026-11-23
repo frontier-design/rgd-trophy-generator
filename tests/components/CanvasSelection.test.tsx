@@ -137,7 +137,7 @@ describe('CanvasPage multiselection', () => {
     expect(container.querySelectorAll('.node-links path')).toHaveLength(2)
   })
 
-  it('⌘G clusters nodes: one output linking them all, moved together; ⇧⌘G and delete', async () => {
+  it('⌘G groups nodes: one output linking them all, moved together; ⇧⌘G and delete', async () => {
     const { container } = render(<CanvasPage tools={null} />)
     await insertScene()
     const twist = insertModifier('twist', 40, 40)
@@ -145,14 +145,15 @@ describe('CanvasPage multiselection', () => {
     clickNode(twist)
     shiftClick(etch)
     fireEvent.keyDown(window, { key: 'g', metaKey: true })
-    const cluster = node('cluster 1')
+    const cluster = node('group 1')
     expect(cluster.closest('[data-cluster-id]')).toHaveAttribute('data-selected')
 
     // Its one output links every member to the scene.
-    link(screen.getByLabelText('cluster 1 output'), screen.getByLabelText('scene 1 input'))
+    link(screen.getByLabelText('group 1 output'), screen.getByLabelText('scene 1 input'))
     expect(container.querySelectorAll('.node-links path')).toHaveLength(1)
-    expect(screen.getByLabelText('twist 1 output')).toHaveAttribute('data-connected')
-    expect(screen.getByLabelText('etch 1 output')).toHaveAttribute('data-connected')
+    // Grouped nodes link only through the group: they have no outputs of their own.
+    expect(screen.queryByLabelText('twist 1 output')).toBeNull()
+    expect(screen.queryByLabelText('etch 1 output')).toBeNull()
 
     // Dragging its header moves the members.
     const left = (name: string) => parseFloat(node(name).parentElement!.style.left)
@@ -165,7 +166,7 @@ describe('CanvasPage multiselection', () => {
 
     // ⇧⌘G takes it apart; each member keeps the link.
     fireEvent.keyDown(window, { key: 'g', metaKey: true, shiftKey: true })
-    expect(screen.queryByRole('group', { name: 'cluster 1' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'group 1' })).toBeNull()
     expect(container.querySelectorAll('.node-links path')).toHaveLength(2)
 
     // Regrouping nodes that all feed one scene moves their links onto the cluster.
@@ -173,15 +174,14 @@ describe('CanvasPage multiselection', () => {
     shiftClick(node('etch 1'))
     fireEvent.keyDown(window, { key: 'g', metaKey: true })
     expect(container.querySelectorAll('.node-links path')).toHaveLength(1)
-    expect(screen.getByLabelText('cluster 2 output')).toHaveAttribute('data-connected')
-    expect(screen.getByLabelText('twist 1 output')).toHaveAttribute('data-connected')
+    expect(screen.getByLabelText('group 2 output')).toHaveAttribute('data-connected')
 
     // Deleting a cluster deletes its nodes.
-    clickNode(node('cluster 2'))
+    clickNode(node('group 2'))
     fireEvent.keyDown(window, { key: 'Delete' })
     expect(screen.queryByRole('group', { name: 'twist 1' })).toBeNull()
     expect(screen.queryByRole('group', { name: 'etch 1' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'cluster 2' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'group 2' })).toBeNull()
   })
 
   it('Option-drag leaves the node and drops a copy where it was dragged to', () => {

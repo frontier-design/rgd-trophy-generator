@@ -934,6 +934,248 @@ body {
   color: var(--color-text);
 }
 
+/* A record node: its input's frame, showing the last frame kept; its controls beside it at
+   screen size. */
+.record-node {
+  background: var(--color-workspace);
+}
+
+.record-node[data-recording] {
+  outline: calc(2px / var(--zoom)) solid #d93025;
+}
+
+.record-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.record-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: calc(16px / var(--zoom));
+  font-size: calc(14px / var(--zoom));
+  text-align: center;
+  color: #6b6b66;
+  pointer-events: none;
+}
+
+.record-tools {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  display: grid;
+  gap: 6px;
+  width: 440px;
+  padding-left: 16px;
+  font-size: 12px;
+  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform-origin: 0 0;
+}
+
+.record-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.record-node[data-recording] .record-buttons .control-button[aria-pressed='true'] {
+  background: #d93025;
+}
+
+.control-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.record-hold {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.record-hold input {
+  width: 4em;
+  font: inherit;
+}
+
+/* A record node's timeline (RecordTimeline): a ruler, one row per stretch of the video with
+   its bar and length, and a playhead across them. */
+.record-timeline {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--color-bg, #fff);
+  border: 1px solid var(--color-label-bg);
+}
+
+.record-timeline[data-disabled] {
+  opacity: 0.7;
+}
+
+.record-timeline-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.record-timeline-bar .control-button {
+  min-width: 30px;
+  text-transform: none;
+}
+
+.record-timeline-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.record-timeline-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center;
+}
+
+.record-ruler {
+  position: relative;
+  height: 22px;
+  cursor: ew-resize;
+  border-bottom: 1px solid var(--color-label-bg);
+  touch-action: none;
+}
+
+.record-tick {
+  position: absolute;
+  bottom: 0;
+  height: 5px;
+  border-left: 1px solid #b5b5b0;
+  font-size: 10px;
+  line-height: 1;
+  color: #8a8a85;
+}
+
+.record-tick[data-major] {
+  height: 9px;
+  padding-left: 3px;
+  border-color: #8a8a85;
+}
+
+.record-playhead-time {
+  position: absolute;
+  top: -2px;
+  z-index: 2;
+  padding: 1px 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-bg, #fff);
+  pointer-events: none;
+  background: var(--color-text);
+  transform: translateX(-50%);
+}
+
+.record-row-label {
+  overflow: hidden;
+  font-weight: 700;
+  text-align: right;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.record-track {
+  position: relative;
+  height: 22px;
+  cursor: ew-resize;
+  background: #f0f0ee;
+  touch-action: none;
+}
+
+.record-clip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 1px;
+  overflow: visible;
+  color: var(--color-bg, #fff);
+  background: var(--color-text);
+}
+
+.record-clip[data-kind='hold-in'],
+.record-clip[data-kind='hold-out'],
+.record-clip[data-kind='pause'] {
+  color: var(--color-text);
+  background: repeating-linear-gradient(
+    -45deg,
+    #d6d6d2 0 4px,
+    #e6e6e2 4px 8px
+  );
+}
+
+.record-clip[data-kind='delete'] {
+  background: #6b6b66;
+}
+
+.record-clip-length {
+  padding-right: 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.record-clip[data-narrow] .record-clip-length {
+  position: absolute;
+  left: 100%;
+  padding: 0 0 0 4px;
+  color: var(--color-text);
+}
+
+.record-clip[data-narrow='before'] .record-clip-length {
+  right: 100%;
+  left: auto;
+  padding: 0 4px 0 0;
+}
+
+.record-clip-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.record-clip-handle:hover {
+  background: rgb(0 0 0 / 0.25);
+}
+
+/* Across the ruler and the tracks (not a grid item: it would push the rows out of their
+   cells). The tracks start after the label column (72px) and the gap (8px). */
+.record-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(80px + (100% - 80px) * var(--at));
+  z-index: 1;
+  width: 1px;
+  pointer-events: none;
+  background: var(--color-text);
+}
+
+.record-status {
+  margin: 0;
+  color: #6b6b66;
+}
+
 /* A repeat artboard: its generated canvas fills the frame; one hidden offscreen scene
    supplies the shared trophy render (never one 3D context per repeated copy). */
 .repeat-artboard > .repeat-artboard-frame {
@@ -1325,20 +1567,74 @@ body {
   padding-bottom: 6px;
 }
 
-.text-node-field {
-  min-width: 0;
+/* The text node's lines: a chevron (unfolds the line's formatting), the line's input and its
+   typing speed. The inputs stack tightly, reading as one text block. */
+.text-lines {
+  gap: 0;
 }
 
-.text-node-label {
+.text-line {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 64px;
+  column-gap: 8px;
+  align-items: center;
+}
+
+.text-line-fold {
+  width: 14px;
+  height: 22px;
+  padding: 0;
+  font: inherit;
   font-weight: 700;
+  line-height: 1;
+  color: var(--color-text);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  opacity: 0.5;
+  transition:
+    transform 120ms ease,
+    opacity 120ms ease;
 }
 
-.text-node-input {
+.text-line-fold:hover,
+.text-line-fold:focus-visible,
+.text-line[data-open] .text-line-fold {
+  opacity: 1;
+}
+
+.text-line[data-open] .text-line-fold {
+  transform: rotate(90deg);
+}
+
+.text-line-input {
   width: 100%;
-  min-width: 0;
-  min-height: 72px;
-  box-sizing: border-box;
-  resize: vertical;
+  border-bottom-width: 1px;
+  border-bottom-color: var(--color-panel-border);
+}
+
+.text-line-input:focus {
+  border-bottom-color: var(--color-text);
+}
+
+.text-line-slider .control-range {
+  height: 22px;
+}
+
+/* Unfolded: the line's formatting under its input. */
+.text-line-format {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  padding: 2px 0 6px;
+  font-size: 11px;
+}
+
+.text-line-format-label {
+  font-weight: 700;
+  opacity: 0.7;
 }
 
 /* The text node: white on black. Its colors are re-pointed for the whole card, so its
@@ -1359,7 +1655,7 @@ body {
   outline-offset: 2px;
 }
 
-.canvas-node[data-kind='text'] .text-node-input {
+.canvas-node[data-kind='text'] .text-line-input {
   color: var(--color-text);
   caret-color: var(--color-text);
 }

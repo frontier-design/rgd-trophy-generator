@@ -28,6 +28,8 @@ export interface TextLayer {
    *  line. */
   glyphs?: Array<Array<{ char: string; x: number }> | null>
   align: 'left' | 'right'
+  /** Per line, its letter spacing (CSS px; LineMeasure.tracking), 0 or absent for none. */
+  letterSpacing?: number[]
   /** A canvas font string (measure/toCanvasFont). */
   font: string
   color: string
@@ -90,11 +92,15 @@ export function drawComposition(
       const x = layer.x + (layer.offsets?.[i] ?? 0)
       const letters = layer.glyphs?.[i]
       if (letters) {
+        // One letter at a time: the spacing is already in where each one ends.
         ctx.textAlign = 'right'
         for (const glyph of letters) ctx.fillText(glyph.char, x + glyph.x, baseline)
         ctx.textAlign = layer.align
       } else {
-        ctx.fillText(line, x, baseline)
+        const spacing = layer.letterSpacing?.[i] ?? 0
+        setLetterSpacing(ctx, spacing)
+        ctx.fillText(line, trackedX(x, layer.align, spacing), baseline)
+        setLetterSpacing(ctx, 0)
       }
     })
   }
@@ -127,4 +133,19 @@ function drawBanner(ctx: CanvasRenderingContext2D, banner: BannerLayer): void {
   ctx.textAlign = 'right'
   ctx.fillText(link, layout.link.right, layout.link.baseline + linkOffset)
   ctx.restore()
+}
+
+/** Sets the canvas's letter spacing (CSS px), where the browser supports it. */
+export function setLetterSpacing(ctx: CanvasRenderingContext2D, spacing: number): void {
+  if ('letterSpacing' in ctx) ctx.letterSpacing = `${spacing}px`
+}
+
+/** Where to draw a tracked line so its ink sits where it was measured: the canvas (like CSS)
+ *  adds the spacing after the last letter too, which pushes right- or center-aligned text
+ *  left (by all or half of it); the measured width leaves it out. */
+export function trackedX(x: number, align: CanvasTextAlign, spacing: number): number {
+  if (!spacing) return x
+  if (align === 'right' || align === 'end') return x + spacing
+  if (align === 'center') return x + spacing / 2
+  return x
 }

@@ -1,25 +1,53 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ModifierNode } from './graph'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ModifierNode, TextNode } from './graph'
+import { linesFromText, textAt, textDuration, textOf } from './textLines'
 
-const DEFAULT_SPEED = 8 // characters per second
 interface Playback {
+  /** The text being typed (an edit to it cancels the playback). */
   text: string
-  count: number
+  /** When it started (ms, Date.now). */
+  start: number
+  /** What has been typed so far. */
+  typed: string
 }
 
-/** Session-only typing previews. The document and the text editor always retain the source. */
+const textNode = (nodes: readonly ModifierNode[], id: string) =>
+  nodes.find((node): node is TextNode => node.id === id && node.kind === 'text')
+
+/**
+ * Session-only typing previews: each line types at its own speed, one line after another.
+ * The document and the text editor always keep the whole text; linked scenes see the typed
+ * part (`previewNodes`). `seek` pins a node at a time instead (a record node rendering the
+ * typing frame by frame, on its own clock).
+ */
 export function useTypingPlayback(nodes: readonly ModifierNode[]) {
-  const [speeds, setSpeeds] = useState<Record<string, number>>({})
   const [playing, setPlaying] = useState<Record<string, Playback>>({})
-  const setSpeed = useCallback((id: string, speed: number) => {
-    if (Number.isFinite(speed))
-      setSpeeds((current) => ({ ...current, [id]: Math.max(1, Math.min(60, speed)) }))
+  // Seeked text nodes (a record node's render): each shows what's typed at its time (s),
+  // over any live playback, until seeked back to null.
+  const [seeked, setSeeked] = useState<Readonly<Record<string, number>>>({})
+  const seek = useCallback((id: string, seconds: number | null) => {
+    setSeeked((current) => {
+      if (seconds === null) {
+        if (!(id in current)) return current
+        const next = { ...current }
+        delete next[id]
+        return next
+      }
+      return current[id] === seconds ? current : { ...current, [id]: seconds }
+    })
   }, [])
-  const toggle = useCallback((id: string, text: string) => {
+  const nodesRef = useRef(nodes)
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+
+  const toggle = useCallback((id: string) => {
     setPlaying((current) => {
       const next = { ...current }
+      const node = textNode(nodesRef.current, id)
+      const text = node ? textOf(node.params.lines) : ''
       if (next[id]) delete next[id]
-      else if (text) next[id] = { text, count: 0 }
+      else if (text) next[id] = { text, start: Date.now(), typed: '' }
       return next
     })
   }, [])
@@ -33,7 +61,8 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
     })
   }, [])
 
-  // Cancel on edits/deletion, including undo and document replacement.
+  // Cancel on edits/deletion, including undo and document replacement. (Speed and tracking
+  // changes carry on: the typing follows the lines' speeds as they are now.)
   useEffect(() => {
     // Discard invalid sessions, rather than allowing undo to resurrect an old preview.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -41,8 +70,8 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
       const next = { ...current }
       let changed = false
       for (const [id, playback] of Object.entries(current)) {
-        const node = nodes.find((item) => item.id === id)
-        if (!node || node.kind !== 'text' || node.params.text !== playback.text) {
+        const node = textNode(nodes, id)
+        if (!node || textOf(node.params.lines) !== playback.text) {
           delete next[id]
           changed = true
         }
@@ -51,38 +80,53 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
     })
   }, [nodes])
 
-  const playingIds = Object.keys(playing).sort().join('\0')
+  // One frame loop while anything plays; state changes only when a character appears.
+  const active = Object.keys(playing).length > 0
   useEffect(() => {
-    const timers = (playingIds ? playingIds.split('\0') : []).map((id) =>
-      window.setInterval(
-        () => {
-          setPlaying((current) => {
-            const playback = current[id]
-            if (!playback) return current
-            const next = { ...current }
-            if (playback.count + 1 >= Array.from(playback.text).length) delete next[id]
-            else next[id] = { ...playback, count: playback.count + 1 }
-            return next
-          })
-        },
-        1000 / (speeds[id] ?? DEFAULT_SPEED),
-      ),
-    )
-    return () => timers.forEach(window.clearInterval)
-  }, [playingIds, speeds])
+    if (!active) return
+    let frame = requestAnimationFrame(function tick() {
+      setPlaying((current) => {
+        let next: Record<string, Playback> | null = null
+        for (const [id, playback] of Object.entries(current)) {
+          const node = textNode(nodesRef.current, id)
+          // The whole animation (typing, and deleting with backspace on), then done.
+          const elapsed = (Date.now() - playback.start) / 1000
+          const typed =
+            node && elapsed < textDuration(node.params) ? textAt(node.params, elapsed) : null
+          if (typed === playback.typed) continue
+          next ??= { ...current }
+          if (typed === null) delete next[id]
+          else next[id] = { ...playback, typed }
+        }
+        return next ?? current
+      })
+      frame = requestAnimationFrame(tick)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [active])
 
   const previewNodes = useMemo(
     () =>
       nodes.map((node) => {
+        const at = seeked[node.id]
+        if (node.kind === 'text' && at !== undefined) {
+          const typed = textAt(node.params, at)
+          return typed === textOf(node.params.lines)
+            ? node
+            : {
+                ...node,
+                params: { ...node.params, lines: linesFromText(typed, node.params.lines) },
+              }
+        }
         const playback = playing[node.id]
-        return node.kind === 'text' && playback && playback.text === node.params.text
+        return node.kind === 'text' && playback && playback.text === textOf(node.params.lines)
           ? {
               ...node,
-              params: { text: Array.from(playback.text).slice(0, playback.count).join('') },
+              params: { ...node.params, lines: linesFromText(playback.typed, node.params.lines) },
             }
           : node
       }),
-    [nodes, playing],
+    [nodes, playing, seeked],
   )
-  return { speeds, playing, setSpeed, toggle, stop, previewNodes, defaultSpeed: DEFAULT_SPEED }
+  return { playing, toggle, stop, seek, previewNodes }
 }

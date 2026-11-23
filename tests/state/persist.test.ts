@@ -150,6 +150,7 @@ describe('saved documents', () => {
       scene: 4,
       composition: 0,
       repeat: 0,
+      record: 0,
       shape: 0,
       twist: 2,
       etch: 3,

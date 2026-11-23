@@ -16,7 +16,7 @@ const MEASURE_OPTIONS = { prepare: { whiteSpace: 'pre-wrap' } } as const
 
 /** Measure the text's lines, but only once the chosen font has loaded. */
 export function useRagMeasure(settings: Settings): RagMeasureResult {
-  const { text, fontFamily, fontSize, fontWeight, columnWidth, lineHeight } = settings
+  const { text, fontFamily, fontSize, fontWeight, columnWidth, lineHeight, lineTracking } = settings
   // Size-independent, so dragging the size slider doesn't reset fontReady on every step.
   const fontReady = useFontLoaded(toFontLoadQuery({ fontFamily, fontWeight }))
 
@@ -25,13 +25,13 @@ export function useRagMeasure(settings: Settings): RagMeasureResult {
       fontReady
         ? measureLines(
             text,
-            { fontFamily, fontSize, fontWeight, columnWidth, lineHeight },
+            { fontFamily, fontSize, fontWeight, columnWidth, lineHeight, lineTracking },
             MEASURE_OPTIONS,
           )
         : NO_LINES,
     // TODO: memoize Pretext's prepare step on [text, font] separately from layout on
     // [columnWidth, lineHeight] (see measureLines TODO).
-    [fontReady, text, fontFamily, fontSize, fontWeight, columnWidth, lineHeight],
+    [fontReady, text, fontFamily, fontSize, fontWeight, columnWidth, lineHeight, lineTracking],
   )
 
   // Measured only once the font is ready (like the lines), so a fallback font's metrics

@@ -72,6 +72,9 @@ export interface Settings {
   columnWidth: number
   /** Line height in CSS px. Pretext takes this at layout time, not prepare time. */
   lineHeight: number
+  /** Letter spacing of each hard line of `text` (thousandths of an em; a text node's lines),
+   *  or undefined for none. */
+  lineTracking?: number[]
   /** The trophy material (not a measurement input; it never affects layout). */
   material: MaterialSettings
 }
@@ -85,6 +88,10 @@ export interface LineMeasure {
   text: string
   /** Visible width of the line in CSS px (trailing whitespace excluded). */
   width: number
+  /** Its letter spacing (CSS px), when its hard line is tracked. The width holds it between
+   *  letters only, not after the last (CSS and Pretext add it after the last too: invisible
+   *  left-aligned, but right-aligned or centered it must be taken back when drawn). */
+  tracking?: number
 }
 
 /** A 2D point in CSS px, y pointing down (screen space). */

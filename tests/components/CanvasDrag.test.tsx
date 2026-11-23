@@ -96,6 +96,23 @@ describe('CanvasPage drag previews', () => {
     expect(sceneArtboardRender).not.toHaveBeenCalled()
   })
 
+  it('keeps a record node where it was dropped', () => {
+    render(<CanvasPage tools={null} />)
+    fireEvent.contextMenu(canvas(), { clientX: 200, clientY: 150 })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'insert record' }))
+    const record = screen.getByLabelText('record 1')
+    const before = { left: record.style.left, top: record.style.top }
+
+    fireEvent.pointerDown(record, { button: 0, pointerId: 3, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(record, { pointerId: 3, clientX: 50, clientY: 25 })
+    flushRaf()
+    fireEvent.pointerUp(record, { pointerId: 3 })
+
+    expect(record.style.left).toBe(`${parseFloat(before.left) + 40}px`)
+    expect(record.style.top).toBe(`${parseFloat(before.top) + 15}px`)
+    expect(record.style.transform).toBe('')
+  })
+
   it('moves a linked modifier preview and keeps the live edge attached to both preview positions', async () => {
     const { container } = render(<CanvasPage tools={null} />)
     await insertScene()

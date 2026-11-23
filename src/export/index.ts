@@ -21,6 +21,8 @@ export function exportGlb(_root: Object3D): Promise<ArrayBuffer> {
 
 export {
   drawComposition,
+  setLetterSpacing,
+  trackedX,
   type BannerLayer,
   type Composition,
   type PlacedImage,

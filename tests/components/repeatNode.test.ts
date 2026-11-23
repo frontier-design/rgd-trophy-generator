@@ -1,3 +1,4 @@
+import { textOf, type TextParams } from '../../src/components/CanvasPage/textLines'
 import { createCanvas } from 'canvas'
 import { createModifier, modifiersByScene } from '../../src/components/CanvasPage/graph'
 import { parseCanvasDocument } from '../../src/components/CanvasPage/canvasDocument'
@@ -196,7 +197,7 @@ describe('shared modifiers', () => {
     expect(resolved.textures).toEqual([nodes[4]!.params])
     expect(resolved.material).toEqual(nodes[5]!.params)
     expect(resolved.lighting).toEqual(nodes[6]!.params)
-    expect(resolved.text).toBe((nodes[7]!.params as { text: string }).text)
+    expect(resolved.text).toBe(textOf((nodes[7]!.params as TextParams).lines))
     expect(
       modifiersByScene(
         links.map((link) => ({ ...link, muted: true })),

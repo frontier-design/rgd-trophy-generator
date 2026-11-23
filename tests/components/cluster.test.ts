@@ -7,6 +7,10 @@ import {
   groupNodes,
   pruneClusters,
   rewireToCluster,
+  groupSelected,
+  copiedGroups,
+  pasteGroups,
+  toggleMemberMute,
 } from '../../src/components/CanvasPage/cluster'
 import { createModifier } from '../../src/components/CanvasPage/graph'
 
@@ -91,7 +95,8 @@ describe('clusters', () => {
       ],
     })
     expect(doc.clusters).toEqual([
-      { id: 'cluster-4', name: 'cluster 4', members: ['twist-1', 'etch-1'] },
+      // Groups were called clusters: old default names read as group names.
+      { id: 'cluster-4', name: 'group 4', members: ['twist-1', 'etch-1'] },
     ])
     expect(doc.links).toEqual([{ from: 'cluster-4', to: 'scene-1' }])
     expect(doc.inserted.cluster).toBe(4)
@@ -150,5 +155,131 @@ describe('clusters', () => {
       ).toBeNull()
       expect(rewireToCluster([], ['a'], 'c')).toBeNull()
     })
+  })
+
+  describe('groupSelected', () => {
+    const order = ['a', 'b', 'c', 'd']
+    const create = () => ({ id: 'cluster-9', name: 'group 9' })
+
+    it('adds selected nodes to the selected group, keeping its name and links; theirs are dropped', () => {
+      const clusters = [{ id: 'cluster-1', name: 'group 1', members: ['a', 'b'] }]
+      const links = [
+        { from: 'cluster-1', to: 's1' },
+        { from: 'c', to: 's2' },
+        { from: 'd', to: 's1' },
+      ]
+      expect(groupSelected(clusters, links, ['cluster-1', 'c'], order, create)).toEqual({
+        id: 'cluster-1',
+        clusters: [{ id: 'cluster-1', name: 'group 1', members: ['a', 'b', 'c'] }],
+        links: [
+          { from: 'cluster-1', to: 's1' },
+          { from: 'd', to: 's1' },
+        ],
+      })
+    })
+
+    it('the first selected group takes in other selected groups and their links (once per target)', () => {
+      const clusters = [
+        { id: 'cluster-1', name: 'group 1', members: ['a'] },
+        { id: 'cluster-2', name: 'group 2', members: ['b', 'c'], muted: ['c'] },
+      ]
+      const links = [
+        { from: 'cluster-2', to: 's1' },
+        { from: 'cluster-1', to: 's1' },
+        { from: 'cluster-2', to: 's2' },
+      ]
+      expect(groupSelected(clusters, links, ['cluster-2', 'cluster-1'], order, create)).toEqual({
+        id: 'cluster-2',
+        clusters: [{ id: 'cluster-2', name: 'group 2', members: ['a', 'b', 'c'], muted: ['c'] }],
+        links: [
+          { from: 'cluster-2', to: 's1' },
+          { from: 'cluster-2', to: 's2' },
+        ],
+      })
+    })
+
+    it('a new group feeds the one artboard its nodes fed, or drops their links', () => {
+      const one = groupSelected(
+        [],
+        [
+          { from: 'a', to: 's1' },
+          { from: 'b', to: 's1' },
+        ],
+        ['a', 'b'],
+        order,
+        create,
+      )
+      expect(one?.links).toEqual([{ from: 'cluster-9', to: 's1' }])
+      const two = groupSelected(
+        [],
+        [
+          { from: 'a', to: 's1' },
+          { from: 'b', to: 's2' },
+          { from: 'c', to: 's2' },
+        ],
+        ['a', 'b'],
+        order,
+        create,
+      )
+      expect(two?.links).toEqual([{ from: 'c', to: 's2' }])
+      expect(two?.clusters).toEqual([{ id: 'cluster-9', name: 'group 9', members: ['a', 'b'] }])
+    })
+
+    it('nothing to do: nothing groupable, or one group selected as is', () => {
+      const clusters = [{ id: 'cluster-1', name: 'group 1', members: ['a', 'b'] }]
+      expect(groupSelected(clusters, [], ['scene-1'], order, create)).toBeNull()
+      expect(groupSelected(clusters, [], ['cluster-1', 'a'], order, create)).toBeNull()
+    })
+  })
+
+  it('copies of grouped nodes join their group; copies of a whole group make a new one', () => {
+    const clusters = [
+      { id: 'cluster-1', name: 'group 1', members: ['a', 'b'] },
+      { id: 'cluster-2', name: 'group 2', members: ['c'] },
+    ]
+    const groups = copiedGroups(clusters, ['a', 'cluster-2'], new Set(['a', 'c']))
+    expect(groups).toEqual([
+      { id: 'cluster-1', members: ['a'], whole: false },
+      { id: 'cluster-2', members: ['c'], whole: true },
+    ])
+    const remap = new Map([
+      ['a', 'a2'],
+      ['c', 'c2'],
+    ])
+    expect(
+      pasteGroups(clusters, groups, remap, ['a', 'b', 'c', 'a2', 'c2'], () => ({
+        id: 'cluster-3',
+        name: 'group 3',
+      })),
+    ).toEqual([
+      { id: 'cluster-1', name: 'group 1', members: ['a', 'b', 'a2'] },
+      { id: 'cluster-2', name: 'group 2', members: ['c'] },
+      { id: 'cluster-3', name: 'group 3', members: ['c2'] },
+    ])
+    // The group is gone: the copy is on its own.
+    expect(
+      pasteGroups([], groups.slice(0, 1), remap, ['a2'], () => ({ id: 'x', name: 'x' })),
+    ).toEqual([])
+  })
+
+  it('grouped nodes mute within their group: its links skip them', () => {
+    const clusters = toggleMemberMute(
+      [{ id: 'cluster-1', name: 'group 1', members: ['a', 'b'] }],
+      'b',
+    )
+    expect(clusters).toEqual([
+      { id: 'cluster-1', name: 'group 1', members: ['a', 'b'], muted: ['b'] },
+    ])
+    expect(expandClusterLinks([{ from: 'cluster-1', to: 's' }], clusters)).toEqual([
+      { from: 'a', to: 's' },
+      { from: 'b', to: 's', muted: true },
+    ])
+    expect(toggleMemberMute(clusters, 'b')).toEqual([
+      { id: 'cluster-1', name: 'group 1', members: ['a', 'b'] },
+    ])
+    // Leaving the group (pruned away) drops its mute.
+    expect(pruneClusters(clusters, new Set(['a']))).toEqual([
+      { id: 'cluster-1', name: 'group 1', members: ['a'] },
+    ])
   })
 })

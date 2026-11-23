@@ -13,14 +13,15 @@ import {
   modifiersByScene,
   rayTarget,
 } from '../../src/components/CanvasPage/graph'
+import { linesFromText } from '../../src/components/CanvasPage/textLines'
 
 describe('node graph', () => {
   it('skips muted links and restores their precedence when unmuted', () => {
     const a = createModifier('text', 'a', 'a', 0, 0)
     const b = createModifier('text', 'b', 'b', 0, 0)
     if (a.kind !== 'text' || b.kind !== 'text') throw new Error('expected text nodes')
-    a.params.text = 'first'
-    b.params.text = 'second'
+    a.params.lines = linesFromText('first')
+    b.params.lines = linesFromText('second')
     const resolve = createSceneModifiersResolver()
     const links = [
       { from: 'a', to: 's' },

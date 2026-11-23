@@ -126,6 +126,7 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     () => ({
       ...DEFAULT_SETTINGS,
       text,
+      lineTracking: modifiers.lineTracking,
       fontFamily: typography.fontFamily,
       fontWeight: DEFAULT_SETTINGS.fontWeight,
       fontSize: typography.fontSize,
@@ -133,7 +134,7 @@ export const RepeatArtboard = memo(function RepeatArtboard({
       columnWidth: typography.columnWidth,
       material,
     }),
-    [text, typography, material],
+    [text, modifiers.lineTracking, typography, material],
   )
   const typeScale = typography.fontSize / DEFAULT_SETTINGS.fontSize
   const sourceScene = useMemo<SceneParams>(
@@ -214,6 +215,9 @@ export const RepeatArtboard = memo(function RepeatArtboard({
       sourceHeight: source.height,
       baselines: model.baselines.map((baseline) => model.anchor.y + baseline),
       lines: model.lines.map((line) => line.text.trimEnd()),
+      letterSpacing: model.lines.some((line) => line.tracking)
+        ? model.lines.map((line) => line.tracking ?? 0)
+        : undefined,
       textColor: sourceScene.canvasColors.text,
       fontWeight: sourceSettings.fontWeight,
       revision: `${threeVersion}:${modifiers}`,

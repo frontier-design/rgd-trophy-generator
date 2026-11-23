@@ -86,6 +86,15 @@ export function RagEditor({
     }
     return { transform: `translateX(${side * reveal.offset}px)` }
   }
+  // A tracked line (a text node's line tracking): its letter spacing, and the spacing CSS
+  // adds after the last letter taken back (its line box reaches that much past the column),
+  // so right-aligned and centered lines sit where they were measured.
+  const tracked = lines.some((line) => line.tracking)
+  const lineStyle = (line: LineMeasure, side: 1 | -1): CSSProperties | undefined => {
+    const style = revealStyle(line, side)
+    if (!line.tracking) return style
+    return { ...style, letterSpacing: `${line.tracking}px`, marginRight: -line.tracking }
+  }
   // Typed, each letter is its own span: hidden until it appears, then nudged by the
   // spacing still closing up (relative positioning keeps the line's shaping and kerning).
   const lineContent = (line: LineMeasure, text: string) => {
@@ -111,7 +120,9 @@ export function RagEditor({
       className="rag-editor"
       style={vars}
       data-debug={debug ? 'on' : 'off'}
-      data-revealing={reveals ? 'on' : undefined}
+      // Tracked lines can't be styled one by one in the textarea: its text is hidden and the
+      // lines drawn over it, as while revealing (it stays the editor).
+      data-revealing={reveals || tracked ? 'on' : undefined}
       data-align={align}
       data-canvas-mode={canvasMode || undefined}
       data-text-editable={(canvasMode && textEditable) || undefined}
@@ -127,10 +138,10 @@ export function RagEditor({
       {/* While revealing, the textarea's own text is hidden and the lines that have
           appeared are drawn here instead, sliding into their places (the textarea stays
           editable). */}
-      {reveals && (
+      {(reveals || tracked) && (
         <div className="rag-reveal" aria-hidden="true" data-testid="rag-reveal">
           {lines.map((line) => (
-            <div key={line.index} className="rag-reveal-line" style={revealStyle(line, 1)}>
+            <div key={line.index} className="rag-reveal-line" style={lineStyle(line, 1)}>
               {lineContent(line, line.text.trimEnd())}
             </div>
           ))}
@@ -143,7 +154,7 @@ export function RagEditor({
       {mirror && (
         <div className="rag-mirror" aria-hidden="true" data-testid="rag-mirror">
           {lines.map((line) => (
-            <div key={line.index} className="rag-mirror-line" style={revealStyle(line, -1)}>
+            <div key={line.index} className="rag-mirror-line" style={lineStyle(line, -1)}>
               {lineContent(line, line.text.trimEnd())}
             </div>
           ))}

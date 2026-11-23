@@ -3,6 +3,7 @@ import type { SceneNode, FrameRect } from './sceneNode'
 import type { CanvasDocument } from './canvasDocument'
 import type { CompositionNode } from './compositionNode'
 import type { RepeatNode } from './repeatNode'
+import type { CopiedGroup } from './cluster'
 
 export interface Selection {
   ids: readonly string[]
@@ -62,6 +63,8 @@ export function rectanglesIntersect(a: FrameRect, b: FrameRect): boolean {
 }
 
 export interface CopiedSubgraph {
+  /** The copied nodes' groups (set by the canvas, `copiedGroups`): copies stay grouped. */
+  groups?: CopiedGroup[]
   scenes: SceneNode[]
   compositions: CompositionNode[]
   repeats: RepeatNode[]
@@ -123,12 +126,12 @@ export function pasteSelection(
   copy: CopiedSubgraph,
   counters: Omit<
     InsertedCounters,
-    'shape' | 'repeat' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
+    'shape' | 'repeat' | 'record' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
   > &
     Partial<
       Pick<
         InsertedCounters,
-        'shape' | 'repeat' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
+        'shape' | 'repeat' | 'record' | 'material' | 'lighting' | 'text' | 'composition' | 'cluster'
       >
     >,
   placement: PastePlacement,
@@ -147,6 +150,7 @@ export function pasteSelection(
   const inserted = {
     shape: 0,
     repeat: 0,
+    record: 0,
     material: 0,
     lighting: 0,
     text: 0,

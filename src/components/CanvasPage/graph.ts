@@ -1,6 +1,7 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
 import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS, DEFAULT_SCENE_PARAMS } from '../../state'
 import { FULL_CROP } from '../../pattern'
+import { lineTracking, linesFromText, textOf, type TextParams } from './textLines'
 import type {
   EtchParams,
   PatternParams,
@@ -100,9 +101,11 @@ export function sceneMaterial(
   return material
 }
 
+/** Text: the wording of the scenes it links to, line by line (each line with its own
+ *  typing speed and tracking). */
 export interface TextNode extends ModifierBase {
   kind: 'text'
-  params: { text: string }
+  params: TextParams
 }
 
 export type ModifierNode =
@@ -257,7 +260,7 @@ export function createModifier(
     case 'texture':
       return { kind, id, name, x, y, params: DEFAULT_TEXTURE }
     case 'text':
-      return { kind, id, name, x, y, params: { text: DEFAULT_SETTINGS.text } }
+      return { kind, id, name, x, y, params: { lines: linesFromText(DEFAULT_SETTINGS.text) } }
     case 'lighting':
       return { kind, id, name, x, y, params: DEFAULT_LIGHTING }
     case 'material':
@@ -362,6 +365,8 @@ export interface SceneModifiers {
   lighting?: LightingParams
   /** The last linked text node wins. */
   text?: string
+  /** Its lines' tracking (thousandths of an em), when any line is tracked. */
+  lineTracking?: number[]
 }
 
 /** Each linked scene's modifiers; `maps` holds the pattern nodes' height maps by id. */
@@ -389,7 +394,10 @@ export function modifiersByScene(
     else if (node.kind === 'shape') current.shape = node.params
     else if (node.kind === 'material') current.material = node.params
     else if (node.kind === 'lighting') current.lighting = node.params
-    else if (node.kind === 'text') current.text = node.params.text
+    else if (node.kind === 'text') {
+      current.text = textOf(node.params.lines)
+      current.lineTracking = lineTracking(node.params.lines)
+    }
     else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]

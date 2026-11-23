@@ -143,7 +143,11 @@ export function useSceneModel(
     () =>
       typing && fontReady
         ? lines.map((line) =>
-            measurePrefixWidths(line.text.trimEnd(), { fontFamily, fontSize, fontWeight }),
+            measurePrefixWidths(
+              line.text.trimEnd(),
+              { fontFamily, fontSize, fontWeight },
+              line.tracking,
+            ),
           )
         : null,
     [typing, fontReady, lines, fontFamily, fontSize, fontWeight],

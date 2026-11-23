@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { renderImage } from '../../export'
+import { renderImage, type Composition } from '../../export'
 import { useSceneModel } from '../../hooks'
 import type { ThreeScene } from '../../render3d'
 import { outlineToLatheProfiles } from '../../render3d/revolve'
@@ -31,6 +31,16 @@ import {
 
 /** Renders a scene's frame as an image file's contents. */
 export type SceneExporter = (options: ImageExportOptions) => Promise<Blob>
+
+/** A scene's artboard frame by frame, for recording. */
+export interface SceneFrameSource {
+  /** The artboard as it is now, at `scale` (output px per frame px). Draw it in the same
+   *  task: the 3D view's buffer isn't kept. The 3D view stays at that resolution (no
+   *  resizing between frames) until `release`. */
+  compose(scale: number): Composition
+  /** Back to the on-screen resolution, after the last frame. */
+  release(): void
+}
 
 const EDITABLE = 'textarea, input, select, button, a, [data-port], [data-handle]'
 const EMPTY_RANGE_MODIFIERS: readonly ModifierNode[] = []
@@ -56,6 +66,7 @@ interface CanvasSceneProps {
   onMove: (id: string, x: number, y: number) => void
   onTextChange: (id: string, text: string) => void
   onExporter: (id: string, exporter: SceneExporter | null) => void
+  onFrameSource?: (id: string, source: SceneFrameSource | null) => void
   onVisualChange?: (id: string) => void
   onResize: (id: string, frame: FrameRect) => void
 }
@@ -102,6 +113,7 @@ export const CanvasScene = memo(function CanvasScene({
   onMove,
   onTextChange,
   onExporter,
+  onFrameSource,
   onVisualChange,
   onResize,
 }: CanvasSceneProps) {
@@ -296,6 +308,7 @@ export const CanvasScene = memo(function CanvasScene({
         onTextChange={onTextChange}
         textEditable={Boolean(textNodeId && selectedTextNodeIds?.has(textNodeId))}
         onExporter={onExporter}
+        onFrameSource={onFrameSource}
         onVisualChange={onVisualChange}
         onRangeBounds={setRangeBounds}
         onTextHandleDown={
@@ -341,6 +354,7 @@ const SceneArtwork = memo(function SceneArtwork({
   modifiers,
   onTextChange,
   onExporter,
+  onFrameSource,
   onVisualChange,
   onRangeBounds,
   onTextHandleDown,
@@ -352,6 +366,7 @@ const SceneArtwork = memo(function SceneArtwork({
   modifiers: SceneModifiers
   onTextChange: CanvasSceneProps['onTextChange']
   onExporter: CanvasSceneProps['onExporter']
+  onFrameSource?: CanvasSceneProps['onFrameSource']
   onVisualChange?: CanvasSceneProps['onVisualChange']
   onRangeBounds: (bounds: RangeBounds | null) => void
   onTextHandleDown?: (event: React.PointerEvent<HTMLDivElement>) => void
@@ -376,7 +391,9 @@ const SceneArtwork = memo(function SceneArtwork({
             // A material node's look, with the scene's own lighting unless a lighting node
             // is linked (sceneMaterial).
             material: sceneMaterial(node.settings.material, modifiers),
-            ...(modifiers.text !== undefined ? { text: modifiers.text } : {}),
+            ...(modifiers.text !== undefined
+              ? { text: modifiers.text, lineTracking: modifiers.lineTracking }
+              : {}),
           }
         : node.settings,
     [node.settings, modifiers],
@@ -417,39 +434,55 @@ const SceneArtwork = memo(function SceneArtwork({
   useEffect(() => {
     latest.current = { model, node: effectiveNode, pixelRatio }
   })
+  /** The artboard as layers at `scale` (the 3D view rendered at it: draw them now). */
+  const compose = useCallback((scale: number, transparent = false): Composition => {
+    const editor = editorRef.current
+    const artboard = artboardRef.current
+    if (!editor || !artboard) throw new Error('The scene is still loading')
+    const { model, node } = latest.current
+    return composeScene({
+      editor,
+      artboard,
+      frame: node.frame,
+      lines: model.lines,
+      reveals: model.reveals,
+      prefixWidths: model.prefixWidths,
+      baselines: model.baselines,
+      settings: node.settings,
+      scene: node.scene,
+      revolve: node.revolve,
+      banner: model.banner,
+      bannerText: node.bannerText,
+      logo: bannerLogo(),
+      three: threeRef.current,
+      paper: paperRef.current,
+      scale,
+      transparent,
+    })
+  }, [])
+  /** Back to the on-screen resolution after rendering at an export's. */
+  const restorePixelRatio = useCallback(
+    () => threeRef.current?.setPixelRatio(latest.current.pixelRatio),
+    [],
+  )
   useEffect(() => {
     onExporter(id, async ({ format, scale, transparent }) => {
-      const editor = editorRef.current
-      const artboard = artboardRef.current
-      if (!editor || !artboard) throw new Error('The scene is still loading')
-      const { model, node, pixelRatio } = latest.current
       try {
-        const composition = composeScene({
-          editor,
-          artboard,
-          frame: node.frame,
-          lines: model.lines,
-          reveals: model.reveals,
-          prefixWidths: model.prefixWidths,
-          baselines: model.baselines,
-          settings: node.settings,
-          scene: node.scene,
-          revolve: node.revolve,
-          banner: model.banner,
-          bannerText: node.bannerText,
-          logo: bannerLogo(),
-          three: threeRef.current,
-          paper: paperRef.current,
-          scale,
-          transparent: format === 'png' && transparent,
-        })
-        return await renderImage(composition, scale, format)
+        return await renderImage(compose(scale, format === 'png' && transparent), scale, format)
       } finally {
-        threeRef.current?.setPixelRatio(pixelRatio)
+        restorePixelRatio()
       }
     })
     return () => onExporter(id, null)
-  }, [id, onExporter])
+  }, [id, onExporter, compose, restorePixelRatio])
+
+  // Recording: a record node sets the scene to each frame's time (synchronously), then
+  // composes it at its scale.
+  useEffect(() => {
+    if (!onFrameSource) return
+    onFrameSource(id, { compose: (scale) => compose(scale), release: restorePixelRatio })
+    return () => onFrameSource(id, null)
+  }, [id, onFrameSource, compose, restorePixelRatio])
 
   return (
     <SceneArtboard

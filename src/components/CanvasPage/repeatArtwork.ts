@@ -1,3 +1,4 @@
+import { setLetterSpacing, trackedX } from '../../export'
 import type { ImageExportOptions } from './sceneNode'
 import { finite, repeatOffset, repeatScale, repeatSpacing, type RepeatNode } from './repeatNode'
 
@@ -114,6 +115,8 @@ export interface RepeatArtwork {
   /** Text's baselines in source-frame coordinates. */
   baselines: number[]
   lines: string[]
+  /** Per line, its letter spacing (source px), when tracked. */
+  letterSpacing?: number[]
   textColor: string
   fontWeight: number
   pixelRatio?: number
@@ -172,10 +175,13 @@ export function drawRepeatArtwork(
         const baseline = baselines[line]
         if (baseline === undefined) continue
         const y = cy + (baseline - trophy.centerY) * scale
-        ctx.fillText(lines[line]!, x, y)
+        const spacing = (artwork.letterSpacing?.[line] ?? 0) * scale
+        setLetterSpacing(ctx, spacing)
+        ctx.fillText(lines[line]!, trackedX(x, 'center', spacing), y)
       }
     }
   }
+  setLetterSpacing(ctx, 0)
   ctx.restore()
 }
 

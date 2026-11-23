@@ -76,6 +76,9 @@ export function composeScene(l: SceneLayers): Composition {
     )
   })
   const extents = lines.map((line) => reveals?.[line.index]?.extent ?? 0)
+  const letterSpacing = lines.some((line) => line.tracking)
+    ? lines.map((line) => line.tracking ?? 0)
+    : undefined
   const anchor = relativePosition(l.editor, l.artboard)
   const images: PlacedImage[] = []
   if (l.revolve) {
@@ -97,6 +100,7 @@ export function composeScene(l: SceneLayers): Composition {
       offsets: offsets.map((offset, i) => offset + lineStart(i)),
       glyphs,
       align: 'left',
+      letterSpacing,
       font,
       color,
     },
@@ -113,6 +117,7 @@ export function composeScene(l: SceneLayers): Composition {
       ),
       glyphs,
       align: 'right',
+      letterSpacing,
       font,
       color,
     })

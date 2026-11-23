@@ -11,12 +11,19 @@ import { toCanvasFont } from './font'
 export function measurePrefixWidths(
   text: string,
   settings: Pick<Settings, 'fontFamily' | 'fontSize' | 'fontWeight'>,
+  /** The line's letter spacing (CSS px; LineMeasure.tracking). */
+  letterSpacing = 0,
 ): number[] {
   const font = toCanvasFont(settings)
+  const options = letterSpacing ? { letterSpacing } : undefined
   const chars = Array.from(text)
   const widths = [0]
   for (let i = 1; i <= chars.length; i++) {
-    widths.push(measureNaturalWidth(prepareWithSegments(chars.slice(0, i).join(''), font)))
+    // Where the letter's ink ends: without the spacing after it (as the line's width).
+    widths.push(
+      measureNaturalWidth(prepareWithSegments(chars.slice(0, i).join(''), font, options)) -
+        letterSpacing,
+    )
   }
   return widths
 }
