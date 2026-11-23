@@ -60,6 +60,18 @@ it('lays out the timeline: hold in, a row per line, pause and delete, hold out',
     ['hold-out', 3.5, 4],
   ])
   expect(duration).toBe(4)
+  // A line's hold: a second bar in its row; everything after moves on by it.
+  const held = recordTimeline(0, 0, { lines: [{ ...lines[0]!, hold: 2 }, lines[2]!] })
+  expect(held.rows[1]).toEqual({
+    kind: 'line',
+    index: 0,
+    label: 'RGD',
+    start: 0,
+    end: 1,
+    hold: { start: 1, end: 3 },
+  })
+  expect(held.rows[2]).toMatchObject({ kind: 'line', start: 3, end: 3.5 })
+  expect(held.duration).toBe(3.5)
   // No text node: just the holds.
   expect(recordTimeline(0.5, 1, null).duration).toBe(1.5)
 })

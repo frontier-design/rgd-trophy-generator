@@ -1,5 +1,6 @@
 import {
   DEFAULT_BACKSPACE,
+  linesFromText,
   parseTextParams,
   prefixText,
   textAt,
@@ -58,4 +59,40 @@ it('loads a saved backspace within its ranges, and none for older nodes', () => 
     ...DEFAULT_BACKSPACE,
     enabled: false,
   })
+})
+
+it('waits after a held line before typing the next, and keeps the hold through edits', () => {
+  const held = [{ ...lines[0]!, hold: 0.5 }, lines[1]!]
+  expect(textSegments({ lines: held })).toEqual([
+    { kind: 'line', index: 0, start: 0, end: 1 },
+    { kind: 'hold', index: 0, start: 1, end: 1.5 },
+    { kind: 'line', index: 1, start: 1.5, end: 2 },
+  ])
+  expect(textDuration({ lines: held })).toBe(2)
+  // During the hold: the line so far, the next not begun (no empty line yet).
+  expect(typedText(held, 1.2)).toBe('AB')
+  expect(typedText(held, 1.5)).toBe('AB\n')
+  expect(typedText(held, 1.75)).toBe('AB\nC')
+  expect(typedText(held, 2)).toBeNull()
+  // Deleting starts after the holds too.
+  const params = { lines: held, backspace: { enabled: true, pause: 0, speed: 4 } }
+  expect(textAt(params, 2)).toBe('AB\nC😀')
+  expect(textAt(params, 2.25)).toBe('AB\nC')
+  // Editing a line keeps its hold; a new line doesn't take it.
+  expect(linesFromText('AX\nC😀\nD', held).map((line) => line.hold)).toEqual([
+    0.5,
+    undefined,
+    undefined,
+  ])
+  // Saved: kept within range; none when absent or 0.
+  const saved = parseTextParams(
+    {
+      lines: [
+        { ...held[0], hold: 99 },
+        { ...lines[1], hold: 0 },
+      ],
+    },
+    '',
+  )
+  expect(saved.lines.map((line) => line.hold)).toEqual([10, undefined])
 })

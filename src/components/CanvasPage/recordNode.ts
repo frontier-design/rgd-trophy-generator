@@ -30,8 +30,22 @@ export interface RecordNode {
   holdOut: number
 }
 
-/** A record node as it is drawn: at its input's frame (or the default frame, unlinked). */
-export type PlacedRecordNode = RecordNode & { frame: FrameSize }
+/** How much smaller than its video a record node's artboard is drawn: it's only a preview
+ *  (nothing on it is edited). */
+export const RECORD_PREVIEW_SCALE = 1 / 4
+
+/** A record node as it is drawn: `video` is its input's frame (or the default frame,
+ *  unlinked), the size it renders at; `frame`, the artboard on the canvas (links, hits), that
+ *  at RECORD_PREVIEW_SCALE. */
+export type PlacedRecordNode = RecordNode & { frame: FrameSize; video: FrameSize }
+
+/** A record node's artboard on the canvas for a video size. */
+export function recordPreviewFrame(video: FrameSize): FrameSize {
+  return {
+    width: Math.round(video.width * RECORD_PREVIEW_SCALE),
+    height: Math.round(video.height * RECORD_PREVIEW_SCALE),
+  }
+}
 
 export function createRecordNode(id: string, name: string, x: number, y: number): RecordNode {
   return {
@@ -60,10 +74,12 @@ export interface TimelineRow {
   label: string
   start: number
   end: number
+  /** A line's hold after its typing: a second bar in its row. */
+  hold?: { start: number; end: number }
 }
 
-/** A record node's timeline: the hold in, each text line typing (one row each), the pause
- *  and the deleting (backspace on), the hold out; and the video's length. */
+/** A record node's timeline: the hold in, each text line typing (one row each, with its
+ *  hold), the pause and the deleting (backspace on), the hold out; and the video's length. */
 export function recordTimeline(
   holdIn: number,
   holdOut: number,
@@ -77,6 +93,9 @@ export function recordTimeline(
       const index = segment.index ?? 0
       const words = text?.lines[index]?.text.trim()
       rows.push({ kind: 'line', index, label: words || `line ${index + 1}`, start, end })
+    } else if (segment.kind === 'hold') {
+      const row = rows.at(-1)
+      if (row?.kind === 'line') row.hold = { start, end }
     } else rows.push({ kind: segment.kind, label: segment.kind, start, end })
   }
   const animation = holdIn + (text ? textDuration(text) : 0)

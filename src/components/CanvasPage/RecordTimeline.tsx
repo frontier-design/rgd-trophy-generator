@@ -15,8 +15,8 @@ interface RecordTimelineProps {
   onScrub: (seconds: number) => void
   onPlay: () => void
   onRestart: () => void
-  /** A row dragged to `seconds` long. */
-  onRetime: (row: TimelineRow, seconds: number) => void
+  /** A row's bar (or a line's hold, `part`) dragged to `seconds` long. */
+  onRetime: (row: TimelineRow, seconds: number, part: 'bar' | 'hold') => void
 }
 
 /** Ruler steps (s): the first giving at most ~12 ticks. */
@@ -72,18 +72,25 @@ export function RecordTimeline({
   }
 
   const retiming = useRef<{
+    part: 'bar' | 'hold'
     pointer: number
     row: TimelineRow
     x: number
     perSecond: number
   } | null>(null)
-  const retimeDown = (row: TimelineRow, event: PointerEvent<HTMLElement>) => {
+  const retimeDown = (row: TimelineRow, part: 'bar' | 'hold', event: PointerEvent<HTMLElement>) => {
     if (disabled || event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
     const width = tracks.current?.getBoundingClientRect().width ?? 0
     if (width <= 0) return
-    retiming.current = { pointer: event.pointerId, row, x: event.clientX, perSecond: width / total }
+    retiming.current = {
+      part,
+      pointer: event.pointerId,
+      row,
+      x: event.clientX,
+      perSecond: width / total,
+    }
     setFrozen(total)
     capture(event)
   }
@@ -91,14 +98,49 @@ export function RecordTimeline({
     const drag = retiming.current
     if (!drag || drag.pointer !== event.pointerId) return
     event.stopPropagation()
-    const length = drag.row.end - drag.row.start + (event.clientX - drag.x) / drag.perSecond
-    onRetime(drag.row, Math.max(0, length))
+    const span = drag.part === 'hold' && drag.row.hold ? drag.row.hold : drag.row
+    const length = span.end - span.start + (event.clientX - drag.x) / drag.perSecond
+    onRetime(drag.row, Math.max(0, length), drag.part)
   }
   const retimeEnd = (event: PointerEvent<HTMLElement>) => {
     if (retiming.current?.pointer !== event.pointerId) return
     event.stopPropagation()
     retiming.current = null
     setFrozen(null)
+  }
+
+  /** A row's bar, or a line's hold after it, with its length and (retimable) end handle. */
+  const clip = (row: TimelineRow, part: 'bar' | 'hold') => {
+    const span = part === 'hold' && row.hold ? row.hold : row
+    const length = span.end - span.start
+    const label = part === 'hold' ? `${row.label} hold` : row.label
+    return (
+      <div
+        className="record-clip"
+        data-kind={part === 'hold' ? 'line-hold' : row.kind}
+        // Too short to hold its length: it's written just after it (before it, at the
+        // timeline's end).
+        data-narrow={
+          length / total < 0.14 ? (span.end / total > 0.85 ? 'before' : 'after') : undefined
+        }
+        style={{ left: share(span.start), width: share(length) } as CSSProperties}
+      >
+        <span className="record-clip-length">{seconds(length)}s</span>
+        {(part === 'hold' || canRetime(row)) && (
+          <span
+            className="record-clip-handle"
+            role="slider"
+            aria-label={`${label} length`}
+            aria-valuenow={length}
+            onPointerDown={(event) => retimeDown(row, part, event)}
+            onPointerMove={retimeMove}
+            onPointerUp={retimeEnd}
+            onPointerCancel={retimeEnd}
+            onLostPointerCapture={retimeEnd}
+          />
+        )}
+      </div>
+    )
   }
 
   return (
@@ -184,37 +226,8 @@ export function RecordTimeline({
               onPointerUp={scrubEnd}
               onPointerCancel={scrubEnd}
             >
-              <div
-                className="record-clip"
-                data-kind={row.kind}
-                // Too short to hold its length: it's written just after it.
-                // (before it, at the timeline's end).
-                data-narrow={
-                  (row.end - row.start) / total < 0.14
-                    ? row.end / total > 0.85
-                      ? 'before'
-                      : 'after'
-                    : undefined
-                }
-                style={
-                  { left: share(row.start), width: share(row.end - row.start) } as CSSProperties
-                }
-              >
-                <span className="record-clip-length">{seconds(row.end - row.start)}s</span>
-                {canRetime(row) && (
-                  <span
-                    className="record-clip-handle"
-                    role="slider"
-                    aria-label={`${row.label} length`}
-                    aria-valuenow={row.end - row.start}
-                    onPointerDown={(event) => retimeDown(row, event)}
-                    onPointerMove={retimeMove}
-                    onPointerUp={retimeEnd}
-                    onPointerCancel={retimeEnd}
-                    onLostPointerCapture={retimeEnd}
-                  />
-                )}
-              </div>
+              {clip(row, 'bar')}
+              {row.hold && clip(row, 'hold')}
             </div>
           </div>
         ))}

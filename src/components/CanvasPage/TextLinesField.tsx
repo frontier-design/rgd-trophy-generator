@@ -11,7 +11,10 @@ import {
   insertText,
   joinWithNext,
   joinWithPrevious,
+  DEFAULT_LINE_HOLD,
+  LINE_HOLD_RANGE,
   LINE_SPEED_RANGE,
+  lineHold,
   TRACKING_RANGE,
   type Caret,
   type LineEdit,
@@ -223,6 +226,37 @@ export function TextLinesField({ lines, onChange }: TextLinesFieldProps) {
                   unit=""
                   onChange={(tracking) => setLine(i, { tracking })}
                 />
+                <label className="text-line-format-label text-line-hold">
+                  <input
+                    type="checkbox"
+                    aria-label={`line ${number} hold`}
+                    checked={lineHold(line) > 0}
+                    onChange={(e) => {
+                      const { hold: _, ...rest } = line
+                      onChange(
+                        lines.map((item, j) =>
+                          j === i
+                            ? e.target.checked
+                              ? { ...rest, hold: DEFAULT_LINE_HOLD }
+                              : rest
+                            : item,
+                        ),
+                      )
+                    }}
+                  />
+                  Hold
+                </label>
+                {lineHold(line) > 0 ? (
+                  <LineSlider
+                    label={`line ${number} hold time`}
+                    value={lineHold(line)}
+                    {...LINE_HOLD_RANGE}
+                    unit=" s"
+                    onChange={(hold) => setLine(i, { hold })}
+                  />
+                ) : (
+                  <span />
+                )}
               </div>
             )}
           </div>

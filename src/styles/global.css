@@ -965,12 +965,12 @@ body {
 
 .record-tools {
   position: absolute;
-  top: 0;
-  left: 100%;
+  top: 100%;
+  left: 0;
   display: grid;
   gap: 6px;
   width: 440px;
-  padding-left: 16px;
+  padding-top: 10px;
   font-size: 12px;
   transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
   transform-origin: 0 0;
@@ -1110,6 +1110,7 @@ body {
 
 .record-clip[data-kind='hold-in'],
 .record-clip[data-kind='hold-out'],
+.record-clip[data-kind='line-hold'],
 .record-clip[data-kind='pause'] {
   color: var(--color-text);
   background: repeating-linear-gradient(
@@ -1635,6 +1636,17 @@ body {
 .text-line-format-label {
   font-weight: 700;
   opacity: 0.7;
+}
+
+/* A line's hold: a checkbox, then its length once ticked. */
+.text-line-hold {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.text-line-hold input {
+  margin: 0;
 }
 
 /* The text node: white on black. Its colors are re-pointed for the whole card, so its

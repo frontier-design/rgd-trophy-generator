@@ -38,9 +38,10 @@ it("takes a scene's frame and export scale, and times the render by its text nod
   link(scene, 'scene 1 output', input, 2)
   expect(input).toHaveAttribute('data-connected')
 
-  // The scene's 16:9 frame at its default export scale (×2); no text node: just the holds
-  // (0.5 s in, 1 s out).
-  expect(record.style.getPropertyValue('--artboard-width')).toBe('1920px')
+  // The scene's 16:9 frame at its default export scale (×2), the artboard a quarter-size
+  // preview of it; no text node: just the holds (0.5 s in, 1 s out).
+  expect(record.style.getPropertyValue('--artboard-width')).toBe('480px')
+  expect(record.style.getPropertyValue('--artboard-height')).toBe('270px')
   const summary = within(record).getByLabelText('recording')
   expect(summary).toHaveTextContent('45 frames · 1.50 s · 3840 × 2160 (×2)')
   expect(within(record).getByText(/No text node is linked/)).toBeInTheDocument()
@@ -61,6 +62,19 @@ it("takes a scene's frame and export scale, and times the render by its text nod
   // Backspace on the text node adds the pause and the deleting.
   fireEvent.click(within(text).getByRole('switch', { name: 'backspace' }))
   expect(labels().slice(-3)).toEqual(['pause', 'delete', 'hold out'])
+
+  // A line's hold (in its formatting, under tracking): a hatched bar after its typing, and
+  // the video longer by it.
+  fireEvent.click(within(text).getByRole('button', { name: 'line 1 formatting' }))
+  fireEvent.click(within(text).getByRole('checkbox', { name: 'line 1 hold' }))
+  expect(within(text).getByRole('slider', { name: 'line 1 hold time' })).toHaveValue('0.5')
+  const holdBar = record.querySelector('.record-clip[data-kind="line-hold"]')
+  expect(holdBar).toHaveTextContent('0.50s')
+  expect(
+    within(record).getByRole('slider', { name: `${lines[0]!.text} hold length` }),
+  ).toBeInTheDocument()
+  fireEvent.click(within(text).getByRole('checkbox', { name: 'line 1 hold' }))
+  expect(record.querySelector('.record-clip[data-kind="line-hold"]')).toBeNull()
 })
 
 it('scrubs the scene through the animation, and retimes a line by dragging its bar', async () => {

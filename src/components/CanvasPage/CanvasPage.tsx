@@ -25,7 +25,13 @@ import {
 import { CanvasScene, type SceneExporter, type SceneFrameSource } from './CanvasScene'
 import { CanvasComposition } from './CanvasComposition'
 import { CanvasRecord, type RecordTyping } from './CanvasRecord'
-import { createRecordNode, recordFrame, type PlacedRecordNode, type RecordNode } from './recordNode'
+import {
+  createRecordNode,
+  recordFrame,
+  recordPreviewFrame,
+  type PlacedRecordNode,
+  type RecordNode,
+} from './recordNode'
 import { RepeatArtboard } from './RepeatArtboard'
 import { RepeatControls } from './RepeatControls'
 import { ClusterFrame } from './ClusterFrame'
@@ -299,10 +305,10 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   const placedRecords = useMemo(
     () =>
       records.map(
-        (node): PlacedRecordNode => ({
-          ...node,
-          frame: recordFrame(recordInputs.get(node.id)?.frame),
-        }),
+        (node): PlacedRecordNode => {
+          const video = recordFrame(recordInputs.get(node.id)?.frame)
+          return { ...node, video, frame: recordPreviewFrame(video) }
+        },
       ),
     [records, recordInputs],
   )
@@ -832,8 +838,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       createRecordNode(
         id,
         `record ${count}`,
-        (x - view.x) / view.zoom - ARTBOARD.width / 2,
-        (y - view.y) / view.zoom - ARTBOARD.height / 2,
+        (x - view.x) / view.zoom - recordPreviewFrame(ARTBOARD).width / 2,
+        (y - view.y) / view.zoom - recordPreviewFrame(ARTBOARD).height / 2,
       ),
     ])
     selectOnly(id)

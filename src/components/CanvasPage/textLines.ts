@@ -11,6 +11,9 @@ export interface TextLine {
   /** Letter spacing, in thousandths of an em (as in type tools), so it scales with the
    *  type size (scenes refit their size to the frame). */
   tracking: number
+  /** Seconds the animation waits after this line is typed, before the next line starts
+   *  (absent or 0: no hold). */
+  hold?: number
 }
 
 /** Deleting the text after it's typed: one character at a time from the end, `speed` a
@@ -35,6 +38,13 @@ export const DEFAULT_TRACKING = -3
 export const LINE_SPEED_RANGE = { min: 0.25, max: 18, step: 0.25 } as const
 export const TRACKING_RANGE = { min: -95, max: 25, step: 1 } as const
 
+export const LINE_HOLD_RANGE = { min: 0.1, max: 10, step: 0.1 } as const
+/** A line's hold when its checkbox is ticked. */
+export const DEFAULT_LINE_HOLD = 0.5
+
+/** A line's hold (s), 0 when it has none. */
+export const lineHold = (line: TextLine) => (line.hold && line.hold > 0 ? line.hold : 0)
+
 export const BACKSPACE_PAUSE_RANGE = { min: 0, max: 10, step: 0.1 } as const
 export const BACKSPACE_SPEED_RANGE = { min: 1, max: 60, step: 1 } as const
 export const DEFAULT_BACKSPACE: TextBackspace = { enabled: false, pause: 1, speed: 20 }
@@ -56,7 +66,9 @@ export function linesFromText(text: string, previous: readonly TextLine[] = []):
   return text.split('\n').map((part, i) => {
     const prior = previous[i]
     if (prior?.text === part) return prior
-    return { text: part, ...style(prior ?? previous.at(-1)) }
+    // An edited line keeps its hold; a new one doesn't take another's.
+    const hold = prior ? lineHold(prior) : 0
+    return { text: part, ...style(prior ?? previous.at(-1)), ...(hold ? { hold } : {}) }
   })
 }
 
@@ -109,6 +121,9 @@ function parseTextLines(params: Record<string, unknown>, fallback: string): Text
           text: line.text.replace(/\r?\n/g, ' '),
           speed: number(line.speed, DEFAULT_LINE_SPEED, LINE_SPEED_RANGE),
           tracking: number(line.tracking, DEFAULT_TRACKING, TRACKING_RANGE),
+          ...(typeof line.hold === 'number' && line.hold > 0
+            ? { hold: number(line.hold, DEFAULT_LINE_HOLD, LINE_HOLD_RANGE) }
+            : {}),
         },
       ]
     })
@@ -193,11 +208,15 @@ export function insertText(
 
 /** How long typing all of `lines` takes (s). */
 export function typingDuration(lines: readonly TextLine[]): number {
-  return lines.reduce((sum, line) => sum + Array.from(line.text).length / line.speed, 0)
+  return lines.reduce(
+    (sum, line) => sum + Array.from(line.text).length / line.speed + lineHold(line),
+    0,
+  )
 }
 
 /** The text typed `elapsed` seconds in: every finished line, and the current one as far as
- *  its speed has reached (whole characters, code points). Null once it's all typed. */
+ *  its speed has reached (whole characters, code points); during a line's hold, the lines so
+ *  far (the next line not begun). Null once it's all typed (holds included). */
 export function typedText(lines: readonly TextLine[], elapsed: number): string | null {
   let time = Math.max(0, elapsed)
   const typed: string[] = []
@@ -210,6 +229,9 @@ export function typedText(lines: readonly TextLine[], elapsed: number): string |
     }
     time -= duration
     typed.push(line.text)
+    const hold = lineHold(line)
+    if (hold && time < hold) return typed.join('\n')
+    time -= hold
   }
   return null
 }
@@ -239,18 +261,19 @@ export function prefixText(lines: readonly TextLine[], count: number): string {
   return typed.join('\n')
 }
 
-/** One stretch of a text node's animation (s from its start): `line` a line typing, `pause`
- *  the whole text held before deleting, `delete` the deleting. */
+/** One stretch of a text node's animation (s from its start): `line` a line typing, `hold`
+ *  a line's hold after it, `pause` the whole text held before deleting, `delete` the
+ *  deleting. */
 export interface TextSegment {
-  kind: 'line' | 'pause' | 'delete'
-  /** The line's index, for `line`. */
+  kind: 'line' | 'hold' | 'pause' | 'delete'
+  /** The line's index, for `line` and `hold`. */
   index?: number
   start: number
   end: number
 }
 
-/** The animation's stretches, in order: each line typing (at its speed), then, with
- *  backspace on, the pause and the deleting. */
+/** The animation's stretches, in order: each line typing (at its speed) and its hold, then,
+ *  with backspace on, the pause and the deleting. */
 export function textSegments(params: TextParams): TextSegment[] {
   const out: TextSegment[] = []
   let time = 0
@@ -258,6 +281,11 @@ export function textSegments(params: TextParams): TextSegment[] {
     const end = time + Array.from(line.text).length / line.speed
     out.push({ kind: 'line', index, start: time, end })
     time = end
+    const hold = lineHold(line)
+    if (hold) {
+      out.push({ kind: 'hold', index, start: time, end: time + hold })
+      time += hold
+    }
   })
   const backspace = params.backspace
   if (backspace?.enabled) {

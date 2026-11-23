@@ -32,6 +32,7 @@ import {
   BACKSPACE_PAUSE_RANGE,
   BACKSPACE_SPEED_RANGE,
   DEFAULT_BACKSPACE,
+  LINE_HOLD_RANGE,
   LINE_SPEED_RANGE,
   type TextParams,
 } from './textLines'
@@ -75,8 +76,9 @@ const clamp = (value: number, range: { min: number; max: number }) =>
 const snap = (value: number, step: number) => Math.round(value / step) * step
 
 /**
- * A record node: an artboard the size of its input showing the last frame rendered, and
- * beside it Render, the frame rate and a timeline (hold in, each text line typing, the pause
+ * A record node: a small artboard (its input's frame at RECORD_PREVIEW_SCALE, a preview)
+ * showing the last frame rendered, and under it Render, the frame rate and a timeline (hold
+ * in, each text line typing and its hold, the pause
  * and deleting of the scene's text node, hold out). The timeline scrubs and plays the scene
  * live, and its bars' ends retime the text node and the holds. Render runs its own clock:
  * for frame i it seeks the text node to i / fps seconds less the hold in, draws the scene at
@@ -98,7 +100,8 @@ export const CanvasRecord = memo(function CanvasRecord({
   onChange,
   onTextChange,
 }: CanvasRecordProps) {
-  const { id, frame, fps, holdIn, holdOut } = node
+  // `video`: the size it renders at (its input's frame); `frame`: its small artboard.
+  const { id, frame: artboard, video: frame, fps, holdIn, holdOut } = node
   const position = useNodePosition(id, node)
   const drag = useNodeDrag(node, getZoom, onMove)
   const [rendered, setRendered] = useState<{ done: number; total: number } | null>(null)
@@ -180,8 +183,8 @@ export const CanvasRecord = memo(function CanvasRecord({
     show(time)
   }
 
-  // --- Retiming: a bar's new length becomes a line's speed, the backspace's pause or
-  // speed, or a hold.
+  // --- Retiming: a bar's new length becomes a line's speed or hold, the backspace's pause
+  // or speed, or a hold in / out.
   const characters = (row: TimelineRow) =>
     row.kind === 'line'
       ? Array.from(text?.lines[row.index ?? 0]?.text ?? '').length
@@ -189,8 +192,24 @@ export const CanvasRecord = memo(function CanvasRecord({
         ? (text?.lines ?? []).reduce((sum, line) => sum + Array.from(line.text).length, 0)
         : 1
   const canRetime = (row: TimelineRow) => characters(row) > 0
-  const retime = (row: TimelineRow, length: number) => {
+  const retime = (row: TimelineRow, length: number, part: 'bar' | 'hold' = 'bar') => {
     const seconds = Math.max(length, 0.01)
+    if (part === 'hold') {
+      if (!typing || !text || row.kind !== 'line') return
+      // A line's hold dragged to nothing is unticked.
+      const hold =
+        length < LINE_HOLD_RANGE.min / 2
+          ? 0
+          : clamp(snap(length, LINE_HOLD_RANGE.step), LINE_HOLD_RANGE)
+      onTextChange(typing.id, {
+        lines: text.lines.map((line, i) => {
+          if (i !== row.index) return line
+          const { hold: _, ...rest } = line
+          return hold ? { ...rest, hold } : rest
+        }),
+      })
+      return
+    }
     if (row.kind === 'hold-in' || row.kind === 'hold-out') {
       const value = clamp(snap(length, 0.05), RECORD_HOLD_RANGE)
       onChange(id, row.kind === 'hold-in' ? { holdIn: value } : { holdOut: value })
@@ -312,8 +331,8 @@ export const CanvasRecord = memo(function CanvasRecord({
             position === node
               ? undefined
               : `translate(${position.x - node.x}px, ${position.y - node.y}px)`,
-          '--artboard-width': `${frame.width}px`,
-          '--artboard-height': `${frame.height}px`,
+          '--artboard-width': `${artboard.width}px`,
+          '--artboard-height': `${artboard.height}px`,
         } as CSSProperties
       }
       {...drag}
