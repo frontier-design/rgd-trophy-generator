@@ -292,8 +292,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     return count
   }
   // Record nodes take their input scene's frame (and record at its export scale).
+  // Record nodes take their input's frame (a scene's or a repeat's) and record at its
+  // export scale.
   const recordInputs = useMemo(() => {
-    const byId = new Map(scenes.map((scene) => [scene.id, scene]))
+    const byId = new Map<string, SceneNode | RepeatNode>(
+      [...scenes, ...repeats].map((node) => [node.id, node]),
+    )
     return new Map(
       records.flatMap((node) => {
         const link = links.findLast((item) => item.to === node.id && !item.muted)
@@ -301,7 +305,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         return scene ? [[node.id, scene] as const] : []
       }),
     )
-  }, [records, scenes, links])
+  }, [records, scenes, repeats, links])
   const placedRecords = useMemo(
     () =>
       records.map(
@@ -717,9 +721,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       const under = document.elementFromPoint?.(e.clientX, e.clientY) ?? e.target
       const port = under instanceof Element ? under.closest<HTMLElement>('[data-port="in"]') : null
       const sourceIsScene = scenes.some((node) => node.id === pendingFrom)
+      // A repeat's output links only to record nodes.
+      const sourceIsRepeat = repeats.some((node) => node.id === pendingFrom)
       const clusterFrame = clusterFrames.current.get(pendingFrom)
       const source: LinkSource | undefined =
         scenes.find((node) => node.id === pendingFrom) ??
+        repeats.find((node) => node.id === pendingFrom) ??
         modifiers.find((node) => node.id === pendingFrom) ??
         (clusterFrame ? { id: pendingFrom, cluster: true, ...clusterFrame.bounds } : undefined)
       const to =
@@ -728,7 +735,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           ? (rayTarget(
               sourcePort(source, viewRef.current.zoom),
               toCanvas(e.clientX, e.clientY),
-              (sourceIsScene ? [...compositions, ...placedRecords] : [...scenes, ...repeats])
+              (sourceIsScene
+                ? [...compositions, ...placedRecords]
+                : sourceIsRepeat
+                  ? placedRecords
+                  : [...scenes, ...repeats])
                 .filter((node) => node.id !== pendingFrom)
                 .map((node) => ({ id: node.id, x: node.x, y: node.y, ...node.frame })),
             ) ?? undefined)
@@ -741,7 +752,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
         to &&
         (sourceIsScene
           ? targetIsComposition || targetIsRecord
-          : (modifiers.some((node) => node.id === pendingFrom) ||
+          : sourceIsRepeat
+            ? targetIsRecord
+            : (modifiers.some((node) => node.id === pendingFrom) ||
               clusterFrames.current.has(pendingFrom)) &&
             (scenes.some((node) => node.id === to) || targetIsRepeat))
       if (valid) {
@@ -1298,7 +1311,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
 
   // The links' curves, from each node's output to each scene's input.
   const sourcesById = new Map<string, LinkSource>([
-    ...[...modifiers, ...scenes].map((node): [string, LinkSource] => [node.id, node]),
+    ...[...modifiers, ...scenes, ...repeats].map((node): [string, LinkSource] => [node.id, node]),
     ...clusterLayouts.map(({ cluster, bounds }): [string, LinkSource] => [
       cluster.id,
       { id: cluster.id, cluster: true, ...bounds },
@@ -1532,6 +1545,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onResize={resizeRepeat}
                 onLayoutChange={setRepeatLayout}
                 onExporter={setExporter}
+                onFrameSource={setFrameSource}
+                onOutputDown={startLink}
               />
             ))}
             {fittedCompositions.map((node) => {
@@ -1677,9 +1692,14 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
 }
 
-/** What a link can come from: a modifier node, a scene (to compositions), or a cluster (its
+/** What a link can come from: a modifier node, a scene (to compositions and record nodes), a
+ *  repeat (to record nodes), or a cluster (its
  *  frame, canvas px). */
-type LinkSource = ModifierNode | SceneNode | ({ id: string; cluster: true } & Rect)
+type LinkSource =
+  | ModifierNode
+  | SceneNode
+  | RepeatNode
+  | ({ id: string; cluster: true } & Rect)
 
 function sourcePort(node: LinkSource, zoom: number) {
   if ('cluster' in node) return clusterPort(node, cardScale(zoom) / zoom)

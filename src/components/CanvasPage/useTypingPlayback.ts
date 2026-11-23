@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModifierNode, TextNode } from './graph'
-import { linesFromText, textAt, textDuration, textOf } from './textLines'
+import { textAt, textDuration, textOf, typedParams } from './textLines'
 
 interface Playback {
   /** The text being typed (an edit to it cancels the playback). */
@@ -113,17 +113,11 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           const typed = textAt(node.params, at)
           return typed === textOf(node.params.lines)
             ? node
-            : {
-                ...node,
-                params: { ...node.params, lines: linesFromText(typed, node.params.lines) },
-              }
+            : { ...node, params: typedParams(node.params, typed) }
         }
         const playback = playing[node.id]
         return node.kind === 'text' && playback && playback.text === textOf(node.params.lines)
-          ? {
-              ...node,
-              params: { ...node.params, lines: linesFromText(playback.typed, node.params.lines) },
-            }
+          ? { ...node, params: typedParams(node.params, playback.typed) }
           : node
       }),
     [nodes, playing, seeked],

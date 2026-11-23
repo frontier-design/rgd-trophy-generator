@@ -49,6 +49,8 @@ export interface SceneLayers {
   scale: number
   /** Leave the background out (a transparent image). */
   transparent?: boolean
+  /** The trophy shows only below this y (artboard px; a text node's mask), null: all. */
+  maskTop?: number | null
 }
 
 /**
@@ -89,6 +91,9 @@ export function composeScene(l: SceneLayers): Composition {
     const snapshot = l.paper?.snapshot(l.scale)
     if (snapshot) images.push(snapshot)
   }
+  // A text node's mask: the trophy (3D or 2D) only below its top edge.
+  if (l.maskTop !== undefined && l.maskTop !== null)
+    for (const image of images) image.clipTop = l.maskTop
   const font = toCanvasFont(settings)
   const color = scene.canvasColors.text
   const lineBaselines = baselines.map((y) => anchor.y + y)

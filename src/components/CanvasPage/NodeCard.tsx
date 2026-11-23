@@ -21,6 +21,7 @@ import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
 import { TextLinesField } from './TextLinesField'
 import { BackspaceFields } from './BackspaceFields'
+import { ToggleField } from '../ControlPanel/ToggleField'
 import type { TextParams } from './textLines'
 
 /** A node's field edit: a patch of its params. */
@@ -116,6 +117,11 @@ export const NodeCard = memo(function NodeCard({
               backspace={(params as TextParams).backspace}
               set={(backspace) => set({ backspace })}
             />
+            <ToggleField
+              label="mask"
+              checked={(params as TextParams).mask === true}
+              onChange={(mask) => set({ mask })}
+            />
             <button
               type="button"
               className="control-button node-card-wide"
@@ -134,15 +140,7 @@ export const NodeCard = memo(function NodeCard({
       case 'pattern':
         return <PatternFields params={params as PatternParams} set={set} status={pattern} />
     }
-  }, [
-    kind,
-    params,
-    id,
-    onParamsChange,
-    pattern,
-    typingPlaying,
-    onTypingToggle,
-  ])
+  }, [kind, params, id, onParamsChange, pattern, typingPlaying, onTypingToggle])
 
   return (
     <div

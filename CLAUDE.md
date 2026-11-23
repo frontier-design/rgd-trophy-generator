@@ -439,8 +439,11 @@ are editor overlays and are not included in exports.
   banner. Canvas scenes hand their exporter up (`onExporter`); options are saved per scene
   (`imageExport`) and in the generator's document.
 - **Record node** (`CanvasRecord`, `RecordTimeline`, `recordNode.ts`, `export/recorder.ts`;
-  right-click → **insert record**): an MP4 of the scene linked into it (scene output → its
-  input, one input, like a composition). It has no width or height: it takes its input's
+  right-click → **insert record**): an MP4 of the scene or repeat artboard linked into it
+  (its output → the record's input, one input, like a composition; a repeat's output links
+  only to record nodes). A repeat's frames are its tiles drawn at the record's scale as one
+  image (`RepeatArtboard` `onFrameSource`; its shared trophy snapshot at that scale, kept
+  until `release`); the text node linked into the repeat is the timeline's. It has no width or height: it takes its input's
   frame, and records at the input's image-export scale, a whole number capped at ×3
   (`recordScale`; lower when no encoder takes the size: H.264 → HEVC → VP9 → AV1, so ×3 of
   16:9 is HEVC). Its video: **hold in**, the animation of the text node linked into the scene
@@ -469,6 +472,18 @@ are editor overlays and are not included in exports.
   before the next line starts (`typedText` shows the lines so far, the next not begun;
   `textSegments` gives it as a `hold` segment). Edited lines keep their hold; new lines don't
   inherit it.
+- **Text node mask** (text node **mask** toggle, `TextParams.mask`; `textLines.ts`
+  `maskReveal` / `maskTop` / `textMask`), after the RGD reference video: while the text
+  types, linked scenes show only the trophy's band from the first typed line's box down (its
+  top plus its corner radius: cut at the box's very top, its rounded corners and anti-aliased
+  edge left slivers of trophy along the first line);
+  over the last characters the band's top eases (smoothstep) up to the shape's top (half at
+  the third-last character, whole at the second-last, `MASK_REVEAL_CHARACTERS`); nothing
+  typed hides the trophy. Typing previews and seeks carry `progress` (typed / total
+  characters, never saved; `typedParams`) to the scene (`SceneModifiers.mask`); at rest
+  (all typed) nothing is clipped. On screen it's a CSS `clip-path` on the 3D and 2D layers
+  (`.artboard[data-masked]`, `--mask-top`); exports clip the trophy image
+  (`PlacedImage.clipTop`, via `composeScene`'s `maskTop`). Text is never masked.
 - **Text node backspace** (`BackspaceFields`, `TextParams.backspace`, `textLines.ts`): after
   the typing, a **pause** on the whole text, then deleting it one character at a time from
   the end at **delete speed** (`textSegments`, `textDuration`, `textAt`). It's the text

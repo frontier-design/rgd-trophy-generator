@@ -407,8 +407,9 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       : [],
   )
   const sceneIds = new Set(scenes.map((node) => node.id))
-  // Scenes link out to compositions and record nodes.
+  // Scenes link out to compositions and record nodes; repeats to record nodes.
   const compositionIds = new Set([...compositions, ...records].map((node) => node.id))
+  const recordIds = new Set(records.map((node) => node.id))
   const repeatIds = new Set(repeats.map((node) => node.id))
   const modifierIds = new Set(modifiers.map((node) => node.id))
   // Clusters: existing modifier members, each in one cluster only; empty ones dropped.
@@ -435,7 +436,8 @@ export function parseCanvasDocument(value: unknown): CanvasDocument {
       typeof link.to === 'string' &&
       (((modifierIds.has(link.from) || clusterIds.has(link.from)) &&
         (sceneIds.has(link.to) || repeatIds.has(link.to))) ||
-        (sceneIds.has(link.from) && compositionIds.has(link.to)))
+        (sceneIds.has(link.from) && compositionIds.has(link.to)) ||
+        (repeatIds.has(link.from) && recordIds.has(link.to)))
       ? [{ from: link.from, to: link.to, ...(link.muted === true ? { muted: true } : {}) }]
       : []
   })

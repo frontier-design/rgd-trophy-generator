@@ -19,6 +19,7 @@ import { SceneArtboard } from '../SceneArtboard'
 import { bannerLogo, composeScene } from '../SceneArtboard/composeScene'
 import { sceneMaterial, type ModifierNode, type SceneModifiers } from './graph'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
+import { maskTop } from './textLines'
 import {
   FRAME_EDGES as EDGES,
   resizeFrame,
@@ -399,7 +400,8 @@ const SceneArtwork = memo(function SceneArtwork({
     [node.settings, modifiers],
   )
   const effectiveNode = useMemo(
-    () => (settings === node.settings && scene === node.scene ? node : { ...node, settings, scene }),
+    () =>
+      settings === node.settings && scene === node.scene ? node : { ...node, settings, scene },
     [node, settings, scene],
   )
   const model = useSceneModel(
@@ -430,16 +432,31 @@ const SceneArtwork = memo(function SceneArtwork({
   }, [outline, settings.columnWidth, model.anchor.y, onRangeBounds])
   const setText = useCallback((text: string) => onTextChange(id, text), [onTextChange, id])
 
-  const latest = useRef({ model, node: effectiveNode, pixelRatio })
+  // A masking text node: the trophy only from its first typed line down (artboard px).
+  const mask = modifiers.mask
+  const extent = model.extent
+  // The band starts where the first line's box has straight sides: its top plus its corner
+  // radius. Cut at the box's very top, the rounded corners (and the box's anti-aliased top
+  // edge) would leave slivers of trophy along the first line.
+  const firstBox = model.carvingBoxes[0]
+  const boxTop = extent?.bandBottom ?? firstBox?.y
+  const bandTop = boxTop === undefined ? undefined : boxTop + (firstBox?.radius ?? 0) + 1
+  const clipTop =
+    mask && extent && bandTop !== undefined
+      ? maskTop(mask, model.anchor.y + bandTop, model.anchor.y + extent.top, frame.height)
+      : mask?.typed === 0
+        ? frame.height
+        : null
+  const latest = useRef({ model, node: effectiveNode, pixelRatio, clipTop })
   useEffect(() => {
-    latest.current = { model, node: effectiveNode, pixelRatio }
+    latest.current = { model, node: effectiveNode, pixelRatio, clipTop }
   })
   /** The artboard as layers at `scale` (the 3D view rendered at it: draw them now). */
   const compose = useCallback((scale: number, transparent = false): Composition => {
     const editor = editorRef.current
     const artboard = artboardRef.current
     if (!editor || !artboard) throw new Error('The scene is still loading')
-    const { model, node } = latest.current
+    const { model, node, clipTop } = latest.current
     return composeScene({
       editor,
       artboard,
@@ -458,6 +475,7 @@ const SceneArtwork = memo(function SceneArtwork({
       paper: paperRef.current,
       scale,
       transparent,
+      maskTop: clipTop,
     })
   }, [])
   /** Back to the on-screen resolution after rendering at an export's. */
@@ -497,6 +515,7 @@ const SceneArtwork = memo(function SceneArtwork({
       perspective={node.perspective}
       debug={node.debug}
       pixelRatio={pixelRatio}
+      maskTop={clipTop}
       twists={modifiers.twists}
       etches={modifiers.etches}
       textures={modifiers.textures}

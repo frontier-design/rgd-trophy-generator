@@ -1,7 +1,7 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
 import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS, DEFAULT_SCENE_PARAMS } from '../../state'
 import { FULL_CROP } from '../../pattern'
-import { lineTracking, linesFromText, textOf, type TextParams } from './textLines'
+import { lineTracking, linesFromText, textMask, textOf, type TextParams } from './textLines'
 import type {
   EtchParams,
   PatternParams,
@@ -46,7 +46,10 @@ export interface TextureNode extends ModifierBase {
   params: TextureParams
 }
 
-export type ShapeParams = Pick<AnimatedParams, 'roundTop' | 'topRadius' | 'taper' | 'lineBox' | 'smoothJoins' | 'joinRadius' | 'overshoot'>
+export type ShapeParams = Pick<
+  AnimatedParams,
+  'roundTop' | 'topRadius' | 'taper' | 'lineBox' | 'smoothJoins' | 'joinRadius' | 'overshoot'
+>
 
 export interface ShapeNode extends ModifierBase {
   kind: 'shape'
@@ -109,7 +112,14 @@ export interface TextNode extends ModifierBase {
 }
 
 export type ModifierNode =
-  TwistNode | EtchNode | PatternNode | TextureNode | MaterialNode | LightingNode | TextNode | ShapeNode
+  | TwistNode
+  | EtchNode
+  | PatternNode
+  | TextureNode
+  | MaterialNode
+  | LightingNode
+  | TextNode
+  | ShapeNode
 export type ModifierKind = ModifierNode['kind']
 export const MODIFIER_KINDS: readonly ModifierKind[] = [
   'shape',
@@ -250,7 +260,14 @@ export function createModifier(
 ): ModifierNode {
   switch (kind) {
     case 'shape':
-      return { kind, id, name, x, y, params: { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } } }
+      return {
+        kind,
+        id,
+        name,
+        x,
+        y,
+        params: { ...DEFAULT_SHAPE, lineBox: { ...DEFAULT_SHAPE.lineBox } },
+      }
     case 'twist':
       return { kind, id, name, x, y, params: DEFAULT_TWIST }
     case 'etch':
@@ -367,6 +384,8 @@ export interface SceneModifiers {
   text?: string
   /** Its lines' tracking (thousandths of an em), when any line is tracked. */
   lineTracking?: number[]
+  /** The text node masks the trophy to its typing: characters typed of all of them. */
+  mask?: { typed: number; total: number }
 }
 
 /** Each linked scene's modifiers; `maps` holds the pattern nodes' height maps by id. */
@@ -397,8 +416,8 @@ export function modifiersByScene(
     else if (node.kind === 'text') {
       current.text = textOf(node.params.lines)
       current.lineTracking = lineTracking(node.params.lines)
-    }
-    else {
+      current.mask = textMask(node.params) ?? undefined
+    } else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]
     }

@@ -33,6 +33,41 @@ describe('drawComposition', () => {
     expect(pixel(45, 30)).toEqual([0, 0, 255, 255])
   })
 
+  it('clips a masked image to below its top, in artboard px at the output scale', () => {
+    const canvas = createCanvas(200, 100)
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D
+    const image = createCanvas(100, 50)
+    const imageCtx = image.getContext('2d')
+    imageCtx.fillStyle = '#ff0000'
+    imageCtx.fillRect(0, 0, 100, 50)
+    drawComposition(
+      ctx,
+      {
+        width: 100,
+        height: 50,
+        background: '#0000ff',
+        images: [
+          {
+            image: image as unknown as CanvasImageSource,
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            clipTop: 20,
+          },
+        ],
+        text: [],
+      },
+      2,
+    )
+    const pixel = (x: number, y: number) =>
+      Array.from(canvas.getContext('2d').getImageData(x, y, 1, 1).data)
+    // Above y = 20 (40 output px): the background; below it, the image.
+    expect(pixel(100, 30)).toEqual([0, 0, 255, 255])
+    expect(pixel(100, 50)).toEqual([255, 0, 0, 255])
+    expect(pixel(100, 80)).toEqual([255, 0, 0, 255])
+  })
+
   it('draws each text line at its baseline, left or right aligned', () => {
     const canvas = createCanvas(200, 100)
     const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D

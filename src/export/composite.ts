@@ -8,6 +8,8 @@ export interface PlacedImage {
   y: number
   width: number
   height: number
+  /** Only what's below this y shows (artboard px; a text node's mask). */
+  clipTop?: number
 }
 
 /** Lines of text on the artboard: each line at its baseline, from `x`. */
@@ -80,7 +82,18 @@ export function drawComposition(
   }
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
-  for (const { image, x, y, width: w, height: h } of images) ctx.drawImage(image, x, y, w, h)
+  for (const { image, x, y, width: w, height: h, clipTop } of images) {
+    if (clipTop === undefined) {
+      ctx.drawImage(image, x, y, w, h)
+      continue
+    }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, clipTop, width, Math.max(0, height - clipTop))
+    ctx.clip()
+    ctx.drawImage(image, x, y, w, h)
+    ctx.restore()
+  }
   ctx.textBaseline = 'alphabetic'
   for (const layer of text) {
     ctx.font = layer.font

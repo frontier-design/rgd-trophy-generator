@@ -30,6 +30,13 @@ export interface TextParams {
   lines: TextLine[]
   /** Absent in saves from before backspacing (off). */
   backspace?: TextBackspace
+  /** Mask the trophy to the typed lines: while typing, linked scenes show only the band of
+   *  the trophy from the first line down; its top (no text) shows over the last few
+   *  characters (`textMask`). */
+  mask?: boolean
+  /** Set on typing previews only (never saved): characters typed of all of them, for the
+   *  mask. Absent: all typed. */
+  progress?: { typed: number; total: number }
 }
 
 export const DEFAULT_LINE_SPEED = 8
@@ -98,7 +105,8 @@ function withBackspace(params: TextParams, raw: unknown): TextParams {
 
 /** A saved node's params, validated: `lines`, or a legacy `text` string. */
 export function parseTextParams(params: Record<string, unknown>, fallback: string): TextParams {
-  return withBackspace(parseTextLines(params, fallback), params.backspace)
+  const parsed = withBackspace(parseTextLines(params, fallback), params.backspace)
+  return params.mask === true ? { ...parsed, mask: true } : parsed
 }
 
 function parseTextLines(params: Record<string, unknown>, fallback: string): TextParams {
@@ -318,4 +326,62 @@ export function textAt(params: TextParams, elapsed: number): string {
   if (deleting <= 0) return whole
   const count = characterCount(params.lines) - Math.floor(deleting * backspace.speed + 1e-9)
   return prefixText(params.lines, count)
+}
+
+// --- The mask: while the text types, only the trophy's band from the first line down shows;
+// the top (where there's no text) shows over the last characters.
+
+/** Characters over which the trophy's top shows (it's whole one character before the end,
+ *  as in the reference: half at "20" of "2027", whole at "202"). */
+export const MASK_REVEAL_CHARACTERS = 3
+
+/** How much of the trophy's top shows (0–1) with `typed` of `total` characters typed: none
+ *  until the last MASK_REVEAL_CHARACTERS, then in even steps, whole a character before the
+ *  end (deleting, it goes again with the first characters). */
+export function maskReveal(typed: number, total: number): number {
+  if (total <= 0) return 1
+  const start = total - MASK_REVEAL_CHARACTERS
+  const steps = Math.max(1, MASK_REVEAL_CHARACTERS - 1)
+  return clamp((typed - start) / steps, 0, 1)
+}
+
+/** A masked text node's typing: characters typed of all of them (all of them unless it's a
+ *  typing preview). Null when it doesn't mask. */
+export function textMask(params: TextParams): { typed: number; total: number } | null {
+  if (!params.mask) return null
+  if (params.progress) return params.progress
+  const total = characterCount(params.lines)
+  return { typed: total, total }
+}
+
+/** Preview params showing `typed` text of `params`: its lines, with the progress the mask
+ *  needs. */
+export function typedParams(params: TextParams, typed: string): TextParams {
+  return {
+    ...params,
+    lines: linesFromText(typed, params.lines),
+    progress: {
+      typed: Array.from(typed.replace(/\n/g, '')).length,
+      total: characterCount(params.lines),
+    },
+  }
+}
+
+/**
+ * Where a masked trophy starts showing (y, artboard px), or null when all of it shows. While
+ * typing: from the first line's box top (`bandTop`) down; over the last characters its top
+ * edge eases (smoothstep) up to the shape's top (`shapeTop`). Nothing typed: none of it
+ * (`frameHeight`).
+ */
+export function maskTop(
+  mask: { typed: number; total: number },
+  bandTop: number,
+  shapeTop: number,
+  frameHeight: number,
+): number | null {
+  if (mask.typed <= 0) return frameHeight
+  const reveal = maskReveal(mask.typed, mask.total)
+  if (reveal >= 1) return null
+  const eased = reveal * reveal * (3 - 2 * reveal)
+  return bandTop + (shapeTop - bandTop) * eased
 }

@@ -12,7 +12,13 @@ import {
 import { useSceneModel } from '../../hooks'
 import { shapeLeft } from '../../rag'
 import type { ThreeScene } from '../../render3d'
-import { ARTBOARD, DEFAULT_BANNER_TEXT, DEFAULT_MATERIAL, DEFAULT_SCENE_PARAMS, DEFAULT_SETTINGS } from '../../state'
+import {
+  ARTBOARD,
+  DEFAULT_BANNER_TEXT,
+  DEFAULT_MATERIAL,
+  DEFAULT_SCENE_PARAMS,
+  DEFAULT_SETTINGS,
+} from '../../state'
 import type { MaterialSettings, SceneParams, Settings } from '../../types'
 import { SceneArtboard } from '../SceneArtboard'
 import { sceneMaterial, type SceneModifiers } from './graph'
@@ -32,7 +38,7 @@ import {
   type RepeatTrophy,
 } from './repeatArtwork'
 import type { RepeatNode } from './repeatNode'
-import type { SceneExporter } from './CanvasScene'
+import type { SceneExporter, SceneFrameSource } from './CanvasScene'
 
 interface RepeatArtboardProps {
   node: RepeatNode
@@ -47,6 +53,10 @@ interface RepeatArtboardProps {
   onResize: (id: string, frame: FrameRect) => void
   onLayoutChange: (id: string, patch: Partial<RepeatNode['layout']>) => void
   onExporter: (id: string, exporter: SceneExporter | null) => void
+  /** Its frames, for record nodes. */
+  onFrameSource?: (id: string, source: SceneFrameSource | null) => void
+  /** Starts a link from its output (to record nodes). */
+  onOutputDown?: (id: string, event: ReactPointerEvent) => void
 }
 
 const NO_MODIFIERS: SceneModifiers = {
@@ -67,7 +77,10 @@ const TOP_BLEED = 8
  *  tile's top. Taller when the text needs it. */
 function sourceFrame(settings: RepeatNode['typography'], text: string, tileHeight: number) {
   const rows = Math.max(1, text.split('\n').length)
-  const estimatedWrap = Math.max(1, Math.ceil(text.length / Math.max(8, settings.columnWidth / (settings.fontSize * 0.55))))
+  const estimatedWrap = Math.max(
+    1,
+    Math.ceil(text.length / Math.max(8, settings.columnWidth / (settings.fontSize * 0.55))),
+  )
   const textHeight = Math.max(rows, estimatedWrap) * settings.lineHeight
   const height = Math.max(
     tileHeight + ARTBOARD.padding + TOP_BLEED,
@@ -96,6 +109,8 @@ export const RepeatArtboard = memo(function RepeatArtboard({
   onResize,
   onLayoutChange,
   onExporter,
+  onFrameSource,
+  onOutputDown,
 }: RepeatArtboardProps) {
   const { id, frame, typography, layout } = node
   const position = useNodePosition(id, node)
@@ -176,7 +191,8 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     // gap past the column's middle (centered text) and its mirrored half reaches as far past
     // the axis. Copies repeat axis to axis by the column width, a text gap between each.
     const axis = model.anchor.x + typography.columnWidth
-    const radius = typography.columnWidth - shapeLeft(typography.columnWidth, 'center', sourceScene.lineBox.padX)
+    const radius =
+      typography.columnWidth - shapeLeft(typography.columnWidth, 'center', sourceScene.lineBox.padX)
     const rows = Math.max(1, model.lines.length || text.split('\n').length)
     const top = model.anchor.y + (model.extent?.top ?? 0)
     const bottom = model.anchor.y + (model.extent?.bottom ?? rows * typography.lineHeight)
@@ -201,10 +217,7 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     source.height,
   ])
 
-  const grid = useMemo(
-    () => repeatGrid(frame, node, trophy),
-    [frame, node, trophy],
-  )
+  const grid = useMemo(() => repeatGrid(frame, node, trophy), [frame, node, trophy])
   const artwork = useMemo<RepeatArtwork>(
     () => ({
       frame,
@@ -283,6 +296,37 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     )
     return () => onExporter(id, null)
   }, [id, onExporter])
+
+  // Recording: the tiles at the record's scale (the shared trophy rendered at it, kept at it
+  // until `release`), as one image.
+  useEffect(() => {
+    if (!onFrameSource) return
+    onFrameSource(id, {
+      compose: (scale) => {
+        const artwork = latest.current
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(artwork.frame.width * scale))
+        canvas.height = Math.max(1, Math.round(artwork.frame.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) throw new Error('No 2D canvas')
+        ctx.scale(scale, scale)
+        drawRepeatArtwork(ctx, {
+          ...artwork,
+          image: threeRef.current?.snapshot(scale) ?? artwork.image,
+        })
+        const { width, height } = artwork.frame
+        return {
+          width,
+          height,
+          background: null,
+          images: [{ image: canvas, x: 0, y: 0, width, height }],
+          text: [],
+        }
+      },
+      release: () => threeRef.current?.setPixelRatio(1),
+    })
+    return () => onFrameSource(id, null)
+  }, [id, onFrameSource])
 
   const updateOffset = (event: ReactPointerEvent) => {
     const gesture = endless.current
@@ -431,6 +475,17 @@ export const RepeatArtboard = memo(function RepeatArtboard({
         />
       </div>
       <span
+        className="node-port node-port-scene-out"
+        data-port="out"
+        aria-label={`${node.name} output`}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          event.stopPropagation()
+          onOutputDown?.(id, event)
+        }}
+      />
+      <span
         className="node-port node-port-in"
         data-port="in"
         data-scene-id={id}
@@ -511,4 +566,3 @@ export const RepeatArtboard = memo(function RepeatArtboard({
     </div>
   )
 })
-

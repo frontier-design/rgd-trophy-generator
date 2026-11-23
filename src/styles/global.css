@@ -934,6 +934,12 @@ body {
   color: var(--color-text);
 }
 
+/* A text node's mask: the trophy (3D and 2D) only below --mask-top (SceneArtboard). */
+.artboard[data-masked] > .paper-canvas,
+.artboard[data-masked] > .three-view {
+  clip-path: inset(var(--mask-top) 0 0 0);
+}
+
 /* A record node: its input's frame, showing the last frame kept; its controls beside it at
    screen size. */
 .record-node {

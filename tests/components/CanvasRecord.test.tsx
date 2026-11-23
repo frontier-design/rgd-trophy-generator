@@ -149,7 +149,11 @@ it('scrubs the scene through the animation, and retimes a line by dragging its b
   }
 })
 
-const recorded = vi.hoisted(() => ({ frames: [] as string[], finished: 0 }))
+const recorded = vi.hoisted(() => ({
+  frames: [] as string[],
+  clips: [] as (number | undefined)[],
+  finished: 0,
+}))
 vi.mock('../../src/export/recorder', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/export/recorder')>()
   return {
@@ -168,9 +172,10 @@ vi.mock('../../src/export/recorder', async (importOriginal) => {
         get frames() {
           return frames
         },
-        add(composition: { text: { lines: string[] }[] }) {
+        add(composition: { text: { lines: string[] }[]; images: { clipTop?: number }[] }) {
           frames++
-          recorded.frames.push(composition.text[0]!.lines.join('\n').trim())
+          recorded.frames.push((composition.text[0]?.lines ?? []).join('\n').trim())
+          recorded.clips.push(composition.images[0]?.clipTop)
         },
         drain: async () => {},
         finish: async () => {
@@ -231,3 +236,109 @@ it('renders every frame at its time, typing the text node, then restores the sce
     vi.unstubAllGlobals()
   }
 })
+
+it("masks the trophy to the text node's typing in every rendered frame", async () => {
+  vi.stubGlobal('VideoEncoder', class {})
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:v'), revokeObjectURL: vi.fn() }),
+  )
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  recorded.frames = []
+  recorded.clips = []
+  try {
+    render(<CanvasPage tools={null} />)
+    const canvas = screen.getByRole('region', { name: 'Canvas' })
+    const insert = (name: string) => {
+      fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+    insert('insert scene')
+    const scene = await screen.findByLabelText('scene 1')
+    insert('insert record')
+    const record = screen.getByLabelText('record 1')
+    insert('insert text')
+    const text = screen.getByRole('group', { name: 'text 1' })
+    const link = (from: HTMLElement, label: string, to: HTMLElement, pointerId: number) => {
+      fireEvent.pointerDown(within(from).getByLabelText(label), { button: 0, pointerId })
+      fireEvent.pointerUp(to, { pointerId })
+    }
+    link(text, 'text 1 output', within(scene).getByLabelText('scene 1 input'), 1)
+    link(scene, 'scene 1 output', within(record).getByLabelText('record 1 input'), 2)
+    fireEvent.click(within(text).getByRole('switch', { name: 'mask' }))
+    // At rest (all typed) the mask shows the whole trophy.
+    expect(scene.querySelector('.artboard')).not.toHaveAttribute('data-masked')
+
+    fireEvent.click(within(record).getByRole('button', { name: 'render' }))
+    await within(record).findByText(/^Saved \d+ frames/)
+    const { frames, clips } = recorded
+    // Nothing typed (the hold in): no trophy at all (clipped below the 1080 px frame).
+    expect(clips[0]).toBe(1080)
+    // Typing: clipped at the first line's top, until the top shows at the end: no clip.
+    const typing = clips.filter((clip, i) => frames[i] !== '' && clip !== undefined)
+    expect(typing.length).toBeGreaterThan(10)
+    expect(typing.every((clip) => clip! < 1080)).toBe(true)
+    expect(clips.at(-1)).toBeUndefined()
+    // Afterwards the scene shows all of it again.
+    expect(scene.querySelector('.artboard')).not.toHaveAttribute('data-masked')
+  } finally {
+    click.mockRestore()
+    vi.unstubAllGlobals()
+  }
+})
+
+it("records a repeat artboard: its frame, its text node's typing, its tiles as each frame", async () => {
+  vi.stubGlobal('VideoEncoder', class {})
+  vi.stubGlobal(
+    'URL',
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:v'), revokeObjectURL: vi.fn() }),
+  )
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  recorded.frames = []
+  recorded.clips = []
+  try {
+    render(<CanvasPage tools={null} />)
+    const canvas = screen.getByRole('region', { name: 'Canvas' })
+    const insert = (name: string) => {
+      fireEvent.contextMenu(canvas, { clientX: 100, clientY: 100 })
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+    const link = (from: HTMLElement, label: string, to: HTMLElement, pointerId: number) => {
+      fireEvent.pointerDown(within(from).getByLabelText(label), { button: 0, pointerId })
+      fireEvent.pointerUp(to, { pointerId })
+    }
+    insert('insert repeat')
+    const repeat = screen.getByLabelText('repeat 1')
+    insert('insert record')
+    const record = screen.getByLabelText('record 1')
+    insert('insert text')
+    const text = screen.getByRole('group', { name: 'text 1' })
+    link(text, 'text 1 output', within(repeat).getByLabelText('repeat 1 input'), 1)
+    const input = within(record).getByLabelText('record 1 input')
+    link(repeat, 'repeat 1 output', input, 2)
+    expect(input).toHaveAttribute('data-connected')
+    // The repeat's 16:9 frame at its export scale (×2), a quarter-size preview.
+    expect(record.style.getPropertyValue('--artboard-width')).toBe('480px')
+    expect(within(record).getByLabelText('recording')).toHaveTextContent('3840 × 2160 (×2)')
+    // Its text node's lines are the timeline.
+    const lines = linesFromText(DEFAULT_SETTINGS.text)
+    expect(
+      [...record.querySelectorAll('.record-row-label')].map((label) => label.textContent),
+    ).toEqual(['hold in', ...lines.map((line) => line.text), 'hold out'])
+
+    fireEvent.change(within(record).getByLabelText('frame rate'), { target: { value: '25' } })
+    fireEvent.click(within(record).getByRole('button', { name: 'render' }))
+    await within(record).findByText(/^Saved \d+ frames/, undefined, { timeout: 20_000 })
+    expect(recorded.frames).toHaveLength(Math.ceil((0.5 + typingDuration(lines) + 1) * 25 - 1e-9))
+    // Each frame is the repeat's tiles, drawn as one image (its text is in it).
+    expect(recorded.clips.every((clip) => clip === undefined)).toBe(true)
+    // A repeat links to record nodes only, not scenes.
+    insert('insert scene')
+    const scene = await screen.findByLabelText('scene 1')
+    link(repeat, 'repeat 1 output', within(scene).getByLabelText('scene 1 input'), 3)
+    expect(within(scene).getByLabelText('scene 1 input')).not.toHaveAttribute('data-connected')
+  } finally {
+    click.mockRestore()
+    vi.unstubAllGlobals()
+  }
+}, 30_000)

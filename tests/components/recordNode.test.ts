@@ -113,6 +113,19 @@ it('persists record nodes, taking only scene inputs, and continues their ids', (
   expect(createRecordNode('r', 'r', 0, 0).holdOut).toBe(DEFAULT_RECORD_HOLD_OUT)
 })
 
+it('keeps repeat → record links, but not repeat → composition', () => {
+  const doc = parseCanvasDocument({
+    repeats: [{ id: 'repeat-1', name: 'repeat 1', x: 0, y: 0 }],
+    records: [{ id: 'record-1' }],
+    compositions: [{ id: 'composition-1', frame: { width: 800, height: 600 } }],
+    links: [
+      { from: 'repeat-1', to: 'record-1' },
+      { from: 'repeat-1', to: 'composition-1' },
+    ],
+  })
+  expect(doc.links).toEqual([{ from: 'repeat-1', to: 'record-1' }])
+})
+
 it('loads saves from before record nodes', () => {
   expect(parseCanvasDocument({ scenes: [] }).records).toEqual([])
 })

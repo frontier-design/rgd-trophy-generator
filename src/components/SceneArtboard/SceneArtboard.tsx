@@ -32,6 +32,8 @@ interface SceneArtboardProps extends SceneRefs {
   debug: boolean
   /** The 3D view's drawing-buffer px per artboard px. */
   pixelRatio: number
+  /** A text node's mask: the trophy (3D or 2D) shows only below this y (artboard px). */
+  maskTop?: number | null
   /** Twist nodes shaping the solid (canvas page). */
   twists?: readonly TwistParams[]
   /** Etch nodes' engraved strips (canvas page). */
@@ -68,6 +70,7 @@ export function SceneArtboard({
   perspective,
   debug,
   pixelRatio,
+  maskTop,
   twists,
   etches,
   textures,
@@ -99,8 +102,10 @@ export function SceneArtboard({
       data-top-radius={scene.topRadius}
       data-round-top={scene.roundTop ? 'on' : 'off'}
       data-taper={scene.taper}
+      data-masked={maskTop === undefined || maskTop === null ? undefined : true}
       style={
         {
+          '--mask-top': maskTop === undefined || maskTop === null ? undefined : `${maskTop}px`,
           '--artboard-padding': `${ARTBOARD.padding}px`,
           '--artboard-padding-bottom': `${model.bottomInset}px`,
           '--color-artboard-bg': canvasColors.background,
