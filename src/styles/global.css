@@ -1247,6 +1247,37 @@ body {
   vector-effect: non-scaling-stroke;
 }
 
+.node-links path[data-selected] {
+  stroke: var(--color-text);
+}
+
+/* Edges' hit areas: wider than the lines, invisible, over the lines but under the nodes. */
+.node-link-hits {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.node-link-hits path {
+  fill: none;
+  stroke: transparent;
+  /* 14 screen px at any zoom. Scaled here rather than with a non-scaling stroke (as the
+     lines are): Chrome draws those but hit-tests them at their scaled width. */
+  stroke-width: calc(14px / var(--zoom, 1));
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* While a link is being dragged, drops go through the edges to what's under them. */
+.infinite-canvas[data-linking] .node-link-hits path {
+  pointer-events: none;
+}
+
 .node-links path[data-pending],
 .node-links path[data-muted] {
   stroke-dasharray: 6 4;

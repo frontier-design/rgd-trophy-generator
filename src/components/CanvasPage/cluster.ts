@@ -98,3 +98,28 @@ export function expandClusterLinks(
   }
   return out
 }
+
+/**
+ * ⌘G on nodes that all feed one artboard: their links to it become one link from the new
+ * cluster (placed where the first of them was), so the artboard's modifiers are unchanged.
+ * Only when every member links to that one target and nothing else, all muted alike;
+ * otherwise null (the links stay as they are).
+ */
+export function rewireToCluster(
+  links: readonly NodeLink[],
+  members: readonly string[],
+  clusterId: string,
+): NodeLink[] | null {
+  const grouped = new Set(members)
+  const outgoing = links.filter((link) => grouped.has(link.from))
+  const [first] = outgoing
+  if (!first || outgoing.some((link) => link.to !== first.to)) return null
+  const linked = new Set(outgoing.map((link) => link.from))
+  if (members.some((id) => !linked.has(id))) return null
+  const muted = Boolean(first.muted)
+  if (outgoing.some((link) => Boolean(link.muted) !== muted)) return null
+  const rest = links.filter((link) => !grouped.has(link.from) && link.from !== clusterId)
+  const at = links.slice(0, links.indexOf(first)).filter((link) => rest.includes(link)).length
+  const cluster: NodeLink = { from: clusterId, to: first.to, ...(muted && { muted }) }
+  return [...rest.slice(0, at), cluster, ...rest.slice(at)]
+}

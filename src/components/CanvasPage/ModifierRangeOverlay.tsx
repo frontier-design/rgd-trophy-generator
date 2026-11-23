@@ -17,6 +17,10 @@ export interface ModifierRangeOverlayProps {
   onChange: (patch: { from?: number; to?: number }) => void
   /** Activate the modifier without discarding the current selection. */
   onSelect?: () => void
+  /** The modifier's id. When set, the from–to band doesn't take presses itself: it is
+   * marked `data-range-band={bandId}` and the host artboard owns the gesture (a tap
+   * selects the modifier, a drag still moves the artboard). */
+  bandId?: string
   onGestureBoundary?: () => void
 }
 
@@ -35,6 +39,7 @@ export function ModifierRangeOverlay({
   onChange,
   onSelect,
   onGestureBoundary,
+  bandId,
 }: ModifierRangeOverlayProps) {
   const track = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointer: number; key: 'from' | 'to' } | null>(null)
@@ -152,10 +157,11 @@ export function ModifierRangeOverlay({
     >
       {enabled && (
         <div
-          data-handle
+          data-handle={bandId === undefined || undefined}
+          data-range-band={bandId}
           aria-label={label ? `select ${label} range` : 'select modifier range'}
           onPointerDown={(event) => {
-            if (event.button !== 0) return
+            if (event.button !== 0 || bandId !== undefined) return
             event.preventDefault()
             event.stopPropagation()
             onSelect?.()

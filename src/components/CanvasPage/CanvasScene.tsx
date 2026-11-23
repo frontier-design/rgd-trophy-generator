@@ -185,6 +185,15 @@ export const CanvasScene = memo(function CanvasScene({
           selectedTextNodeIds?.has(textNodeId)
         )
           return
+        // A modifier's range band: a tap selects the modifier (Shift toggles it), a drag
+        // moves the scene like anywhere else on it.
+        const band = (e.target as Element).closest<HTMLElement>('[data-range-band]')
+        const bandId = band?.dataset.rangeBand
+        if (bandId && !e.metaKey) {
+          if (e.shiftKey) onSelect(bandId, true, true)
+          else drag.onPointerDown(e, { onTap: () => onSelect(bandId, false, true) })
+          return
+        }
         const editable = Boolean((e.target as Element).closest(EDITABLE))
         if (e.metaKey && !editable) return
         onSelect(id, e.shiftKey, !editable)
@@ -318,6 +327,7 @@ export const CanvasScene = memo(function CanvasScene({
             showHandles={selectedRangeModifierIds?.has(rangeModifier.id) ?? false}
             onChange={(patch) => onRangeChange?.(rangeModifier.id, patch)}
             onSelect={() => onSelect(rangeModifier.id, false, true)}
+            bandId={rangeModifier.id}
             onGestureBoundary={onRangeBoundary}
           />
         ))}

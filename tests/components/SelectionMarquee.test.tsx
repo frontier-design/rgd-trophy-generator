@@ -67,6 +67,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('SelectionMarquee', () => {
+  it('a quick flick selects up to where it was released, even with no move in between', () => {
+    const { canvas } = setup()
+    fireEvent.pointerDown(canvas, {
+      button: 0,
+      pointerId: 4,
+      shiftKey: true,
+      clientX: 260,
+      clientY: 160,
+    })
+    fireEvent.pointerUp(canvas, { pointerId: 4, clientX: 130, clientY: 80 })
+    expect(select).toHaveBeenCalledWith(['scene', 'node'])
+  })
+
   it('reserves shift gestures and selects screen-space scene and card bounds in reverse', () => {
     const { canvas } = setup()
     const pan = vi.fn()

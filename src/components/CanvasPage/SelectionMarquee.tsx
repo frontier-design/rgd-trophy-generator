@@ -102,6 +102,15 @@ export function SelectionMarquee({ canvasRef, onSelect, onClear }: Props) {
     const up = (event: PointerEvent) => {
       if (!gesture || event.pointerId !== gesture.id) return
       const current = gesture
+      // The release is where the gesture ends: move events come at most once a frame, so a
+      // quick flick can release before (or far past) the last one. Only synthetic events
+      // lack coordinates (all zero); then the last move sample stands.
+      if (event.clientX || event.clientY || event.screenX || event.screenY) {
+        current.lastX = event.clientX
+        current.lastY = event.clientY
+        if (Math.hypot(current.lastX - current.x, current.lastY - current.y) > 3)
+          current.moved = true
+      }
       if (current.shift) {
         const area = normalizeRect({
           x: current.x,
@@ -134,7 +143,6 @@ export function SelectionMarquee({ canvasRef, onSelect, onClear }: Props) {
         cancel()
         callbacks.current.onSelect([...ids])
       } else {
-        // Some pointerup events omit coordinates; movement samples remain authoritative.
         cancel()
         if (!current.moved) callbacks.current.onClear()
       }

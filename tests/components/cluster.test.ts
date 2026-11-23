@@ -6,6 +6,7 @@ import {
   expandClusterLinks,
   groupNodes,
   pruneClusters,
+  rewireToCluster,
 } from '../../src/components/CanvasPage/cluster'
 import { createModifier } from '../../src/components/CanvasPage/graph'
 
@@ -94,5 +95,60 @@ describe('clusters', () => {
     ])
     expect(doc.links).toEqual([{ from: 'cluster-4', to: 'scene-1' }])
     expect(doc.inserted.cluster).toBe(4)
+  })
+
+  describe('rewireToCluster', () => {
+    it('members all feeding one artboard: one link from the cluster, where the first was', () => {
+      const links = [
+        { from: 'etch-1', to: 'scene-2' },
+        { from: 'twist-1', to: 'scene-1' },
+        { from: 'twist-2', to: 'scene-1' },
+        { from: 'etch-2', to: 'scene-2' },
+      ]
+      expect(rewireToCluster(links, ['twist-1', 'twist-2'], 'cluster-1')).toEqual([
+        { from: 'etch-1', to: 'scene-2' },
+        { from: 'cluster-1', to: 'scene-1' },
+        { from: 'etch-2', to: 'scene-2' },
+      ])
+    })
+
+    it('keeps a shared mute', () => {
+      const links = [
+        { from: 'a', to: 's', muted: true },
+        { from: 'b', to: 's', muted: true },
+      ]
+      expect(rewireToCluster(links, ['a', 'b'], 'c')).toEqual([{ from: 'c', to: 's', muted: true }])
+    })
+
+    it('leaves links alone unless every member feeds the same single artboard, muted alike', () => {
+      const two = [
+        { from: 'a', to: 's1' },
+        { from: 'b', to: 's2' },
+      ]
+      expect(rewireToCluster(two, ['a', 'b'], 'c')).toBeNull()
+      expect(rewireToCluster([{ from: 'a', to: 's' }], ['a', 'b'], 'c')).toBeNull()
+      expect(
+        rewireToCluster(
+          [
+            { from: 'a', to: 's' },
+            { from: 'a', to: 's2' },
+            { from: 'b', to: 's' },
+          ],
+          ['a', 'b'],
+          'c',
+        ),
+      ).toBeNull()
+      expect(
+        rewireToCluster(
+          [
+            { from: 'a', to: 's', muted: true },
+            { from: 'b', to: 's' },
+          ],
+          ['a', 'b'],
+          'c',
+        ),
+      ).toBeNull()
+      expect(rewireToCluster([], ['a'], 'c')).toBeNull()
+    })
   })
 })

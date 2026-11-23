@@ -59,11 +59,35 @@ it.each(['twist', 'etch', 'texture', 'pattern'])(
     expect(within(scene).queryByRole('slider', { name: `${kind} 1 from` })).not.toBeInTheDocument()
     const area = await within(scene).findByLabelText(`select ${kind} 1 range`)
     fireEvent.pointerDown(area, { button: 0, pointerId: 3 })
+    fireEvent.pointerUp(area, { button: 0, pointerId: 3 })
     expect(node.parentElement).toHaveAttribute('data-selected')
     expect(within(scene).getByRole('slider', { name: `${kind} 1 from` })).toBeInTheDocument()
     expect(within(scene).getByRole('slider', { name: `${kind} 1 to` })).toBeInTheDocument()
   },
 )
+
+it('drags the scene (not the modifier) from a range band; only a tap selects the modifier', async () => {
+  render(<CanvasPage tools={null} />)
+  const canvas = screen.getByRole('region', { name: 'Canvas' })
+  fireEvent.contextMenu(canvas, { clientX: 200, clientY: 150 })
+  fireEvent.click(screen.getByRole('menuitem', { name: 'insert scene' }))
+  const scene = await screen.findByLabelText('scene 1')
+  fireEvent.contextMenu(canvas, { clientX: 40, clientY: 40 })
+  fireEvent.click(screen.getByRole('menuitem', { name: 'insert twist' }))
+  const node = screen.getByRole('group', { name: 'twist 1' })
+  fireEvent.pointerDown(within(node).getByLabelText('twist 1 output'), { button: 0, pointerId: 1 })
+  fireEvent.pointerUp(within(scene).getByLabelText('scene 1 input'), { pointerId: 1 })
+  fireEvent.pointerDown(canvas, { button: 0, pointerId: 9 })
+  fireEvent.pointerUp(canvas, { button: 0, pointerId: 9 })
+  const area = await within(scene).findByLabelText('select twist 1 range')
+  const before = { left: scene.style.left, top: scene.style.top }
+  fireEvent.pointerDown(area, { button: 0, pointerId: 2, clientX: 10, clientY: 10 })
+  fireEvent.pointerMove(area, { pointerId: 2, clientX: 60, clientY: 40 })
+  fireEvent.pointerUp(area, { pointerId: 2, clientX: 60, clientY: 40 })
+  expect(scene.style.left).not.toBe(before.left)
+  expect(scene.style.top).not.toBe(before.top)
+  expect(node.parentElement).not.toHaveAttribute('data-selected')
+})
 
 it('stacks the artboard text above range bands and endpoints without blocking empty artwork', async () => {
   const style = document.createElement('style')

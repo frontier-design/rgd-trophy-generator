@@ -30,6 +30,7 @@ import {
   clusterBounds,
   clusterPort,
   expandClusterLinks,
+  rewireToCluster,
   groupNodes,
   pruneClusters,
   type ClusterNode,
@@ -201,13 +202,41 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     masterRef.current = master.params
   })
   const [selection, updateSelection] = useState<Selection>(clearSelection)
+  // Selected edges (link keys, `linkKey`): view-only like the selection, and never alongside
+  // selected nodes. Selecting either clears the other; the marquee selects nodes only.
+  const [selectedEdges, updateSelectedEdges] = useState<readonly string[]>([])
+  const selectedEdgesRef = useRef(selectedEdges)
+  const setSelectedEdges = useCallback((next: readonly string[]) => {
+    if (!next.length && !selectedEdgesRef.current.length) return
+    selectedEdgesRef.current = next
+    updateSelectedEdges(next)
+  }, [])
   // Drag start needs event-time selection before React commits the pointer-down update.
   const selectionRef = useRef(selection)
-  const setSelection = useCallback((next: Selection | ((current: Selection) => Selection)) => {
-    const value = typeof next === 'function' ? next(selectionRef.current) : next
-    selectionRef.current = value
-    updateSelection(value)
-  }, [])
+  const setSelection = useCallback(
+    (next: Selection | ((current: Selection) => Selection)) => {
+      const value = typeof next === 'function' ? next(selectionRef.current) : next
+      selectionRef.current = value
+      updateSelection(value)
+      if (value.ids.length) setSelectedEdges([])
+    },
+    [setSelectedEdges],
+  )
+  /** Click an edge: it alone; Shift toggles it. Either way, nodes are deselected. */
+  const selectEdge = useCallback(
+    (key: string, additive = false) => {
+      setSelection(clearSelection())
+      const current = selectedEdgesRef.current
+      setSelectedEdges(
+        !additive
+          ? [key]
+          : current.includes(key)
+            ? current.filter((item) => item !== key)
+            : [...current, key],
+      )
+    },
+    [setSelection, setSelectedEdges],
+  )
   const selectNode = useCallback(
     (id: string, additive = false, preserveGroup = true) => {
       setSelection((current) =>
@@ -220,7 +249,10 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     (id: string) => setSelection(replaceSelection([id])),
     [setSelection],
   )
-  const clearSelected = useCallback(() => setSelection(clearSelection()), [setSelection])
+  const clearSelected = useCallback(() => {
+    setSelection(clearSelection())
+    setSelectedEdges([])
+  }, [setSelection, setSelectedEdges])
   const addSelected = useCallback(
     (ids: string[]) => {
       setSelection((current) =>
@@ -573,6 +605,18 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     },
     [positions, checkpoint, setSelection],
   )
+  /** Remove the selected edges (their links); the nodes stay. */
+  const deleteEdges = useCallback(
+    (keys: readonly string[]) => {
+      const removed = new Set(keys)
+      setSelectedEdges([])
+      if (!linksRef.current.some((link) => removed.has(linkKey(link)))) return
+      checkpoint()
+      moveCommitted.current = true
+      setLinks((current) => current.filter((link) => !removed.has(linkKey(link))))
+    },
+    [checkpoint, setSelectedEdges],
+  )
   const closeMenu = useCallback(() => setMenu(null), [])
 
   // Dragging a link: a node's output starts one; a linked input picks its last one up.
@@ -829,8 +873,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     const count = reserveCount('cluster')
     const id = `cluster-${count}`
     const merged = clusters.filter((item) => selectionRef.current.ids.includes(item.id))
-    // Links from merged clusters carry on from their members (they leave those clusters).
-    if (merged.length) setLinks((current) => expandClusterLinks(current, merged))
+    // Links from merged clusters carry on from their members (they leave those clusters);
+    // members that all feed one artboard are fed to it through the new cluster instead.
+    setLinks((current) => {
+      const expanded = merged.length ? expandClusterLinks(current, merged) : current
+      return rewireToCluster(expanded, ids, id) ?? expanded
+    })
     setClusters((current) =>
       groupNodes(
         current,
@@ -913,6 +961,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       const { target } = e
       if (isTyping(target)) return
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedEdgesRef.current.length) {
+          e.preventDefault()
+          deleteEdges(selectedEdgesRef.current)
+          return
+        }
         if (!selectionRef.current.ids.length) return
         e.preventDefault()
         deleteNodes(selectionRef.current.ids)
@@ -923,7 +976,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [deleteNodes, positions, clearSelected])
+  }, [deleteNodes, deleteEdges, positions, clearSelected])
 
   // Pattern nodes' height maps, built in the background.
   const patternNodes = useMemo(
@@ -1093,9 +1146,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     const from = sourcesById.get(link.from)
     const to = targetsById.get(link.to)
     if (!from || !to) return []
-    const key = `${link.from}→${link.to}`
-    return [{ key, from, to, muted: link.muted }]
+    return [{ key: linkKey(link), from, to, muted: link.muted }]
   })
+  const selectedEdgeSet = new Set(selectedEdges)
   const pendingSource = pending ? sourcesById.get(pending.from) : undefined
   const pendingPath =
     pending && pendingSource
@@ -1233,9 +1286,29 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             {/* First, so the scenes and compositions (same layer, later) cover the links. */}
             <svg className="node-links" aria-hidden="true">
               {linkPaths.map(({ key, from, to, muted }) => (
-                <NodeLinkPath key={key} from={from} to={to} zoom={view.zoom} muted={muted} />
+                <NodeLinkPath
+                  key={key}
+                  from={from}
+                  to={to}
+                  zoom={view.zoom}
+                  muted={muted}
+                  selected={selectedEdgeSet.has(key)}
+                />
               ))}
               {pendingPath && <path d={pendingPath} data-pending />}
+            </svg>
+            {/* The edges' hit areas (wider than the lines; under the nodes, like the lines). */}
+            <svg className="node-link-hits" data-no-pan aria-hidden="true">
+              {linkPaths.map(({ key, from, to }) => (
+                <NodeLinkHit
+                  key={key}
+                  edge={key}
+                  from={from}
+                  to={to}
+                  zoom={view.zoom}
+                  onSelect={selectEdge}
+                />
+              ))}
             </svg>
             {scenes.map((node) => (
               <CanvasScene
@@ -1421,28 +1494,69 @@ function sourcePort(node: LinkSource, zoom: number) {
     : outputPort(node, zoom)
 }
 
-/** Edge previews subscribe only to their endpoints, not the entire canvas document. */
+/** A link's identity, for React keys and edge selection (one link per pair). */
+function linkKey(link: Pick<NodeLink, 'from' | 'to'>) {
+  return `${link.from}→${link.to}`
+}
+
+/** An edge's curve, following its endpoints' drag previews (it subscribes only to those,
+ *  not the entire canvas document). */
+function useLinkCurve(
+  from: LinkSource,
+  to: SceneNode | CompositionNode | RepeatNode,
+  zoom: number,
+) {
+  const source = useNodePosition(from.id, from)
+  const destination = useNodePosition(to.id, to)
+  return linkPath(
+    sourcePort({ ...from, ...source }, zoom),
+    inputPort({ ...to, ...destination }),
+    zoom,
+  )
+}
+
+type LinkCurveProps = {
+  from: LinkSource
+  to: SceneNode | CompositionNode | RepeatNode
+  zoom: number
+}
+
 const NodeLinkPath = memo(function NodeLinkPath({
   from,
   to,
   zoom,
   muted,
-}: {
-  from: LinkSource
-  to: SceneNode | CompositionNode | RepeatNode
-  zoom: number
-  muted?: boolean
-}) {
-  const source = useNodePosition(from.id, from)
-  const destination = useNodePosition(to.id, to)
+  selected,
+}: LinkCurveProps & { muted?: boolean; selected?: boolean }) {
   return (
     <path
       data-muted={muted || undefined}
-      d={linkPath(
-        sourcePort({ ...from, ...source }, zoom),
-        inputPort({ ...to, ...destination }),
-        zoom,
-      )}
+      data-selected={selected || undefined}
+      d={useLinkCurve(from, to, zoom)}
+    />
+  )
+})
+
+/** An edge's invisible, wider hit area: a press selects the edge (Shift toggles it). */
+const NodeLinkHit = memo(function NodeLinkHit({
+  edge,
+  from,
+  to,
+  zoom,
+  onSelect,
+}: LinkCurveProps & { edge: string; onSelect: (edge: string, additive: boolean) => void }) {
+  return (
+    <path
+      data-edge={edge}
+      d={useLinkCurve(from, to, zoom)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        const active = document.activeElement
+        if (active instanceof HTMLElement) active.blur()
+        onSelect(edge, e.shiftKey)
+      }}
     />
   )
 })

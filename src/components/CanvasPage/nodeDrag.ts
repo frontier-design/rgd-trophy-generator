@@ -123,6 +123,8 @@ export function useNodeDrag(
     moved: boolean
     /** Option/Alt was held at the press. */
     duplicate: boolean
+    /** Replaces the controller's tap (a press that didn't move) for this press. */
+    onTap: (() => void) | undefined
     /** Removes the window listeners that end the drag if the node loses the pointer. */
     unlisten: () => void
   } | null>(null)
@@ -168,7 +170,8 @@ export function useNodeDrag(
     }
     if (start.revision !== controller?.positions.revision()) return
     if (!start.moved) {
-      controller?.onTap?.(id)
+      if (start.onTap) start.onTap()
+      else controller?.onTap?.(id)
       return
     }
     // Option/Alt (at the press or the drop): the originals go back, copies land here.
@@ -190,7 +193,9 @@ export function useNodeDrag(
   })
 
   return {
-    onPointerDown(event: PointerEvent<HTMLElement>) {
+    /** `options.onTap` replaces the controller's tap for this press (e.g. a press on a
+     * modifier's range band: a tap selects the modifier, a drag still moves the node). */
+    onPointerDown(event: PointerEvent<HTMLElement>, options?: { onTap?: () => void }) {
       if (event.button !== 0) return
       event.preventDefault()
       // The press doesn't move focus (preventDefault): let go of a field focused elsewhere,
@@ -214,6 +219,7 @@ export function useNodeDrag(
         revision: controller?.positions.revision(),
         moved: false,
         duplicate: event.altKey,
+        onTap: options?.onTap,
         unlisten: () => {
           window.removeEventListener('pointermove', onWindowMove)
           window.removeEventListener('pointerup', onWindowEnd)
