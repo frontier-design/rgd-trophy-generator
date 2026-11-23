@@ -438,6 +438,41 @@ are editor overlays and are not included in exports.
   rendered at the scale (drawn in the same task), the text and mirror at their baselines, the
   banner. Canvas scenes hand their exporter up (`onExporter`); options are saved per scene
   (`imageExport`) and in the generator's document.
+- **Record node** (`CanvasRecord`, `RecordTimeline`, `recordNode.ts`, `export/recorder.ts`;
+  right-click → **insert record**): an MP4 of the scene linked into it (scene output → its
+  input, one input, like a composition). It has no width or height: it takes its input's
+  frame, and records at the input's image-export scale, a whole number capped at ×3
+  (`recordScale`; lower when no encoder takes the size: H.264 → HEVC → VP9 → AV1, so ×3 of
+  16:9 is HEVC). Its video: **hold in**, the animation of the text node linked into the scene
+  (the last one, through groups), **hold out** (`recordTimeline`). Its artboard is only a
+  preview: drawn at `RECORD_PREVIEW_SCALE` (¼) of the video (`PlacedRecordNode.frame`; the
+  render uses `video`), with its controls and timeline under it.
+  - **Timeline** under the node, like a motion tool's: a ruler, one row per stretch (hold in,
+    each text line typing with its hold as a second, hatched bar, the backspace's pause and
+    deleting, hold out) with its bar and
+    length, and a playhead. Dragging on the ruler or rows scrubs (the scene shows that moment,
+    `useTypingPlayback` `seek`); ▶ plays it live, ↺ from the start; deselecting the node (or
+    the end of playback) lets the scene go. Dragging a bar's right end retimes it: a line's
+    speed (characters over the new length) or hold, the pause, the delete speed, or a hold; the
+    scale holds during the drag so the end follows the pointer. The playhead is absolutely
+    positioned, not a grid item (it would push the rows out of their cells).
+  - **Render** runs its own clock, not the browser's: frame i seeks the text node to i / fps
+    − hold in (`flushSync`, so the scene is drawn when it returns; the text is a pure
+    function of time, `textAt`), composes the scene (`SceneFrameSource.compose`, which keeps
+    the 3D view at the export resolution until `release`), and queues the frame for the
+    encoder. Every frame is drawn however long it takes (a lagging browser makes a slow
+    export, never a skipped frame); `drain` keeps only a few full-size frames waiting.
+    Cancel or unmounting stops it; the seek is always undone. The node (name, position, fps,
+    hold in/out; saves with one `hold` load it as the hold out) is saved under `records`.
+- **Line hold** (a line's formatting, under tracking: **hold** checkbox + its length;
+  `TextLine.hold`, s, absent = none): after the line is typed the animation waits that long
+  before the next line starts (`typedText` shows the lines so far, the next not begun;
+  `textSegments` gives it as a `hold` segment). Edited lines keep their hold; new lines don't
+  inherit it.
+- **Text node backspace** (`BackspaceFields`, `TextParams.backspace`, `textLines.ts`): after
+  the typing, a **pause** on the whole text, then deleting it one character at a time from
+  the end at **delete speed** (`textSegments`, `textDuration`, `textAt`). It's the text
+  node's, so its ▶ preview, every linked scene and the record node's render all play it.
 - **Pattern node** (`PatternFields`; right-click → **insert pattern**; starts in repeat mode,
   fold around, which works best for organic ornament): ornament on a strip from an image (starts with `public/images/ornament-sample.png`; **load image** stores a
   ≤ 2048 px WebP data URL in the node, so it's saved with the canvas; maps keep up to 512 px
@@ -501,6 +536,18 @@ are editor overlays and are not included in exports.
   height up to half the feature size × strength (same steepness at any scale); octaves
   smaller than ~2 px on screen fade out instead of shimmering; pits or streaks a touch
   darker. Up to `MAX_TEXTURES` (4) per scene; uniforms only (`setTextures`).
+- **Text node** (`TextLinesField`, `textLines.ts`, pure and tested; params `{ lines }`, each
+  `{ text, speed, tracking }`; saves with one `text` load as lines): one input per line that
+  edits like a textarea (Enter at a line's end goes to the next line or makes one after the
+  last, mid-line splits; Backspace/Delete at the ends join; arrows cross lines; multi-line
+  pastes split). Beside each, its typing **speed** (chars/s); its chevron unfolds
+  **tracking** (thousandths of an em). **Play typing** (`useTypingPlayback`, session only)
+  types line after line, each at its speed. Tracking reaches scenes as
+  `Settings.lineTracking`: `measureLines` measures each hard line with Pretext's
+  `letterSpacing`, and widths are the ink's (no spacing after the last letter, which CSS and
+  canvas add: right-aligned/centered drawing takes it back, `marginRight` in RagEditor,
+  `trackedX` in exports). Tracked text can't be styled per line in the textarea, so its
+  text is hidden and the lines drawn over it, as while revealing.
 - **Modifier nodes** (`graph.ts`: `ModifierNode` = twist | etch | pattern | texture, `kind`;
   `NodeCard` is the shared card, `TwistFields` / `EtchFields` / `PatternFields` /
   `TextureFields` the fields): one link model, `modifiersByScene` groups each scene's
@@ -509,14 +556,20 @@ are editor overlays and are not included in exports.
   `DEFAULT_ETCH`, `DEFAULT_PATTERN`) follow how nodes were actually used in saved projects
   (shallow straight lobes; bold horizontal rings; surface-mapped bands with no fade, all on a
   band in the lower body); the render3d math tests pin their own fixtures instead.
-- **Clusters** (`cluster.ts`, `ClusterFrame`; ⌘G groups the selected modifier nodes, ⇧⌘G
-  takes clusters apart, also in the right-click menu): a frame behind the members' cards
-  (measured with a ResizeObserver) with a header (select, drag: moves every member, via the
-  drag participants) and one output port. A link from a cluster stands for a link from each
-  member (`expandClusterLinks`, in canvas order; scenes, range handles and port fills use the
-  expanded links). Ungrouping or regrouping carries a cluster's links on to its members.
-  Deleting a cluster deletes its nodes. Saved under `clusters` (members must exist, one
-  cluster each). Clusters aren't copied (copying their nodes copies them ungrouped).
+- **Groups** (called clusters in code: `cluster.ts`, `ClusterFrame`, ids `cluster-N`, saved under
+  `clusters`; ⌘G groups the selected modifier nodes, ⇧⌘G takes groups apart, also in the
+  right-click menu): a frame behind the members' cards (measured with a ResizeObserver) with a
+  header (select, drag: moves every member, via the drag participants; ⌘-click mutes its links)
+  and one output port. A link from a group stands for a link from each member
+  (`expandClusterLinks`, in canvas order; scenes, range handles and port fills use the expanded
+  links). Grouped nodes have no links or output ports of their own; ⌘-click mutes one within its
+  group (`ClusterNode.muted`). ⌘G (`groupSelected`): with a group selected, the first one takes in
+  the other selected groups and nodes (keeping its name and links, dropping the nodes' own links);
+  otherwise a new group, which feeds the one artboard its nodes all fed (`rewireToCluster`) or
+  drops their links. Ungrouping carries a group's links (and mutes) on to its members. Deleting a
+  group deletes its nodes. Copies of grouped nodes join their group, copies of a whole group make
+  a new one (`copiedGroups` / `pasteGroups`); Option+⌘-drag copies outside the group. Old default
+  names ("cluster 3") load as "group 3".
 - **Master node** (`master.ts`, `MasterFields`; one per canvas, `MASTER_ID`, saved under
   `master`): the settings every scene shares (align, mirror, overshoot, round top, taper,
   smooth joins; shading, banding, gradient scale, tilt, wobble, edge hue, ledge, grain, grain
