@@ -122,7 +122,6 @@ export function RagEditor({
         value={settings.text}
         readOnly={canvasMode && !textEditable}
         onChange={(e) => onTextChange(e.target.value)}
-        placeholder="Start typing…"
         spellCheck={false}
       />
       {/* While revealing, the textarea's own text is hidden and the lines that have

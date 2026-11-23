@@ -16,6 +16,10 @@ interface ClusterFrameProps {
   onMove: (id: string, x: number, y: number) => void
   /** A press on its output port: starts dragging a link from the cluster. */
   onOutputDown: (id: string, e: ReactPointerEvent) => void
+  /** Every link from it is muted. */
+  muted?: boolean
+  /** ⌘-click on its header: mutes (or unmutes) its outgoing links, like a node's. */
+  onToggleMute?: (id: string) => void
 }
 
 /**
@@ -33,6 +37,8 @@ export const ClusterFrame = memo(function ClusterFrame({
   onSelect,
   onMove,
   onOutputDown,
+  muted,
+  onToggleMute,
 }: ClusterFrameProps) {
   const { id } = cluster
   const anchor = { id, x: bounds.x, y: bounds.y }
@@ -44,6 +50,7 @@ export const ClusterFrame = memo(function ClusterFrame({
       className="cluster-frame"
       data-cluster-id={id}
       data-selected={selected || undefined}
+      data-muted={muted || undefined}
       data-no-pan
       style={
         {
@@ -64,12 +71,20 @@ export const ClusterFrame = memo(function ClusterFrame({
         className="cluster-frame-header"
         role="group"
         aria-label={cluster.name}
+        title="Command-click to mute or unmute outgoing links"
         {...drag}
         onPointerDown={(e) => {
           if (e.button !== 0) return
           if ((e.target as Element).closest('[data-port]')) return
+          if (e.metaKey) return
           onSelect(id, e.shiftKey, true)
           if (!e.shiftKey) drag.onPointerDown(e)
+        }}
+        onClick={(e) => {
+          if (e.metaKey && !(e.target as Element).closest('[data-port]')) {
+            e.preventDefault()
+            onToggleMute?.(id)
+          }
         }}
       >
         <span className="cluster-frame-name">{cluster.name}</span>

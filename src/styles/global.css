@@ -298,10 +298,6 @@ body {
   touch-action: none;
 }
 
-.rag-text::placeholder {
-  color: var(--color-placeholder);
-}
-
 /* The mirrored copy: each line right-aligned in the column's reflection across the edge
    (from the edge to one column-width past it), so its ragged edge mirrors the original. */
 .rag-mirror {
@@ -1285,7 +1281,8 @@ body {
 
 .node-links path[data-muted],
 .canvas-node[data-muted],
-.canvas-scene[data-muted] {
+.canvas-scene[data-muted],
+.cluster-frame[data-muted] {
   opacity: 0.6;
 }
 

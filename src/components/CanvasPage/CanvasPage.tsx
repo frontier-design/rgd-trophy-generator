@@ -1393,6 +1393,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onSelect={selectNode}
                 onMove={moveModifier}
                 onOutputDown={startLink}
+                muted={mutedNodes.has(cluster.id)}
+                onToggleMute={toggleOutgoingMute}
               />
             ))}
             <NodeCard
