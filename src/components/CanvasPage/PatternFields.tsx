@@ -1,11 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PatternStatus } from '../../hooks'
 import type { Gray } from '../../pattern'
-import type {
-  PatternFold,
-  PatternMapping,
-  PatternParams,
-} from '../../types'
+import type { PatternFold, PatternMapping, PatternParams } from '../../types'
 import { RangeField } from '../ControlPanel/RangeField'
 import { SelectField } from '../ControlPanel/SelectField'
 import { ToggleField } from '../ControlPanel/ToggleField'
@@ -77,6 +73,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="from"
         onChange={(from) => set({ from })}
       />
       <RangeField
@@ -85,6 +82,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="to"
         onChange={(to) => set({ to })}
       />
       {/* Fades the ornament in from the strip's edges, so it sinks into the surface. */}
@@ -94,6 +92,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={50}
         unit="%"
+        param="fade"
         onChange={(fade) => set({ fade })}
       />
       {/* The embossing's depth at the strip's top and bottom (eased between): lower one to
@@ -104,6 +103,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthTop"
         onChange={(depthTop) => set({ depthTop })}
       />
       <RangeField
@@ -112,6 +112,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthBottom"
         onChange={(depthBottom) => set({ depthBottom })}
       />
       <RangeField
@@ -120,6 +121,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={1}
         max={24}
         unit=""
+        param="repeats"
         onChange={(repeats) => set({ repeats })}
       />
       {/* The ornament's size (proportions kept): smaller repeats more and stacks in rows,
@@ -130,6 +132,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={25}
         max={400}
         unit="%"
+        param="scale"
         onChange={(scale) => set({ scale })}
       />
       {/* Spins the pattern around the trophy (slides it sideways around the axis). */}
@@ -139,6 +142,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={-180}
         max={180}
         unit="°"
+        param="spin"
         onChange={(spin) => set({ spin })}
       />
       {/* Turns the ornament on the trophy (in its rows and repeats). */}
@@ -148,6 +152,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={-180}
         max={180}
         unit="°"
+        param="angle"
         onChange={(angle) => set({ angle })}
       />
       {/* Each motif's size where it sits (the same number of them): smaller spaces them out
@@ -158,6 +163,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={10}
         max={200}
         unit="%"
+        param="shapeScale"
         onChange={(shapeScale) => set({ shapeScale })}
       />
       <SelectField
@@ -172,6 +178,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={1}
         max={99}
         unit="%"
+        param="threshold"
         onChange={(threshold) => set({ threshold })}
       />
       <ToggleField label="invert" checked={params.invert} onChange={(invert) => set({ invert })} />
@@ -181,6 +188,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={12}
         unit=""
+        param="softness"
         onChange={(softness) => set({ softness })}
       />
       <RangeField
@@ -189,6 +197,7 @@ export function PatternFields({ params, set, status }: PatternFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="strength"
         onChange={(strength) => set({ strength })}
       />
     </>

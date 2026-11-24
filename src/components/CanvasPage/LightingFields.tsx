@@ -17,6 +17,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         min={-180}
         max={180}
         unit="°"
+        param="lightAngle"
         onChange={(lightAngle) => set({ lightAngle })}
       />
       <RangeField
@@ -25,6 +26,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         min={0}
         max={90}
         unit="°"
+        param="lightHeight"
         onChange={(lightHeight) => set({ lightHeight })}
       />
       <RangeField
@@ -35,6 +37,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         step={0.01}
         digits={2}
         unit=""
+        param="ambient"
         onChange={(ambient) => set({ ambient })}
       />
       <RangeField
@@ -45,6 +48,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         step={0.01}
         digits={2}
         unit=""
+        param="softness"
         onChange={(softness) => set({ softness })}
       />
       <RangeField
@@ -55,6 +59,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         step={0.01}
         digits={2}
         unit=""
+        param="highlight"
         onChange={(highlight) => set({ highlight })}
       />
       <RangeField
@@ -65,6 +70,7 @@ export function LightingFields({ params, set }: LightingFieldsProps) {
         step={0.01}
         digits={2}
         unit=""
+        param="highlightSize"
         onChange={(highlightSize) => set({ highlightSize })}
       />
     </>

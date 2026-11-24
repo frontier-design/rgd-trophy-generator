@@ -1333,11 +1333,79 @@ body {
 /* The sliders, in the sidebar's two columns. */
 .node-card-body {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  /* Label, control, and (modifier sliders) the animation chevron. */
+  grid-template-columns: max-content minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 12px;
   row-gap: 6px;
   padding: 12px 14px;
+}
+
+/* A modifier slider's animation (RangeField `param`, fieldAnim.ts): a chevron after the
+   slider unfolds a row under it: Anim, then the line it follows and From / To (which value
+   the slider edits). An animated slider's label is marked. */
+.field-anim-fold {
+  grid-column: 3;
+  width: 14px;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  opacity: 0.6;
+  transition: transform 120ms;
+}
+
+.field-anim-fold[aria-expanded='true'] {
+  transform: rotate(90deg);
+}
+
+.field-anim-fold:hover {
+  opacity: 1;
+}
+
+.field-anim {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 6px;
+  align-items: center;
+  padding: 0 0 4px;
+  font-size: 11px;
+}
+
+.field-anim-toggle,
+.field-anim-line {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  font-weight: 700;
+}
+
+.field-anim-toggle input {
+  margin: 0;
+}
+
+.field-anim-line input {
+  width: 3.5em;
+  font: inherit;
+}
+
+.field-anim-easing {
+  font: inherit;
+}
+
+.field-anim-which {
+  padding: 2px 8px;
+  text-transform: capitalize;
+}
+
+.control-field[data-animated] > .control-label::after {
+  content: ' ◆';
+  font-size: 0.8em;
 }
 
 /* The master node: inverted header (it applies to every scene, with no output port). */

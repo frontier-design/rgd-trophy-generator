@@ -26,6 +26,20 @@ export interface TextBackspace {
   speed: number
 }
 
+/** A typing preview's place: characters typed of all of them (the mask), and, when it's
+ *  timed (playing, scrubbed, rendering), seconds in and each line's typing (s): what nodes'
+ *  animated properties follow. */
+export interface TextProgress {
+  typed: number
+  total: number
+  time?: number
+  /** Each line's typing (s): from its start to its end, and when its first letter appears. */
+  lines?: { start: number; end: number; first: number }[]
+  /** With backspace on: when each line is deleted (s; from the end, so the last line
+   *  first). */
+  deletes?: { start: number; end: number }[]
+}
+
 export interface TextParams {
   lines: TextLine[]
   /** Absent in saves from before backspacing (off). */
@@ -36,7 +50,7 @@ export interface TextParams {
   mask?: boolean
   /** Set on typing previews only (never saved): characters typed of all of them, for the
    *  mask. Absent: all typed. */
-  progress?: { typed: number; total: number }
+  progress?: TextProgress
 }
 
 export const DEFAULT_LINE_SPEED = 8
@@ -349,22 +363,50 @@ export function maskReveal(typed: number, total: number): number {
  *  typing preview). Null when it doesn't mask. */
 export function textMask(params: TextParams): { typed: number; total: number } | null {
   if (!params.mask) return null
-  if (params.progress) return params.progress
+  if (params.progress) return { typed: params.progress.typed, total: params.progress.total }
   const total = characterCount(params.lines)
   return { typed: total, total }
 }
 
-/** Preview params showing `typed` text of `params`: its lines, with the progress the mask
- *  needs. */
-export function typedParams(params: TextParams, typed: string): TextParams {
+/** Preview params showing `typed` text of `params` at `time` (s into its animation): its
+ *  lines, with the progress the mask and animated properties need. */
+export function typedParams(params: TextParams, typed: string, time: number): TextParams {
   return {
     ...params,
     lines: linesFromText(typed, params.lines),
     progress: {
       typed: Array.from(typed.replace(/\n/g, '')).length,
       total: characterCount(params.lines),
+      time,
+      lines: textSegments(params).flatMap((segment) => {
+        if (segment.kind !== 'line') return []
+        const line = params.lines[segment.index ?? 0]
+        // The first letter appears one character's time in (an empty line: at its start).
+        const first =
+          line && line.text && line.speed > 0
+            ? Math.min(segment.end, segment.start + 1 / line.speed)
+            : segment.start
+        return [{ start: segment.start, end: segment.end, first }]
+      }),
+      ...(params.backspace?.enabled ? { deletes: deleteWindows(params) } : {}),
     },
   }
+}
+
+/** When each line is deleted (s), backspace on: characters go from the end at its speed,
+ *  so a line's window starts once every later line is gone. */
+export function deleteWindows(params: TextParams): { start: number; end: number }[] {
+  const start = textSegments(params).find((segment) => segment.kind === 'delete')?.start
+  const speed = params.backspace?.speed ?? 0
+  if (start === undefined || !(speed > 0)) return []
+  const counts = params.lines.map((line) => Array.from(line.text).length)
+  let after = 0
+  const out = counts.map(() => ({ start: 0, end: 0 }))
+  for (let i = counts.length - 1; i >= 0; i--) {
+    out[i] = { start: start + after / speed, end: start + (after + counts[i]!) / speed }
+    after += counts[i]!
+  }
+  return out
 }
 
 /**

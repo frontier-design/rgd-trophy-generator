@@ -42,7 +42,7 @@ it("gives linked scenes a masking text node's progress (all typed outside a prev
   }
   const links = [{ from: 't', to: 'scene' }]
   expect(modifiersByScene(links, [node]).get('scene')?.mask).toEqual({ typed: 7, total: 7 })
-  const preview = { ...node, params: typedParams(node.params, 'RGD\n2') }
+  const preview = { ...node, params: typedParams(node.params, 'RGD\n2', 0.5) }
   expect(modifiersByScene(links, [preview]).get('scene')).toMatchObject({
     text: 'RGD\n2',
     mask: { typed: 4, total: 7 },

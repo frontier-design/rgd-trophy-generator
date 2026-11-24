@@ -35,6 +35,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="from"
         onChange={(from) => set({ from })}
       />
       <RangeField
@@ -43,6 +44,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="to"
         onChange={(to) => set({ to })}
       />
       {/* The lines' depth (inlaid: strength) fading in from the strip's edges, and easing
@@ -53,6 +55,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={50}
         unit="%"
+        param="fade"
         onChange={(fade) => set({ fade })}
       />
       <RangeField
@@ -61,6 +64,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthTop"
         onChange={(depthTop) => set({ depthTop })}
       />
       <RangeField
@@ -69,6 +73,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthBottom"
         onChange={(depthBottom) => set({ depthBottom })}
       />
       <RangeField
@@ -77,6 +82,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={1}
         max={24}
         unit=""
+        param="bundles"
         onChange={(bundles) => set({ bundles })}
       />
       <RangeField
@@ -85,6 +91,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={1}
         max={8}
         unit=""
+        param="lines"
         onChange={(lines) => set({ lines })}
       />
       <RangeField
@@ -96,6 +103,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         digits={1}
         unit="%"
         disabled={params.lines < 2}
+        param="gap"
         onChange={(gap) => set({ gap })}
       />
       {/* In px of the 1920 × 1080 frame (so thin lines look thinner on a zoomed-out canvas). */}
@@ -106,6 +114,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         max={40}
         step={0.1}
         digits={1}
+        param="width"
         onChange={(width) => set({ width })}
       />
       <RangeField
@@ -115,6 +124,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         max={360}
         unit="°"
         disabled={layout === 'vertical' || layout === 'horizontal'}
+        param="slant"
         onChange={(slant) => set({ slant })}
       />
       <RangeField
@@ -126,6 +136,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         digits={1}
         unit=""
         disabled={!swings}
+        param="waves"
         onChange={(waves) => set({ waves })}
       />
       <ToggleField
@@ -146,6 +157,7 @@ export function EtchFields({ params, set }: EtchFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="strength"
         onChange={(strength) => set({ strength })}
       />
     </>

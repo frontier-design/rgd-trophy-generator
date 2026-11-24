@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModifierNode, TextNode } from './graph'
+import { animates } from './paramAnim'
 import { textAt, textDuration, textOf, typedParams } from './textLines'
 
 interface Playback {
@@ -9,6 +10,8 @@ interface Playback {
   start: number
   /** What has been typed so far. */
   typed: string
+  /** Seconds in, as of the last update. */
+  elapsed: number
 }
 
 const textNode = (nodes: readonly ModifierNode[], id: string) =>
@@ -47,7 +50,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
       const node = textNode(nodesRef.current, id)
       const text = node ? textOf(node.params.lines) : ''
       if (next[id]) delete next[id]
-      else if (text) next[id] = { text, start: Date.now(), typed: '' }
+      else if (text) next[id] = { text, start: Date.now(), typed: '', elapsed: 0 }
       return next
     })
   }, [])
@@ -80,7 +83,13 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
     })
   }, [nodes])
 
-  // One frame loop while anything plays; state changes only when a character appears.
+  // One frame loop while anything plays; state changes only when a character appears, or
+  // every frame while a node's property animates (it follows the time).
+  const timed = nodes.some((node) => node.kind !== 'text' && animates(node.anims))
+  const timedRef = useRef(timed)
+  useEffect(() => {
+    timedRef.current = timed
+  })
   const active = Object.keys(playing).length > 0
   useEffect(() => {
     if (!active) return
@@ -93,10 +102,10 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           const elapsed = (Date.now() - playback.start) / 1000
           const typed =
             node && elapsed < textDuration(node.params) ? textAt(node.params, elapsed) : null
-          if (typed === playback.typed) continue
+          if (typed === playback.typed && !timedRef.current) continue
           next ??= { ...current }
           if (typed === null) delete next[id]
-          else next[id] = { ...playback, typed }
+          else next[id] = { ...playback, typed, elapsed }
         }
         return next ?? current
       })
@@ -111,16 +120,16 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
         const at = seeked[node.id]
         if (node.kind === 'text' && at !== undefined) {
           const typed = textAt(node.params, at)
-          return typed === textOf(node.params.lines)
+          return typed === textOf(node.params.lines) && !timed
             ? node
-            : { ...node, params: typedParams(node.params, typed) }
+            : { ...node, params: typedParams(node.params, typed, at) }
         }
         const playback = playing[node.id]
         return node.kind === 'text' && playback && playback.text === textOf(node.params.lines)
-          ? { ...node, params: typedParams(node.params, playback.typed) }
+          ? { ...node, params: typedParams(node.params, playback.typed, playback.elapsed) }
           : node
       }),
-    [nodes, playing, seeked],
+    [nodes, playing, seeked, timed],
   )
   return { playing, toggle, stop, seek, previewNodes }
 }

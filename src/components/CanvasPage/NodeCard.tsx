@@ -20,6 +20,20 @@ import { PatternFields } from './PatternFields'
 import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
 import { TextLinesField } from './TextLinesField'
+import { FieldAnimContext, type FieldAnimControls } from '../ControlPanel/fieldAnim'
+import {
+  DEFAULT_EASING,
+  EASINGS,
+  routeEdit,
+  shownParams,
+  startAnim,
+  type Easing,
+  type ParamAnim,
+  type ParamAnims,
+} from './paramAnim'
+
+/** The animation easings, as the anim row's dropdown lists them. */
+const EASING_OPTIONS = EASINGS.map((value) => ({ value, label: value.replace('-', ' ') }))
 import { BackspaceFields } from './BackspaceFields'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import type { TextParams } from './textLines'
@@ -62,6 +76,9 @@ interface NodeCardProps {
   onSelect: (id: string, additive?: boolean, preserveGroup?: boolean) => void
   onMove: (id: string, x: number, y: number) => void
   onParamsChange: (id: string, patch: ParamsPatch) => void
+  /** Its animated properties changed (a slider's anim controls, or an edit routed to an
+   *  animated slider's from / to value). */
+  onAnimsChange?: (id: string, anims: ParamAnims | undefined) => void
   /** A press on its output port: starts dragging a link from it. */
   onOutputDown: (id: string, e: ReactPointerEvent) => void
 }
@@ -88,6 +105,7 @@ export const NodeCard = memo(function NodeCard({
   onSelect,
   onMove,
   onParamsChange,
+  onAnimsChange,
   onOutputDown,
 }: NodeCardProps) {
   const drag = useNodeDrag(node, getZoom, onMove)
@@ -95,17 +113,49 @@ export const NodeCard = memo(function NodeCard({
   const { id, params } = node
   const kind = 'kind' in node ? node.kind : 'master'
   const isMaster = kind === 'master'
+  // Modifier nodes' sliders can animate over a text line's typing (not the master's or the
+  // text node's own). Animated sliders show, and edit, their from or to value.
+  const animatable = !isMaster && kind !== 'text' && Boolean(onAnimsChange)
+  const anims = animatable ? (node as ModifierNode).anims : undefined
+  const shown = useMemo(() => shownParams(params, anims), [params, anims])
+  const animControls = useMemo<FieldAnimControls | null>(() => {
+    if (!animatable || !onAnimsChange) return null
+    const update = (param: string, change: (anim: ParamAnim) => ParamAnim | null, value = 0) => {
+      const next = change(anims?.[param] ?? startAnim(value))
+      const all: Record<string, ParamAnim> = { ...(anims ?? {}) }
+      if (next) all[param] = next
+      else delete all[param]
+      onAnimsChange(id, Object.keys(all).length ? all : undefined)
+    }
+    return {
+      get: (param) => anims?.[param],
+      setEnabled: (param, enabled, value) =>
+        update(param, (anim) => (enabled ? { ...anim, enabled: true } : null), value),
+      setLine: (param, line) => update(param, (anim) => ({ ...anim, line })),
+      setEditing: (param, editing) => update(param, (anim) => ({ ...anim, editing })),
+      easings: EASING_OPTIONS,
+      setEasing: (param, easing) =>
+        update(param, (anim) => {
+          const { easing: _, ...rest } = anim
+          return easing === DEFAULT_EASING ? rest : { ...rest, easing: easing as Easing }
+        }),
+    }
+  }, [animatable, anims, id, onAnimsChange])
   const fields = useMemo(() => {
-    const set = (patch: ParamsPatch) => onParamsChange(id, patch)
+    const set = (patch: ParamsPatch) => {
+      const routed = routeEdit(params, shown, patch as Record<string, unknown>, anims)
+      if (routed.anims !== anims) onAnimsChange?.(id, routed.anims)
+      if (Object.keys(routed.params).length) onParamsChange(id, routed.params as ParamsPatch)
+    }
     switch (kind) {
       case 'master':
         return <MasterFields params={params as MasterParams} set={set} />
       case 'shape':
-        return <ShapeFields params={params as ShapeParams} set={set} />
+        return <ShapeFields params={shown as ShapeParams} set={set} />
       case 'twist':
-        return <TwistFields params={params as TwistParams} set={set} />
+        return <TwistFields params={shown as TwistParams} set={set} />
       case 'etch':
-        return <EtchFields params={params as EtchParams} set={set} />
+        return <EtchFields params={shown as EtchParams} set={set} />
       case 'text':
         return (
           <>
@@ -132,15 +182,26 @@ export const NodeCard = memo(function NodeCard({
           </>
         )
       case 'lighting':
-        return <LightingFields params={params as LightingParams} set={set} />
+        return <LightingFields params={shown as LightingParams} set={set} />
       case 'material':
-        return <MaterialFields params={params as MaterialSettings} set={set} />
+        return <MaterialFields params={shown as MaterialSettings} set={set} />
       case 'texture':
-        return <TextureFields params={params as TextureParams} set={set} />
+        return <TextureFields params={shown as TextureParams} set={set} />
       case 'pattern':
-        return <PatternFields params={params as PatternParams} set={set} status={pattern} />
+        return <PatternFields params={shown as PatternParams} set={set} status={pattern} />
     }
-  }, [kind, params, id, onParamsChange, pattern, typingPlaying, onTypingToggle])
+  }, [
+    kind,
+    params,
+    shown,
+    anims,
+    id,
+    onParamsChange,
+    onAnimsChange,
+    pattern,
+    typingPlaying,
+    onTypingToggle,
+  ])
 
   return (
     <div
@@ -222,7 +283,11 @@ export const NodeCard = memo(function NodeCard({
           )}
         </div>
         {/* Fields only when shown (a card's fields are most of its DOM). */}
-        {!node.collapsed && !compact && <div className="node-card-body">{fields}</div>}
+        {!node.collapsed && !compact && (
+          <div className="node-card-body">
+            <FieldAnimContext.Provider value={animControls}>{fields}</FieldAnimContext.Provider>
+          </div>
+        )}
       </div>
     </div>
   )

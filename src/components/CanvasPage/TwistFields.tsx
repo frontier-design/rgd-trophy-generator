@@ -27,8 +27,9 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         label="flutes"
         value={params.flutes}
         min={3}
-        max={48}
+        max={120}
         unit=""
+        param="flutes"
         onChange={(flutes) => set({ flutes })}
       />
       <RangeField
@@ -39,6 +40,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         step={0.5}
         digits={1}
         unit="%"
+        param="depth"
         onChange={(depth) => set({ depth })}
       />
       <RangeField
@@ -47,6 +49,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         min={-360}
         max={360}
         unit="°"
+        param="twist"
         onChange={(twist) => set({ twist })}
       />
       <RangeField
@@ -56,6 +59,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         max={100}
         unit="%"
         disabled={params.twist === 0}
+        param="curve"
         onChange={(curve) => set({ curve })}
       />
       <RangeField
@@ -64,6 +68,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="sharpness"
         onChange={(sharpness) => set({ sharpness })}
       />
       <RangeField
@@ -72,6 +77,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         min={-180}
         max={180}
         unit="°"
+        param="rotate"
         onChange={(rotate) => set({ rotate })}
       />
       <RangeField
@@ -80,6 +86,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="from"
         onChange={(from) => set({ from })}
       />
       <RangeField
@@ -88,6 +95,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="to"
         onChange={(to) => set({ to })}
       />
       <SelectField
@@ -104,6 +112,7 @@ export function TwistFields({ params, set }: TwistFieldsProps) {
         step={0.5}
         digits={1}
         unit="%"
+        param="endSize"
         onChange={(endSize) => set({ endSize })}
       />
     </>

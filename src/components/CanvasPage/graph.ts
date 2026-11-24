@@ -1,4 +1,5 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
+import { animatedParams, animates, type ParamAnims, type TextTiming } from './paramAnim'
 import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS, DEFAULT_SCENE_PARAMS } from '../../state'
 import { FULL_CROP } from '../../pattern'
 import { lineTracking, linesFromText, textMask, textOf, type TextParams } from './textLines'
@@ -20,6 +21,8 @@ interface ModifierBase {
   y: number
   /** Folded to its header (its fields hidden). */
   collapsed?: boolean
+  /** Its animated properties (sliders following a text line's typing, `paramAnim.ts`). */
+  anims?: ParamAnims
 }
 
 /** Twist: flutes around the trophy (its settings are the sliders on the node). */
@@ -240,7 +243,7 @@ export const NODE_CARD = { width: 260, header: 34 }
  *  canvas (so they don't cover the scenes). */
 export const CARD_FULL_ZOOM = 0.5
 /** Below this on-screen scale a card shows only its header (lighter, out of the way). */
-export const CARD_COMPACT_SCALE = 0.6
+export const CARD_COMPACT_SCALE = 0.4
 /** Cards never get smaller than this on screen, so their names stay legible. */
 export const CARD_MIN_SCALE = 0.3
 
@@ -389,17 +392,71 @@ export interface SceneModifiers {
 }
 
 /** Each linked scene's modifiers; `maps` holds the pattern nodes' height maps by id. */
+/** Where each scene's text animation is (its last linked text node's timed preview), for
+ *  nodes' animated properties; a scene that's at rest has none. */
+function sceneTimings(
+  links: readonly NodeLink[],
+  byId: ReadonlyMap<string, ModifierNode>,
+): Map<string, TextTiming | null> {
+  const out = new Map<string, TextTiming | null>()
+  for (const link of links) {
+    if (link.muted) continue
+    const node = byId.get(link.from)
+    if (node?.kind !== 'text') continue
+    const progress = node.params.progress
+    out.set(
+      link.to,
+      progress?.time !== undefined && progress.lines
+        ? { time: progress.time, lines: progress.lines, deletes: progress.deletes }
+        : null,
+    )
+  }
+  return out
+}
+
+// Animated params, kept per node params, animations and time, so a scene at rest (or
+// unchanged) keeps the same objects and doesn't re-render.
+const animatedCache = new WeakMap<object, WeakMap<object, Map<string, object>>>()
+
+/** A node's params as a scene sees them now (animated properties at their values). */
+function sceneParams<T extends ModifierNode>(node: T, timing: TextTiming | null): T['params'] {
+  const anims = node.anims
+  if (!animates(anims)) return node.params
+  const byAnims = animatedCache.get(node.params) ?? new WeakMap<object, Map<string, object>>()
+  animatedCache.set(node.params, byAnims)
+  const byTime = byAnims.get(anims!) ?? new Map<string, object>()
+  byAnims.set(anims!, byTime)
+  const key = timing
+    ? [
+        timing.time,
+        ...[...timing.lines, ...(timing.deletes ?? [])].map((w) => `${w.start},${w.end}`),
+      ].join('|')
+    : ''
+  const cached = byTime.get(key)
+  if (cached) return cached as T['params']
+  const value = animatedParams(node.params, anims, timing)
+  // A few times per node at most (the time moves on): keep the latest.
+  if (byTime.size > 8) byTime.clear()
+  byTime.set(key, value)
+  return value
+}
+
 export function modifiersByScene(
   links: readonly NodeLink[],
   nodes: readonly ModifierNode[],
   maps: ReadonlyMap<string, HeightMap> = new Map(),
 ): Map<string, SceneModifiers> {
   const byId = new Map(nodes.map((node) => [node.id, node]))
+  const timings = sceneTimings(links, byId)
   const out = new Map<string, SceneModifiers>()
   for (const link of links) {
     if (link.muted) continue
-    const node = byId.get(link.from)
-    if (!node) continue
+    const found = byId.get(link.from)
+    if (!found) continue
+    const node = {
+      ...found,
+      params: sceneParams(found, timings.get(link.to) ?? null),
+    } as ModifierNode
     const current: SceneModifiers = out.get(link.to) ?? {
       twists: [],
       etches: [],
@@ -439,6 +496,7 @@ export function createSceneModifiersResolver() {
     maps: ReadonlyMap<string, HeightMap> = new Map(),
   ): Map<string, SceneModifiers> => {
     const byId = new Map(nodes.map((node) => [node.id, node]))
+    const timings = sceneTimings(links, byId)
     const inputs = new Map<string, Input[]>()
     const sceneLinks = new Map<string, NodeLink[]>()
     for (const link of links) {
@@ -449,7 +507,7 @@ export function createSceneModifiersResolver() {
       entries.push({
         id: node.id,
         kind: node.kind,
-        params: node.params,
+        params: sceneParams(node, timings.get(link.to) ?? null),
         map: node.kind === 'pattern' ? maps.get(node.id) : undefined,
       })
       inputs.set(link.to, entries)

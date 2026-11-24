@@ -82,6 +82,7 @@ import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './mas
 import { NodeCard, type ParamsPatch } from './NodeCard'
 import { useTypingPlayback } from './useTypingPlayback'
 import { linesFromText } from './textLines'
+import type { ParamAnims } from './paramAnim'
 import {
   createNodePositionStore,
   NodeDragContext,
@@ -640,6 +641,15 @@ export function CanvasPage({ tools }: CanvasPageProps) {
               : ({ ...node, params: { ...node.params, ...patch } } as ModifierNode),
           ),
     [updateModifier, setMasterParams],
+  )
+  /** A modifier's animated properties (its sliders' anim controls). */
+  const setModifierAnims = useCallback(
+    (id: string, anims: ParamAnims | undefined) =>
+      updateModifier(id, (node) => {
+        const { anims: _, ...rest } = node
+        return (anims ? { ...rest, anims } : rest) as ModifierNode
+      }),
+    [updateModifier],
   )
   /** Remove selected nodes and incident links; the master is movable but never deleted. */
   const deleteNodes = useCallback(
@@ -1634,6 +1644,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onSelect={selectNode}
                 onMove={moveModifier}
                 onParamsChange={setModifierParams}
+                onAnimsChange={setModifierAnims}
                 onOutputDown={startLink}
               />
             ))}
