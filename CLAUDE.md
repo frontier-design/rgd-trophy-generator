@@ -368,13 +368,13 @@ are editor overlays and are not included in exports.
 - **Node cards** (`NodeCard`): full size on screen down to 50% zoom, then shrinking with the
   canvas to a 30% floor (`cardScale`; `--card-scale` on the world layer, which also scales
   scene input ports and places output ports, `outputPort`), so zoomed out they don't cover
-  the scenes. Below 60% scale they show only their header (no fields in the DOM); the header's
+  the scenes. Below 40% scale (20% zoom) they show only their header (no fields in the DOM); the header's
   −/+ folds a card at any zoom (`collapsed`, saved). The selected scene's panel is
   `SceneControls`, memoized so panning (which re-renders the page) doesn't re-render it.
 - **Twist node** (`TwistFields`, `graph.ts`; right-click → **insert twist**): a card with
   fields: **section**
   (lobes: raised lobes, grooves between; grooves: narrow rounded channels in flat ribs),
-  **flutes**, **depth** % of the radius, **twist** ° over the band, **curve** (the turn
+  **flutes** (3–120), **depth** % of the radius, **twist** ° over the band, **curve** (the turn
   bends: + slow at the top, tightening below), **sharpness** (lobes: rounder lobes, crisper
   creases; grooves: narrower channels), **rotate**, **from**/**to** (the band of the height,
   % from the top), **ends** (fade, or round: each cut closes in an arch) and **end size** (%
@@ -484,6 +484,24 @@ are editor overlays and are not included in exports.
   (all typed) nothing is clipped. On screen it's a CSS `clip-path` on the 3D and 2D layers
   (`.artboard[data-masked]`, `--mask-top`); exports clip the trophy image
   (`PlacedImage.clipTop`, via `composeScene`'s `maskTop`). Text is never masked.
+- **Animated node properties** (`paramAnim.ts`, `ControlPanel/fieldAnim.ts`): every slider on
+  a modifier node (shape, twist, etch, pattern, texture, material, lighting; not the master,
+  the text node or scene panels) has a chevron (`RangeField` `param`, the property's path,
+  `lineBox.padX` inside an object) unfolding **Anim**; on, a **line** number and **From** /
+  **To**. The slider edits (and shows) the selected value (`shownParams`; `routeEdit` sends
+  an animated slider's edit there, the node's own value stays); its label is marked ◆. Saved
+  per node under `anims` (`ParamAnims`). In a scene, the value goes from `from` at that
+  line's first character to `to` once it's typed, by the row's **easing** dropdown
+  (`EASINGS`: ease (smoothstep, the default, not saved), linear, fast out and fast in-out
+  (exponential), hold (no easing: `to` from the moment the line's first letter appears,
+  `TextProgress.lines[].first`, until backspace has deleted all of it)), following the scene's linked text
+  node (`TextProgress.time` / `lines`, set by typing previews, seeks and record renders);
+  before it, from; after it, to; and with backspace on, back from `to` to `from` (same easing,
+  played backwards) while that line is deleted (`TextProgress.deletes`, `deleteWindows`: the
+  last line first). At rest (no timed preview, or no text node) a scene shows
+  the value the slider edits (From or To). `modifiersByScene` resolves each node's params per
+  scene (`sceneParams`, cached by params, anims and time so scenes at rest keep the same
+  objects); live playback updates every frame only while some node animates.
 - **Text node backspace** (`BackspaceFields`, `TextParams.backspace`, `textLines.ts`): after
   the typing, a **pause** on the whole text, then deleting it one character at a time from
   the end at **delete speed** (`textSegments`, `textDuration`, `textAt`). It's the text
