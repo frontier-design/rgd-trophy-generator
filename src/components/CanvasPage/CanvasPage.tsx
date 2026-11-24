@@ -11,11 +11,9 @@ import {
   type ReactNode,
 } from 'react'
 import { flushSync } from 'react-dom'
-import { downloadBlob, maxImageScale } from '../../export'
 import { useAutosave, useInfiniteCanvas, usePatternMaps, useSettled, useUndo } from '../../hooks'
 import type { HeightMap } from '../../render3d'
 import { ARTBOARD, isImageAssetRef, setSaveError } from '../../state'
-import { ControlPanel, type HideableField } from '../ControlPanel'
 import {
   hydrateCanvasDocument,
   loadCanvasDocument,
@@ -72,13 +70,10 @@ import {
 } from './graph'
 import {
   createSceneNode,
-  FRAME_PRESETS,
   fitSceneToFrame,
   type FrameRect,
   measureDefaultText,
   type ImageExportOptions,
-  sceneParams,
-  withParams,
   type SceneNode,
 } from './sceneNode'
 import { createRepeatNode, type RepeatNode } from './repeatNode'
@@ -127,32 +122,6 @@ const NO_MODIFIERS: SceneModifiers = {
 }
 
 /** The scene panel leaves out what the master node sets for every scene. */
-const MASTER_FIELDS: ReadonlySet<HideableField> = new Set<HideableField>([
-  'align',
-  'mirror',
-  'overshoot',
-  'roundTop',
-  'taper',
-  'smoothJoins',
-  'shading',
-  'banding',
-  'gradientScale',
-  'tilt',
-  'wobble',
-  'edgeHue',
-  'ledge',
-  'grain',
-  'grainSize',
-  'background',
-  'view',
-])
-
-/** With a lighting node linked, the panel leaves out its lighting section too. */
-const MASTER_AND_LIGHTING_FIELDS: ReadonlySet<HideableField> = new Set<HideableField>([
-  ...MASTER_FIELDS,
-  'lighting',
-])
-
 /** Inputs that take typing (they keep their own clipboard, undo and Backspace). */
 const TEXT_INPUT =
   'input:not([type]), input[type="text"], input[type="number"], input[type="search"], input[type="email"], input[type="url"], input[type="password"]'
@@ -582,6 +551,11 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           ? node
           : { ...fitSceneToFrame(node, { width, height }), x, y },
       ),
+    [updateScene],
+  )
+  const setSceneImageExport = useCallback(
+    (id: string, patch: Partial<ImageExportOptions>) =>
+      updateScene(id, (node) => ({ ...node, imageExport: { ...node.imageExport, ...patch } })),
     [updateScene],
   )
   const setSceneText = useCallback(
@@ -1305,6 +1279,15 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     const bounds = clusterBounds(rects, cardOnCanvas)
     return bounds ? [{ cluster, bounds, rects }] : []
   })
+  // Each text node's type before it sets its own: its first linked scene's.
+  const textTypeFallbacks = new Map<string, { fontSize: number; leading: number }>()
+  for (const link of links) {
+    if (textTypeFallbacks.has(link.from)) continue
+    const scene = scenes.find((node) => node.id === link.to)
+    if (!scene || modifiersById.get(link.from)?.kind !== 'text') continue
+    const { fontSize, lineHeight } = scene.settings
+    textTypeFallbacks.set(link.from, { fontSize, leading: lineHeight / fontSize })
+  }
   // The ↓ on a group: its cards stacked by range (one move, one undo step).
   const arrangeCluster = (id: string) => {
     const layout = clusterLayouts.find(({ cluster }) => cluster.id === id)
@@ -1336,8 +1319,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     '--grid-fine': `${fine}px`,
   } as CSSProperties
 
-  // The selected artboard's controls sit just right of it, top-aligned, kept on screen.
-  const selectedScene = scenes.find((node) => node.id === selection.activeId)
+  // A selected repeat's controls sit just right of it, top-aligned, kept on screen.
   const selectedRepeat = repeats.find((node) => node.id === selection.activeId)
 
   // The links' curves, from each node's output to each scene's input.
@@ -1560,6 +1542,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onFrameSource={setFrameSource}
                 onVisualChange={onVisualChange}
                 onResize={resizeScene}
+                onImageExportChange={setSceneImageExport}
+                exporter={getExporter}
               />
             ))}
             {repeats.map((node) => (
@@ -1661,6 +1645,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onToggleMute={toggleOutgoingMute}
                 pattern={patternStatuses.get(node.id)}
                 typingPlaying={Boolean(typing.playing[node.id])}
+                typeFallbackSize={textTypeFallbacks.get(node.id)?.fontSize}
+                typeFallbackLeading={textTypeFallbacks.get(node.id)?.leading}
                 onTypingToggle={typing.toggle}
                 compact={compactCards}
                 onCollapsedChange={setModifierCollapsed}
@@ -1678,17 +1664,6 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             records.length === 0 &&
             repeats.length === 0 &&
             modifiers.length === 0 && <p className="canvas-hint">Right-click to insert a scene</p>}
-          {selectedScene && (
-            <PositionedSceneControls node={selectedScene} view={view} size={size}>
-              <SceneControls
-                key={selectedScene.id}
-                node={selectedScene}
-                litByNode={sceneModifiers.get(selectedScene.id)?.lighting !== undefined}
-                onChange={updateScene}
-                exporter={getExporter}
-              />
-            </PositionedSceneControls>
-          )}
           {selectedRepeat && (
             <PositionedSceneControls node={selectedRepeat} view={view} size={size}>
               <RepeatControls
@@ -1846,88 +1821,3 @@ function PositionedSceneControls({
     </div>
   )
 }
-
-interface SceneControlsProps {
-  node: SceneNode
-  /** A lighting node is linked: its lighting is used, so the panel leaves its own out. */
-  litByNode: boolean
-  onChange: (id: string, update: (node: SceneNode) => SceneNode) => void
-  /** The scene's image exporter, if it's mounted. */
-  exporter: (id: string) => SceneExporter | undefined
-}
-
-/** The selected scene's control panel. Memoized: the page re-renders on every pan frame
- *  (only the panel's position changes), and the panel is the page's largest part. */
-const SceneControls = memo(function SceneControls({
-  node,
-  litByNode,
-  onChange,
-  exporter,
-}: SceneControlsProps) {
-  const update = (patch: (node: SceneNode) => SceneNode) => onChange(node.id, patch)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const { imageExport: options, frame } = node
-  const maxScale = maxImageScale(frame.width, frame.height)
-  const scale = Math.min(options.scale, maxScale)
-  const setOptions = (patch: Partial<ImageExportOptions>) =>
-    update((current) => ({ ...current, imageExport: { ...current.imageExport, ...patch } }))
-
-  const exportImage = async () => {
-    const run = exporter(node.id)
-    if (!run) return
-    setBusy(true)
-    setError(null)
-    try {
-      const blob = await run({ ...options, scale })
-      const name = node.name.replace(/\s+/g, '-')
-      const ext = options.format === 'png' ? 'png' : 'jpg'
-      downloadBlob(blob, `rgd-${name}-${frame.width * scale}x${frame.height * scale}.${ext}`)
-    } catch (e) {
-      setError(`Couldn't export: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <ControlPanel
-      tools={<span className="scene-controls-name">{node.name}</span>}
-      params={sceneParams(node)}
-      onParamsChange={(patch) => update((current) => withParams(current, patch))}
-      revealControls={false}
-      hidden={litByNode ? MASTER_AND_LIGHTING_FIELDS : MASTER_FIELDS}
-      hideShapeMaterial
-      frame={{
-        width: frame.width,
-        height: frame.height,
-        presets: FRAME_PRESETS,
-        // A new size fits the text and trophy to it.
-        onSizeChange: (width, height) =>
-          update((current) => fitSceneToFrame(current, { width, height })),
-        onFit: () => update((current) => fitSceneToFrame(current)),
-      }}
-      imageExport={{
-        format: options.format,
-        onFormatChange: (format) => setOptions({ format }),
-        scale,
-        onScaleChange: (next) => setOptions({ scale: next }),
-        maxScale,
-        transparent: options.transparent,
-        onTransparentChange: (transparent) => setOptions({ transparent }),
-        size: `${frame.width * scale} × ${frame.height * scale}`,
-        busy,
-        error,
-        onExport: () => void exportImage(),
-      }}
-      debug={node.debug}
-      onDebugChange={(debug) => update((current) => ({ ...current, debug }))}
-      revolve={node.revolve}
-      onRevolveChange={(revolve) =>
-        update((current) => ({ ...current, revolve, animateRevolve: true }))
-      }
-      perspective={node.perspective}
-      onPerspectiveChange={(perspective) => update((current) => ({ ...current, perspective }))}
-    />
-  )
-})

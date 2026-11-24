@@ -64,6 +64,8 @@ export default function ControlPanelScene() {
         onMove={() => {}}
         onResize={() => {}}
         onExporter={() => {}}
+        onImageExportChange={() => {}}
+        exporter={() => undefined}
         onTextChange={(_id, text) =>
           setNode((current) => ({ ...current, settings: { ...current.settings, text } }))
         }

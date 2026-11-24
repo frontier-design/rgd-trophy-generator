@@ -1,4 +1,4 @@
-import { memo, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
 import type { PatternStatus } from '../../hooks'
 import type {
@@ -11,7 +11,8 @@ import type {
 import { MaterialFields } from './MaterialFields'
 import { paletteColors, paletteGradient } from '../../material'
 import { EtchFields } from './EtchFields'
-import type { LightingParams, ModifierNode, ShapeParams } from './graph'
+import { EtchPreview, PatternPreview, TwistPreview } from './NodePreview'
+import { PREVIEW_KINDS, type LightingParams, type ModifierNode, type ShapeParams } from './graph'
 import { ShapeFields } from './ShapeFields'
 import { LightingFields } from './LightingFields'
 import type { MasterNode, MasterParams } from './master'
@@ -37,6 +38,15 @@ const EASING_OPTIONS = EASINGS.map((value) => ({ value, label: value.replace('-'
 import { BackspaceFields } from './BackspaceFields'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import type { TextParams } from './textLines'
+import { TextTypeFields } from './TextTypeFields'
+import { NodeDivider } from './NodeView'
+import { DEFAULT_SETTINGS } from '../../state'
+
+/** A text node's type with no linked scene: the default settings'. */
+const TEXT_TYPE_DEFAULT = {
+  fontSize: DEFAULT_SETTINGS.fontSize,
+  leading: DEFAULT_SETTINGS.lineHeight / DEFAULT_SETTINGS.fontSize,
+}
 
 /** A node's field edit: a patch of its params. */
 export type ParamsPatch =
@@ -69,6 +79,10 @@ interface NodeCardProps {
   /** A pattern node's map as it's being made. */
   pattern?: PatternStatus
   typingPlaying?: boolean
+  /** A text node's type before it sets its own: the first linked scene's size (px) and
+   *  line height (× size). Numbers, so the card's memo holds. */
+  typeFallbackSize?: number
+  typeFallbackLeading?: number
   onTypingToggle?: (id: string) => void
   /** Zoomed out so far the card is small: show only its header. */
   compact: boolean
@@ -99,6 +113,8 @@ export const NodeCard = memo(function NodeCard({
   onToggleMute,
   pattern,
   typingPlaying,
+  typeFallbackSize = TEXT_TYPE_DEFAULT.fontSize,
+  typeFallbackLeading = TEXT_TYPE_DEFAULT.leading,
   onTypingToggle,
   compact,
   onCollapsedChange,
@@ -159,14 +175,22 @@ export const NodeCard = memo(function NodeCard({
       case 'text':
         return (
           <>
+            <TextTypeFields
+              params={params as TextParams}
+              fallback={{ fontSize: typeFallbackSize, leading: typeFallbackLeading }}
+              set={set}
+            />
+            <NodeDivider />
             <TextLinesField
               lines={(params as TextParams).lines}
               onChange={(lines) => set({ lines })}
             />
+            <NodeDivider />
             <BackspaceFields
               backspace={(params as TextParams).backspace}
               set={(backspace) => set({ backspace })}
             />
+            <NodeDivider />
             <ToggleField
               label="mask"
               checked={(params as TextParams).mask === true}
@@ -201,6 +225,8 @@ export const NodeCard = memo(function NodeCard({
     pattern,
     typingPlaying,
     onTypingToggle,
+    typeFallbackSize,
+    typeFallbackLeading,
   ])
 
   return (
@@ -214,14 +240,18 @@ export const NodeCard = memo(function NodeCard({
       data-muted={muted || undefined}
       data-grouped={grouped || undefined}
       data-compact={compact || node.collapsed || undefined}
-      style={{
-        left: node.x,
-        top: node.y,
-        transform:
-          position === node
-            ? undefined
-            : `translate(${position.x - node.x}px, ${position.y - node.y}px)`,
-      }}
+      style={
+        {
+          left: node.x,
+          top: node.y,
+          transform:
+            position === node
+              ? undefined
+              : `translate(${position.x - node.x}px, ${position.y - node.y}px)`,
+          // The lighting node glows yellow: as strongly as its ambient, as blurred as its softness.
+          ...(kind === 'lighting' ? lightingGlow(params as LightingParams) : {}),
+        } as CSSProperties
+      }
     >
       <div
         className="node-card"
@@ -263,7 +293,19 @@ export const NodeCard = memo(function NodeCard({
           >
             {node.collapsed ? '+' : '−'}
           </button>
-          {node.name}
+          <span className="node-card-name">{node.name}</span>
+          {/* Twists, etches and patterns: a preview of what they draw, on the header's right. */}
+          {PREVIEW_KINDS.has(kind) && (
+            <span className="node-card-preview">
+              {kind === 'twist' ? (
+                <TwistPreview params={params as TwistParams} />
+              ) : kind === 'etch' ? (
+                <EtchPreview params={params as EtchParams} />
+              ) : (
+                <PatternPreview map={pattern?.map ?? null} />
+              )}
+            </span>
+          )}
           {isMaster ? (
             <span className="node-card-note">all scenes</span>
           ) : grouped ? null : (
@@ -292,3 +334,14 @@ export const NodeCard = memo(function NodeCard({
     </div>
   )
 })
+
+/** The lighting node's glow (CSS custom properties): ambient (0–1) sets its strength and
+ *  spread, softness (0–1) its blur. */
+function lightingGlow({ ambient, softness }: LightingParams) {
+  const strength = Math.min(1, Math.max(0, ambient))
+  return {
+    '--glow-alpha': 0.2 + strength * 0.3,
+    '--glow-spread': `${10 + strength * 30}px`,
+    '--glow-blur': `${30 + Math.min(1, Math.max(0, softness)) * 120}px`,
+  }
+}

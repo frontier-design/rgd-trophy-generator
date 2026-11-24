@@ -1,9 +1,11 @@
-import { useId } from 'react'
+import { useId, type ReactNode } from 'react'
 import type { KeyframeControl } from '../../types'
 import { KeyframeButton } from './KeyframeButton'
 
 interface ToggleFieldProps {
   label: string
+  /** Shown before the label's text. */
+  icon?: ReactNode
   checked: boolean
   disabled?: boolean
   /** Timeline keyframe toggle for this param. */
@@ -14,6 +16,7 @@ interface ToggleFieldProps {
 /** A labelled on/off switch (a checkbox with the switch role). */
 export function ToggleField({
   label,
+  icon,
   checked,
   disabled = false,
   keyframe,
@@ -22,7 +25,8 @@ export function ToggleField({
   const id = useId()
   return (
     <div className="control-field control-field--toggle" data-disabled={disabled || undefined}>
-      <label className="control-label" htmlFor={id}>
+      <label className="control-label" htmlFor={id} data-icon={icon ? '' : undefined}>
+        {icon}
         {label}
       </label>
       <input

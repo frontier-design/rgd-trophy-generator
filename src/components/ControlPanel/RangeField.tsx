@@ -1,10 +1,12 @@
-import { useId, useState, type CSSProperties } from 'react'
+import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import type { KeyframeControl } from '../../types'
 import { KeyframeButton } from './KeyframeButton'
 import { useFieldAnim } from './fieldAnim'
 
 interface RangeFieldProps {
   label: string
+  /** Shown before the label's text. */
+  icon?: ReactNode
   value: number
   min: number
   max: number
@@ -28,6 +30,7 @@ interface RangeFieldProps {
  */
 export function RangeField({
   label,
+  icon,
   value,
   min,
   max,
@@ -52,7 +55,8 @@ export function RangeField({
       data-disabled={disabled || undefined}
       data-animated={anim?.enabled || undefined}
     >
-      <label className="control-label" htmlFor={id}>
+      <label className="control-label" htmlFor={id} data-icon={icon ? '' : undefined}>
+        {icon}
         {label}
       </label>
       <div className="range-wrap" style={{ '--fill': fill } as CSSProperties}>

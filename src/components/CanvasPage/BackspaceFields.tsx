@@ -1,5 +1,6 @@
 import { RangeField } from '../ControlPanel/RangeField'
 import { ToggleField } from '../ControlPanel/ToggleField'
+import { BackspaceIcon } from '../icons'
 import {
   BACKSPACE_PAUSE_RANGE,
   BACKSPACE_SPEED_RANGE,
@@ -20,6 +21,7 @@ export function BackspaceFields({ backspace = DEFAULT_BACKSPACE, set }: Backspac
     <>
       <ToggleField
         label="backspace"
+        icon={<BackspaceIcon />}
         checked={backspace.enabled}
         onChange={(enabled) => patch({ enabled })}
       />

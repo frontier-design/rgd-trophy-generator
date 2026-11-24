@@ -1,6 +1,9 @@
 import { RangeField } from '../ControlPanel/RangeField'
 import { ToggleField } from '../ControlPanel/ToggleField'
+import { RadiusIcon } from '../icons'
 import type { ShapeParams } from './graph'
+import { NodeDivider } from './NodeView'
+import { ShapeView } from './ShapeView'
 
 export function ShapeFields({
   params,
@@ -13,6 +16,18 @@ export function ShapeFields({
     set({ lineBox: { ...params.lineBox, ...patch } })
   return (
     <>
+      {/* The line box on top: pad y and pad x on the view's sliders, then its radius. */}
+      <ShapeView shape={params} onChange={box} />
+      <RangeField
+        label="radius"
+        icon={<RadiusIcon />}
+        value={params.lineBox.radius}
+        min={0}
+        max={100}
+        param="lineBox.radius"
+        onChange={(radius) => box({ radius })}
+      />
+      <NodeDivider />
       <ToggleField
         label="round top"
         checked={params.roundTop}
@@ -36,30 +51,7 @@ export function ShapeFields({
         param="taper"
         onChange={(taper) => set({ taper })}
       />
-      <RangeField
-        label="pad x"
-        value={params.lineBox.padX}
-        min={-20}
-        max={100}
-        param="lineBox.padX"
-        onChange={(padX) => box({ padX })}
-      />
-      <RangeField
-        label="pad y"
-        value={params.lineBox.padY}
-        min={-20}
-        max={100}
-        param="lineBox.padY"
-        onChange={(padY) => box({ padY })}
-      />
-      <RangeField
-        label="radius"
-        value={params.lineBox.radius}
-        min={0}
-        max={100}
-        param="lineBox.radius"
-        onChange={(radius) => box({ radius })}
-      />
+      <NodeDivider />
       <ToggleField
         label="smooth joins"
         checked={params.smoothJoins}

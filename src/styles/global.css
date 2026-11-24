@@ -461,6 +461,36 @@ body {
   background: var(--color-label-bg);
 }
 
+/* A label shown as an icon (its text kept for screen readers). */
+/* A label with an icon before its text. */
+.control-label[data-icon] {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 8px 2px 6px;
+}
+
+.text-line-format-label[data-icon] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+}
+
+.icon {
+  display: block;
+  flex: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
 .color-stops > .control-label {
   align-self: start;
 }
@@ -524,23 +554,32 @@ body {
   cursor: default;
 }
 
-/* The value, just above the tick while hovering or dragging (the reference has no
-   readouts at rest). */
+/* The value, in a small white tag just above the tick while hovering or dragging (the
+   reference has no readouts at rest). */
 .control-value {
   position: absolute;
-  bottom: calc(100% - 2px);
+  bottom: calc(100% + 3px);
   left: calc(var(--fill) * (100% - 2.5px) + 1.25px);
+  z-index: 1;
+  padding: 1px 4px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: #111111;
   white-space: nowrap;
   pointer-events: none;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
   opacity: 0;
   transform: translateX(-50%);
   transition: opacity 120ms ease;
 }
 
+/* Shown while the pointer is over the slider or dragging it (and while it has keyboard
+   focus), not left up after a click once the pointer moves away. */
 .range-wrap:hover .control-value,
-.range-wrap:focus-within .control-value {
+.range-wrap:has(.control-range:active) .control-value,
+.range-wrap:has(.control-range:focus-visible) .control-value {
   opacity: 1;
 }
 
@@ -968,6 +1007,90 @@ body {
   text-align: center;
   color: #6b6b66;
   pointer-events: none;
+}
+
+/* Under a scene: its frame's width and height (left) and its PNG export (right), at
+   screen size like the cards. */
+.scene-tools {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  font-size: 12px;
+}
+
+.scene-tools-group {
+  position: absolute;
+  top: 0;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-top: 10px;
+  white-space: nowrap;
+  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+}
+
+.scene-tools-group[data-side='left'] {
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.scene-tools-group[data-side='right'] {
+  right: 0;
+  transform-origin: 100% 0;
+}
+
+.scene-tools-field {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  font-weight: 700;
+  background: var(--color-label-bg);
+}
+
+.scene-tools-field span {
+  color: #6b6b66;
+}
+
+.scene-tools-field input {
+  width: 5ch;
+  padding: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  appearance: textfield;
+}
+
+.scene-tools-field input::-webkit-inner-spin-button,
+.scene-tools-field input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+/* Like the record node's frame rate: a gray box with a chevron. */
+.scene-tools-select {
+  padding-right: 22px;
+  text-transform: none;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--color-text) 50%) right 10px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--color-text) 50%) right 5px center / 5px 5px
+      no-repeat,
+    var(--color-label-bg);
+  border-radius: 0;
+}
+
+/* Off: dimmed; on: like any pressed button. */
+.scene-tools-transparent[aria-pressed='false'] {
+  opacity: 0.5;
+}
+
+.scene-tools-error {
+  color: #d93025;
 }
 
 .record-tools {
@@ -1454,6 +1577,23 @@ body {
 
 /* The material node's header is its palette's gradient (dark to light, so its name, on the
    dark end, is white). */
+/* Twists, etches and patterns: a dithered preview of what they draw (NodePreview), half the
+   card's width, full bleed at the header's right end (under the output port). */
+.node-card-preview {
+  align-self: stretch;
+  width: 130px; /* half the card */
+  margin-right: -14px; /* the header's padding: full bleed */
+  margin-left: auto;
+}
+
+/* Dithered: one dot per CSS px, kept crisp when scaled. */
+.node-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
 .canvas-node[data-kind='material'] .node-card-header {
   color: #ffffff;
 }
@@ -1463,12 +1603,158 @@ body {
   background: rgb(255 255 255 / 0.2);
 }
 
-/* The lighting node: a pastel yellow card (its header, fields and ports follow). */
+/* The lighting node: a white card glowing the lamp's yellow (as in its 3D view; NodeCard's
+   lightingGlow: ambient sets its strength, softness its blur), under the usual drop shadow. */
 .canvas-node[data-kind='lighting'] .node-card {
-  --color-panel-bg: #fffbe6;
-  --color-panel-border: #efe6b8;
+  --color-panel-bg: #ffffff;
 
   background: var(--color-panel-bg);
+  box-shadow:
+    0 0 var(--glow-blur, 60px) var(--glow-spread, 16px) rgb(255 214 102 / var(--glow-alpha, 0.35)),
+    0 2px 8px rgb(0 0 0 / 0.12);
+}
+
+/* A node card's framed view (NodeView): the view in a white, outlined box, a vertical slider
+   on its right (a horizontal one turned upright, its start at the bottom) and a horizontal
+   one under it; ruled off from the fields below. */
+.node-view {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 196px 16px;
+  gap: 6px 10px;
+  justify-content: start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-panel-border);
+}
+
+.node-view-box {
+  display: block;
+  width: 196px;
+  height: 128px;
+  background: #ffffff;
+  border: 1.5px solid #111111;
+}
+
+.node-view-vertical {
+  position: relative;
+  width: 16px;
+  height: 128px;
+}
+
+.node-view-vertical > .range-wrap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 128px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+/* Its sliders: a shorter tick than the fields' (and a track to match). Separate rules: a
+   browser drops a whole list with another engine's pseudo-element. */
+.node-view .control-range {
+  height: 14px;
+}
+
+.node-view .control-range::-webkit-slider-runnable-track,
+.node-view .control-range::-webkit-slider-thumb {
+  height: 14px;
+}
+
+.node-view .control-range::-moz-range-track,
+.node-view .control-range::-moz-range-thumb {
+  height: 14px;
+}
+
+/* The shape node's view (ShapeView): a word in its line box, carved out of the trophy's flat
+   shape (gray) on white; its rounded corners are cut back to white. */
+.shape-view-solid {
+  fill: #c9c9c4;
+}
+
+.shape-view-cut {
+  fill: #ffffff;
+}
+
+.shape-view-box {
+  fill: #ffffff;
+  stroke: #8b7cf6; /* purple, like the line box guides in the reference */
+  stroke-width: 1;
+}
+
+.shape-view-type {
+  font-family: 'PP Mori', sans-serif;
+  font-weight: 600;
+  fill: #111111;
+}
+
+/* A rule between groups of a card's fields (NodeDivider). */
+.node-card-divider {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 0;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px solid var(--color-panel-border);
+}
+
+/* The lighting node's view (LightAngleView): the cylinder on the ground, the light on its
+   orbit (raised by its height) with its beam; the light drags around. */
+.light-view-orbit {
+  fill: none;
+  stroke: #b5b5b0;
+  stroke-dasharray: 2 3;
+}
+
+.light-view-cylinder {
+  fill: #ffffff;
+  stroke: var(--color-text);
+  stroke-width: 1.5;
+}
+
+/* The ray: a solid, outlined square beam, and its footprint wrapped on the cylinder. */
+.light-view-beam,
+.light-view-spot,
+.light-view-cube {
+  fill: #ffe9a8;
+  stroke: #b98900; /* a darker yellow */
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+}
+
+.light-view-spot,
+.light-view-cube {
+  fill: #ffd666;
+}
+
+.light-view-light {
+  cursor: grab;
+  outline: none;
+}
+
+.light-view-light:active {
+  cursor: grabbing;
+}
+
+.light-view-drop {
+  stroke: #b5b5b0;
+  stroke-dasharray: 2 2;
+}
+
+.light-view-foot {
+  fill: #b5b5b0;
+}
+
+.light-view-hit {
+  fill: transparent;
+}
+
+.light-view-light:focus-visible .light-view-cube {
+  stroke-width: 2.5;
+}
+
+/* Selected, its outline is a deeper yellow than its glow. */
+.canvas-node[data-kind='lighting'][data-selected] .node-card {
+  outline-color: #e8b31e;
 }
 
 /* A group's heading inside a card's fields. */
@@ -1789,6 +2075,11 @@ body {
 .canvas-node[data-kind='text'] .text-line-input {
   color: var(--color-text);
   caret-color: var(--color-text);
+}
+
+/* Its labels sit left, lined up with the line inputs. */
+.canvas-node[data-kind='text'] .control-label {
+  justify-self: start;
 }
 
 /* The pattern crop viewer: the source with a reversible crop, isolated from the canvas. */

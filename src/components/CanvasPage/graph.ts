@@ -239,6 +239,9 @@ export const DEFAULT_SHAPE: ShapeParams = {
 /** Node cards' size at full scale (px): their width, and their header's height (the output
  *  port sits at its right end). */
 export const NODE_CARD = { width: 260, header: 34 }
+
+/** The kinds whose header shows a preview of what they draw. */
+export const PREVIEW_KINDS: ReadonlySet<string> = new Set(['twist', 'etch', 'pattern'])
 /** Cards are full size on screen down to this zoom; zoomed out further, they shrink with the
  *  canvas (so they don't cover the scenes). */
 export const CARD_FULL_ZOOM = 0.5
@@ -387,6 +390,8 @@ export interface SceneModifiers {
   text?: string
   /** Its lines' tracking (thousandths of an em), when any line is tracked. */
   lineTracking?: number[]
+  /** Its type size (px) and line height (× size), where it sets them. */
+  textType?: { fontSize?: number; leading?: number }
   /** The text node masks the trophy to its typing: characters typed of all of them. */
   mask?: { typed: number; total: number }
 }
@@ -474,6 +479,9 @@ export function modifiersByScene(
       current.text = textOf(node.params.lines)
       current.lineTracking = lineTracking(node.params.lines)
       current.mask = textMask(node.params) ?? undefined
+      const { fontSize, leading } = node.params
+      current.textType =
+        fontSize !== undefined || leading !== undefined ? { fontSize, leading } : undefined
     } else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]

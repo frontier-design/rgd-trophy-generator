@@ -48,6 +48,11 @@ export interface TextParams {
    *  the trophy from the first line down; its top (no text) shows over the last few
    *  characters (`textMask`). */
   mask?: boolean
+  /** Type size (px) for linked scenes; absent: each scene keeps its own (fitted to its
+   *  frame). The font is always PP Mori. */
+  fontSize?: number
+  /** Line height as a multiple of the size; absent: each scene's own. */
+  leading?: number
   /** Set on typing previews only (never saved): characters typed of all of them, for the
    *  mask. Absent: all typed. */
   progress?: TextProgress
@@ -120,7 +125,31 @@ function withBackspace(params: TextParams, raw: unknown): TextParams {
 /** A saved node's params, validated: `lines`, or a legacy `text` string. */
 export function parseTextParams(params: Record<string, unknown>, fallback: string): TextParams {
   const parsed = withBackspace(parseTextLines(params, fallback), params.backspace)
-  return params.mask === true ? { ...parsed, mask: true } : parsed
+  const number = (v: unknown, range: { min: number; max: number }) =>
+    typeof v === 'number' && Number.isFinite(v) ? clamp(v, range.min, range.max) : undefined
+  const fontSize = number(params.fontSize, TEXT_SIZE_RANGE)
+  const leading = number(params.leading, TEXT_LEADING_RANGE)
+  return {
+    ...parsed,
+    ...(params.mask === true ? { mask: true } : {}),
+    ...(fontSize !== undefined ? { fontSize } : {}),
+    ...(leading !== undefined ? { leading } : {}),
+  }
+}
+
+/** A text node's type size (px) and line height (× size) ranges. */
+export const TEXT_SIZE_RANGE = { min: 12, max: 300, step: 0.1 } as const
+export const TEXT_LEADING_RANGE = { min: 0.7, max: 2.5, step: 0.01 } as const
+
+/** A scene's type with a text node's size and leading over it (where the node sets them). */
+export function withTextType<T extends { fontSize: number; lineHeight: number }>(
+  settings: T,
+  type: { fontSize?: number; leading?: number } | undefined,
+): T {
+  if (type?.fontSize === undefined && type?.leading === undefined) return settings
+  const fontSize = type.fontSize ?? settings.fontSize
+  const leading = type.leading ?? settings.lineHeight / settings.fontSize
+  return { ...settings, fontSize, lineHeight: fontSize * leading }
 }
 
 function parseTextLines(params: Record<string, unknown>, fallback: string): TextParams {

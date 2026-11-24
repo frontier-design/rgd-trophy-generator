@@ -135,15 +135,9 @@ describe('shape nodes', () => {
     render(<CanvasPage tools={null} />)
     const scene = await screen.findByLabelText('scene 1')
     expect(topRadiusOf(scene)).toBe('77')
-    // Shape and material are set by nodes now, not the scene inspector.
+    // Shape and material are set by nodes, not a scene inspector (scenes have none).
     fireEvent.pointerDown(scene)
-    const panel = screen.getByRole('complementary', { name: 'Control panel' })
-    for (const name of ['top radius', 'taper', 'overshoot', 'pad x', 'join radius']) {
-      expect(within(panel).queryByRole('slider', { name })).toBeNull()
-    }
-    expect(within(panel).queryByRole('button', { name: 'top' })).toBeNull()
-    expect(within(panel).queryByRole('button', { name: 'line boxes' })).toBeNull()
-    expect(within(panel).queryByRole('button', { name: 'material' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Control panel' })).toBeNull()
 
     insert('insert shape')
     const shape = await screen.findByRole('group', { name: 'shape 1' })

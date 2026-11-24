@@ -1,6 +1,6 @@
 import { DEFAULT_TWIST } from '../../src/components/CanvasPage/graph'
 import { buildLathe } from '../../src/render3d/lathe'
-import { twistDeform, twistScale, twistShape } from '../../src/render3d/twist'
+import { twistDeform, twistPreview, twistScale, twistShape } from '../../src/render3d/twist'
 import type { TwistParams } from '../../src/types'
 
 const params: TwistParams = {
@@ -175,5 +175,39 @@ describe('buildLathe with a twist', () => {
     )
     expect(twisted.getAttribute('aProfileNormal').getX(0)).toBeCloseTo(1)
     expect(plain.getAttribute('aProfileNormal')).toBeUndefined()
+  })
+})
+
+describe('twist header preview', () => {
+  const straight = {
+    ...DEFAULT_TWIST,
+    from: 0,
+    to: 100,
+    endSize: 0,
+    flutes: 4,
+    depth: 5,
+    twist: 0,
+    curve: 0,
+    rotate: 0,
+  }
+  const row = (image: Float32Array, width: number, y: number) =>
+    Array.from(image.slice(y * width, (y + 1) * width))
+
+  it('shows each flute as a cut across the header, at full strength however shallow', () => {
+    const image = twistPreview(straight, 200, 20)
+    const middle = row(image, 200, 10)
+    expect(Math.max(...middle)).toBeGreaterThan(0.9)
+    // Four flutes around: four cuts, straight down (no twist).
+    const peaks = middle.filter((v, x) => v > 0.9 && !(middle[x - 1]! > 0.9)).length
+    expect(peaks).toBe(4)
+    expect(row(image, 200, 0)).toEqual(row(image, 200, 19))
+  })
+
+  it('turns the flutes with the twist, and closes them at ends inside the trophy', () => {
+    const twisted = twistPreview({ ...straight, twist: 45 }, 200, 40)
+    const peak = (y: number) => row(twisted, 200, y).indexOf(Math.max(...row(twisted, 200, y)))
+    expect(peak(39)).not.toBe(peak(0))
+    const band = twistPreview({ ...straight, from: 30, to: 60, endSize: 10 }, 200, 40)
+    expect(Math.max(...row(band, 200, 0))).toBeLessThan(Math.max(...row(band, 200, 20)))
   })
 })
