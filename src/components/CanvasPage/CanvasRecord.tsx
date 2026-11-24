@@ -310,9 +310,15 @@ export const CanvasRecord = memo(function CanvasRecord({
     }
   }
 
-  const summary = inputId
-    ? `${total} frames · ${recordLength(total, fps).toFixed(2)} s · ${size.width} × ${size.height} (×${scale})`
-    : 'no input'
+  const summary = rendered
+    ? [`frame ${rendered.done} / ${rendered.total}`]
+    : inputId
+      ? [
+          `${total} frames`,
+          `${recordLength(total, fps).toFixed(2)} s`,
+          `${size.width} × ${size.height} (×${scale})`,
+        ]
+      : ['no input']
 
   return (
     <div
@@ -344,11 +350,7 @@ export const CanvasRecord = memo(function CanvasRecord({
     >
       <div className="canvas-scene-name">{node.name}</div>
       <canvas ref={preview} className="record-preview" />
-      {!hasPreview && (
-        <p className="record-empty">
-          {inputId ? 'Render to export the animation as an MP4' : 'Link a scene to record'}
-        </p>
-      )}
+      {!hasPreview && !inputId && <p className="record-empty">Link a scene to record</p>}
       <div
         className="record-tools"
         data-no-pan
@@ -369,6 +371,7 @@ export const CanvasRecord = memo(function CanvasRecord({
             {rendering ? 'cancel' : 'render'}
           </button>
           <select
+            className="control-button record-fps"
             aria-label="frame rate"
             value={fps}
             disabled={rendering}
@@ -380,8 +383,12 @@ export const CanvasRecord = memo(function CanvasRecord({
               </option>
             ))}
           </select>
-          <output className="record-status" aria-label="recording">
-            {rendered ? `frame ${rendered.done} / ${rendered.total}` : summary}
+          <output className="record-summary" aria-label="recording">
+            {summary.map((part) => (
+              <span key={part} className="record-chip">
+                {part}
+              </span>
+            ))}
           </output>
         </div>
         {inputId && (

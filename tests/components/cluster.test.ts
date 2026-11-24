@@ -1,7 +1,9 @@
 import { parseCanvasDocument } from '../../src/components/CanvasPage/canvasDocument'
 import {
   CLUSTER_FRAME,
+  arrangeMembers,
   clusterBounds,
+  liveClusterBounds,
   clusterPort,
   expandClusterLinks,
   groupNodes,
@@ -77,6 +79,22 @@ describe('clusters', () => {
       y: bounds.y + header / 2,
     })
     expect(clusterBounds([], 1)).toBeNull()
+  })
+
+  it('frames members at their drag previews, where they have one', () => {
+    const members = [
+      { id: 'a', x: 0, y: 100, width: 260, height: 200 },
+      { id: 'b', x: 300, y: 50, width: 260, height: 100 },
+    ]
+    expect(liveClusterBounds(members, new Map(), 1)).toEqual(clusterBounds(members, 1))
+    const moved = liveClusterBounds(members, new Map([['b', { x: 500, y: 400 }]]), 1)!
+    const { pad, header } = CLUSTER_FRAME
+    expect(moved).toEqual({
+      x: -pad,
+      y: 100 - pad - header,
+      width: 760 + 2 * pad,
+      height: 500 - 100 + 2 * pad + header,
+    })
   })
 
   it('save and load: existing members only, one cluster each; links from clusters kept', () => {
@@ -281,5 +299,26 @@ describe('clusters', () => {
     expect(pruneClusters(clusters, new Set(['a']))).toEqual([
       { id: 'cluster-1', name: 'group 1', members: ['a'] },
     ])
+  })
+
+  it('stacks members by from, then to, with rangeless ones last in their order', () => {
+    const moves = arrangeMembers(
+      [
+        { id: 'material', x: 40, y: 0, height: 50 },
+        { id: 'b', x: 10, y: 300, height: 100, from: 20, to: 80 },
+        { id: 'c', x: 200, y: 20, height: 80, from: 20, to: 40 },
+        { id: 'lighting', x: 0, y: 500, height: 30 },
+        { id: 'a', x: 90, y: 90, height: 60, from: 5, to: 90 },
+      ],
+      10,
+    )
+    expect([...moves]).toEqual([
+      ['a', { x: 0, y: 0 }],
+      ['c', { x: 0, y: 70 }],
+      ['b', { x: 0, y: 160 }],
+      ['material', { x: 0, y: 270 }],
+      ['lighting', { x: 0, y: 330 }],
+    ])
+    expect(arrangeMembers([], 10).size).toBe(0)
   })
 })

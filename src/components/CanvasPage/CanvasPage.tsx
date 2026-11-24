@@ -36,7 +36,11 @@ import { RepeatArtboard } from './RepeatArtboard'
 import { RepeatControls } from './RepeatControls'
 import { ClusterFrame } from './ClusterFrame'
 import {
+  ARRANGE_GAP,
+  arrangeMembers,
   clusterBounds,
+  liveClusterBounds,
+  type MemberRect,
   clusterPort,
   expandClusterLinks,
   groupSelected,
@@ -87,6 +91,7 @@ import {
   createNodePositionStore,
   NodeDragContext,
   useNodePosition,
+  useNodePositions,
   type NodePosition,
 } from './nodeDrag'
 import {
@@ -309,12 +314,10 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   }, [records, scenes, repeats, links])
   const placedRecords = useMemo(
     () =>
-      records.map(
-        (node): PlacedRecordNode => {
-          const video = recordFrame(recordInputs.get(node.id)?.frame)
-          return { ...node, video, frame: recordPreviewFrame(video) }
-        },
-      ),
+      records.map((node): PlacedRecordNode => {
+        const video = recordFrame(recordInputs.get(node.id)?.frame)
+        return { ...node, video, frame: recordPreviewFrame(video) }
+      }),
     [records, recordInputs],
   )
   /** A link being dragged from a node's output, its loose end at the pointer (canvas px). */
@@ -749,7 +752,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 ? [...compositions, ...placedRecords]
                 : sourceIsRepeat
                   ? placedRecords
-                  : [...scenes, ...repeats])
+                  : [...scenes, ...repeats]
+              )
                 .filter((node) => node.id !== pendingFrom)
                 .map((node) => ({ id: node.id, x: node.x, y: node.y, ...node.frame })),
             ) ?? undefined)
@@ -765,8 +769,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           : sourceIsRepeat
             ? targetIsRecord
             : (modifiers.some((node) => node.id === pendingFrom) ||
-              clusterFrames.current.has(pendingFrom)) &&
-            (scenes.some((node) => node.id === to) || targetIsRepeat))
+                clusterFrames.current.has(pendingFrom)) &&
+              (scenes.some((node) => node.id === to) || targetIsRepeat))
       if (valid) {
         setLinks((current) =>
           connect(
@@ -1154,7 +1158,8 @@ export function CanvasPage({ tools }: CanvasPageProps) {
           modifiers.some((node) => node.id === item.from && node.kind === 'text'),
       )
       const node = link && modifiers.find((item) => item.id === link.from)
-      if (node?.kind === 'text') out.set(recordId, { id: node.id, name: node.name, params: node.params })
+      if (node?.kind === 'text')
+        out.set(recordId, { id: node.id, name: node.name, params: node.params })
     }
     return out
   }, [recordInputs, effectiveLinks, modifiers])
@@ -1284,11 +1289,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   }, [clusteredKey, modifierKey])
   const modifiersById = new Map(modifiers.map((node) => [node.id, node]))
   const clusterLayouts = clusters.flatMap((cluster) => {
-    const rects = cluster.members.flatMap((id) => {
+    const rects = cluster.members.flatMap((id): MemberRect[] => {
       const node = modifiersById.get(id)
       if (!node) return []
       return [
         {
+          id,
           x: node.x,
           y: node.y,
           width: NODE_CARD.width * cardOnCanvas,
@@ -1297,8 +1303,23 @@ export function CanvasPage({ tools }: CanvasPageProps) {
       ]
     })
     const bounds = clusterBounds(rects, cardOnCanvas)
-    return bounds ? [{ cluster, bounds }] : []
+    return bounds ? [{ cluster, bounds, rects }] : []
   })
+  // The ↓ on a group: its cards stacked by range (one move, one undo step).
+  const arrangeCluster = (id: string) => {
+    const layout = clusterLayouts.find(({ cluster }) => cluster.id === id)
+    if (!layout) return
+    const members = layout.rects.map((rect) => {
+      const params = modifiersById.get(rect.id)?.params as
+        { from?: unknown; to?: unknown } | undefined
+      return {
+        ...rect,
+        from: typeof params?.from === 'number' ? params.from : undefined,
+        to: typeof params?.to === 'number' ? params.to : undefined,
+      }
+    })
+    commitMoves(arrangeMembers(members, ARRANGE_GAP * cardOnCanvas))
+  }
   useEffect(() => {
     clusterFrames.current = new Map(
       clusterLayouts.map(({ cluster, bounds }) => [
@@ -1322,9 +1343,9 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   // The links' curves, from each node's output to each scene's input.
   const sourcesById = new Map<string, LinkSource>([
     ...[...modifiers, ...scenes, ...repeats].map((node): [string, LinkSource] => [node.id, node]),
-    ...clusterLayouts.map(({ cluster, bounds }): [string, LinkSource] => [
+    ...clusterLayouts.map(({ cluster, bounds, rects }): [string, LinkSource] => [
       cluster.id,
-      { id: cluster.id, cluster: true, ...bounds },
+      { id: cluster.id, cluster: true, ...bounds, members: rects },
     ]),
   ])
   const targetsById = new Map<string, LinkTarget>(
@@ -1451,16 +1472,16 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             const menuTarget: MenuTarget = repeatId
               ? { kind: 'repeat', id: repeatId }
               : sceneId
-              ? { kind: 'scene', id: sceneId }
-              : !nodeElement && clusterId
-                ? { kind: 'cluster', id: clusterId }
-                : compositionId
-                  ? { kind: 'composition', id: compositionId }
-                  : recordId
-                  ? { kind: 'record', id: recordId }
-                  : nodeId && nodeKind && nodeId !== MASTER_ID
-                    ? { kind: nodeKind, id: nodeId }
-                    : null
+                ? { kind: 'scene', id: sceneId }
+                : !nodeElement && clusterId
+                  ? { kind: 'cluster', id: clusterId }
+                  : compositionId
+                    ? { kind: 'composition', id: compositionId }
+                    : recordId
+                      ? { kind: 'record', id: recordId }
+                      : nodeId && nodeKind && nodeId !== MASTER_ID
+                        ? { kind: nodeKind, id: nodeId }
+                        : null
             if (menuTarget) selectNode(menuTarget.id)
             else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
             setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
@@ -1598,11 +1619,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 />
               )
             })}
-            {clusterLayouts.map(({ cluster, bounds }) => (
+            {clusterLayouts.map(({ cluster, bounds, rects }) => (
               <ClusterFrame
                 key={cluster.id}
                 cluster={cluster}
                 bounds={bounds}
+                members={rects}
                 scale={cardOnCanvas}
                 selected={selectedIds.has(cluster.id)}
                 connected={links.some((link) => link.from === cluster.id)}
@@ -1612,6 +1634,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
                 onOutputDown={startLink}
                 muted={mutedNodes.has(cluster.id)}
                 onToggleMute={toggleOutgoingMute}
+                onArrange={arrangeCluster}
               />
             ))}
             <NodeCard
@@ -1654,9 +1677,7 @@ export function CanvasPage({ tools }: CanvasPageProps) {
             compositions.length === 0 &&
             records.length === 0 &&
             repeats.length === 0 &&
-            modifiers.length === 0 && (
-            <p className="canvas-hint">Right-click to insert a scene</p>
-          )}
+            modifiers.length === 0 && <p className="canvas-hint">Right-click to insert a scene</p>}
           {selectedScene && (
             <PositionedSceneControls node={selectedScene} view={view} size={size}>
               <SceneControls
@@ -1710,7 +1731,7 @@ type LinkSource =
   | ModifierNode
   | SceneNode
   | RepeatNode
-  | ({ id: string; cluster: true } & Rect)
+  | ({ id: string; cluster: true; members?: readonly MemberRect[] } & Rect)
 
 function sourcePort(node: LinkSource, zoom: number) {
   if ('cluster' in node) return clusterPort(node, cardScale(zoom) / zoom)
@@ -1730,15 +1751,15 @@ function linkKey(link: Pick<NodeLink, 'from' | 'to'>) {
 
 /** An edge's curve, following its endpoints' drag previews (it subscribes only to those,
  *  not the entire canvas document). */
-function useLinkCurve(
-  from: LinkSource,
-  to: LinkTarget,
-  zoom: number,
-) {
+function useLinkCurve(from: LinkSource, to: LinkTarget, zoom: number) {
   const source = useNodePosition(from.id, from)
   const destination = useNodePosition(to.id, to)
+  // A group's port follows its frame, which follows its members' previews.
+  const members = 'cluster' in from ? from.members : undefined
+  const memberPreviews = useNodePositions(members?.map((member) => member.id) ?? [])
+  const live = members && liveClusterBounds(members, memberPreviews, cardScale(zoom) / zoom)
   return linkPath(
-    sourcePort({ ...from, ...source }, zoom),
+    sourcePort(live ? { ...from, ...live } : { ...from, ...source }, zoom),
     inputPort({ ...to, ...destination }),
     zoom,
   )

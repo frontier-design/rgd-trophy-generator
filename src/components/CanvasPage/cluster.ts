@@ -55,6 +55,61 @@ export function clusterBounds(members: readonly Rect[], scale: number): Rect | n
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
+/** A member card's rect (canvas px), by node id. */
+export type MemberRect = Rect & { id: string }
+
+/** `clusterBounds` with each member at its drag preview, if it has one. */
+export function liveClusterBounds(
+  members: readonly MemberRect[],
+  previews: ReadonlyMap<string, { x: number; y: number }>,
+  scale: number,
+): Rect | null {
+  return clusterBounds(
+    members.map((member) => ({ ...member, ...previews.get(member.id) })),
+    scale,
+  )
+}
+
+/** The gap between cards stacked by `arrangeMembers` (screen px at full card size). */
+export const ARRANGE_GAP = 12
+
+/** A member to arrange: its card's top-left and height (canvas px), and its range, if it
+ *  has one (% of the height). */
+export interface ArrangeMember {
+  id: string
+  x: number
+  y: number
+  height: number
+  from?: number
+  to?: number
+}
+
+/**
+ * A group's members stacked one under another, from where its topmost-leftmost card is:
+ * nodes with a range first, by `from`, then `to`; nodes without one after them, in their
+ * given order. `gap` is in canvas px.
+ */
+export function arrangeMembers(
+  members: readonly ArrangeMember[],
+  gap: number,
+): Map<string, { x: number; y: number }> {
+  const moves = new Map<string, { x: number; y: number }>()
+  if (!members.length) return moves
+  const ranged = (member: ArrangeMember) =>
+    typeof member.from === 'number' && typeof member.to === 'number'
+  const order = [
+    ...members.filter(ranged).sort((a, b) => a.from! - b.from! || a.to! - b.to!),
+    ...members.filter((member) => !ranged(member)),
+  ]
+  const x = Math.min(...members.map((member) => member.x))
+  let y = Math.min(...members.map((member) => member.y))
+  for (const member of order) {
+    moves.set(member.id, { x, y })
+    y += member.height + gap
+  }
+  return moves
+}
+
 /** Where a cluster's output port is (canvas px): its header's right end. */
 export function clusterPort(bounds: Rect, scale: number) {
   return { x: bounds.x + bounds.width, y: bounds.y + (CLUSTER_FRAME.header * scale) / 2 }

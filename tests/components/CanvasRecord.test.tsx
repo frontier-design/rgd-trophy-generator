@@ -43,7 +43,9 @@ it("takes a scene's frame and export scale, and times the render by its text nod
   expect(record.style.getPropertyValue('--artboard-width')).toBe('480px')
   expect(record.style.getPropertyValue('--artboard-height')).toBe('270px')
   const summary = within(record).getByLabelText('recording')
-  expect(summary).toHaveTextContent('45 frames · 1.50 s · 3840 × 2160 (×2)')
+  expect(within(summary).getByText('45 frames')).toBeInTheDocument()
+  expect(within(summary).getByText('1.50 s')).toBeInTheDocument()
+  expect(within(summary).getByText('3840 × 2160 (×2)')).toBeInTheDocument()
   expect(within(record).getByText(/No text node is linked/)).toBeInTheDocument()
 
   // A text node linked into the scene: its lines join the timeline, one row each, between

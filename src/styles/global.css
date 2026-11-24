@@ -38,6 +38,7 @@
   --color-bg: #ffffff;
   --color-page-bg: #ebebeb;
   --color-text: #111111;
+  --color-cluster: #e6e6e4; /* a group's frame and header, a step darker than the canvas */
   --color-placeholder: #b5b5b5;
   --color-measure: magenta;
   --color-baseline: magenta; /* baseline guides */
@@ -988,6 +989,33 @@ body {
   gap: 4px;
 }
 
+/* The frame rate: a gray box like the buttons, with a chevron. */
+.record-fps {
+  padding-right: 22px;
+  text-transform: none;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--color-text) 50%) right 10px center / 5px 5px
+      no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--color-text) 50%) right 5px center / 5px 5px
+      no-repeat,
+    var(--color-label-bg);
+  border-radius: 0;
+}
+
+/* Frames, length and size, each in its own box. */
+.record-summary {
+  display: contents;
+}
+
+.record-chip {
+  padding: 4px 8px;
+  font-variant-numeric: tabular-nums;
+  color: #6b6b66;
+  white-space: nowrap;
+  background: var(--color-label-bg);
+}
+
 .record-node[data-recording] .record-buttons .control-button[aria-pressed='true'] {
   background: #d93025;
 }
@@ -1035,7 +1063,9 @@ body {
 
 .record-timeline-time {
   margin-left: auto;
+  padding: 4px 8px;
   font-variant-numeric: tabular-nums;
+  background: var(--color-label-bg);
 }
 
 .record-timeline-grid {
@@ -1119,11 +1149,7 @@ body {
 .record-clip[data-kind='line-hold'],
 .record-clip[data-kind='pause'] {
   color: var(--color-text);
-  background: repeating-linear-gradient(
-    -45deg,
-    #d6d6d2 0 4px,
-    #e6e6e2 4px 8px
-  );
+  background: repeating-linear-gradient(-45deg, #d6d6d2 0 4px, #e6e6e2 4px 8px);
 }
 
 .record-clip[data-kind='delete'] {
@@ -1467,12 +1493,14 @@ body {
   z-index: 2;
   box-sizing: border-box;
   pointer-events: none;
-  background: rgb(0 0 0 / 0.035);
-  border: calc(1px * var(--cluster-scale, 1)) dashed #9a9a9a;
+  background: var(--color-cluster); /* solid, the header's color */
+  border: calc(1px * var(--cluster-scale, 1)) solid #6b6b66;
+  box-shadow: 0 calc(2px * var(--cluster-scale, 1)) calc(8px * var(--cluster-scale, 1))
+    rgb(0 0 0 / 0.12);
 }
 
 .cluster-frame[data-selected] {
-  border: calc(2px * var(--cluster-scale, 1)) solid var(--color-text);
+  outline: calc(2px * var(--cluster-scale, 1)) solid var(--color-text);
 }
 
 .cluster-frame-header {
@@ -1484,16 +1512,33 @@ body {
   padding: 0 calc(12px * var(--cluster-scale, 1));
   font-size: calc(13px * var(--cluster-scale, 1));
   font-weight: 700;
-  color: #ffffff;
+  color: var(--color-text);
   text-transform: capitalize;
   cursor: grab;
   pointer-events: auto;
-  background: var(--color-text);
+  background: var(--color-cluster);
 }
 
 .cluster-frame-count {
   font-weight: 400;
   opacity: 0.7;
+}
+
+/* The ↓ (arrange) button, at the header's right end, before the output port. */
+.cluster-frame-arrange {
+  margin-left: auto;
+  padding: 0 calc(6px * var(--cluster-scale, 1));
+  font: inherit;
+  line-height: 1.4;
+  color: var(--color-text);
+  cursor: pointer;
+  background: var(--color-bg);
+  border: 0;
+}
+
+.cluster-frame-arrange:hover {
+  color: var(--color-bg);
+  background: var(--color-text);
 }
 
 .cluster-frame-header .node-port-out {
