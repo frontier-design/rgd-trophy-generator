@@ -48,6 +48,9 @@ export interface TextParams {
    *  the trophy from the first line down; its top (no text) shows over the last few
    *  characters (`textMask`). */
   mask?: boolean
+  /** Typed letter by letter (absent: on). Off, each line appears whole at its turn (holds
+   *  and backspace still play). */
+  typing?: boolean
   /** Type size (px) for linked scenes; absent: each scene keeps its own (fitted to its
    *  frame). The font is always PP Mori. */
   fontSize?: number
@@ -64,7 +67,7 @@ export const DEFAULT_TRACKING = -3
 export const LINE_SPEED_RANGE = { min: 0.25, max: 18, step: 0.25 } as const
 export const TRACKING_RANGE = { min: -95, max: 25, step: 1 } as const
 
-export const LINE_HOLD_RANGE = { min: 0.1, max: 10, step: 0.1 } as const
+export const LINE_HOLD_RANGE = { min: 0.1, max: 30, step: 0.1 } as const
 /** A line's hold when its checkbox is ticked. */
 export const DEFAULT_LINE_HOLD = 0.5
 
@@ -132,6 +135,7 @@ export function parseTextParams(params: Record<string, unknown>, fallback: strin
   return {
     ...parsed,
     ...(params.mask === true ? { mask: true } : {}),
+    ...(params.typing === false ? { typing: false } : {}),
     ...(fontSize !== undefined ? { fontSize } : {}),
     ...(leading !== undefined ? { leading } : {}),
   }
@@ -287,6 +291,14 @@ export function typedText(lines: readonly TextLine[], elapsed: number): string |
   return null
 }
 
+/** The lines as the animation times them: typing off, each appears at once (no time to
+ *  type it), else at its own speed. */
+export function timedLines(params: Pick<TextParams, 'lines' | 'typing'>): TextLine[] {
+  return params.typing === false
+    ? params.lines.map((line) => ({ ...line, speed: Number.POSITIVE_INFINITY }))
+    : params.lines
+}
+
 // --- The whole animation: the lines typed one after another, then (with backspace) a
 // pause on the whole text and the text deleted from the end.
 
@@ -328,7 +340,7 @@ export interface TextSegment {
 export function textSegments(params: TextParams): TextSegment[] {
   const out: TextSegment[] = []
   let time = 0
-  params.lines.forEach((line, index) => {
+  timedLines(params).forEach((line, index) => {
     const end = time + Array.from(line.text).length / line.speed
     out.push({ kind: 'line', index, start: time, end })
     time = end
@@ -360,12 +372,13 @@ export function textDuration(params: TextParams): number {
  *  on) deleting down to nothing. Before the start nothing is typed; after the end it holds
  *  its last state (the whole text, or nothing once deleted). */
 export function textAt(params: TextParams, elapsed: number): string {
-  const typed = typedText(params.lines, elapsed)
+  const lines = timedLines(params)
+  const typed = typedText(lines, elapsed)
   if (typed !== null) return typed
   const whole = textOf(params.lines)
   const backspace = params.backspace
   if (!backspace?.enabled) return whole
-  const deleting = elapsed - typingDuration(params.lines) - backspace.pause
+  const deleting = elapsed - typingDuration(lines) - backspace.pause
   if (deleting <= 0) return whole
   const count = characterCount(params.lines) - Math.floor(deleting * backspace.speed + 1e-9)
   return prefixText(params.lines, count)
@@ -409,7 +422,7 @@ export function typedParams(params: TextParams, typed: string, time: number): Te
       time,
       lines: textSegments(params).flatMap((segment) => {
         if (segment.kind !== 'line') return []
-        const line = params.lines[segment.index ?? 0]
+        const line = timedLines(params)[segment.index ?? 0]
         // The first letter appears one character's time in (an empty line: at its start).
         const first =
           line && line.text && line.speed > 0

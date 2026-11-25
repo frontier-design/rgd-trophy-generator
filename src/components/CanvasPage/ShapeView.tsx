@@ -70,6 +70,7 @@ export function ShapeView({
         value: lineBox.padY,
         ...PAD_RANGE,
         unit: 'px',
+        param: 'lineBox.padY',
         onChange: (padY) => onChange({ padY }),
       }}
       horizontal={{
@@ -77,6 +78,7 @@ export function ShapeView({
         value: lineBox.padX,
         ...PAD_RANGE,
         unit: 'px',
+        param: 'lineBox.padX',
         onChange: (padX) => onChange({ padX }),
       }}
     >

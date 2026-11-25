@@ -70,7 +70,7 @@ export function ShapeFields({
         label="overshoot"
         value={params.overshoot}
         min={0}
-        max={20}
+        max={120}
         step={0.5}
         digits={1}
         param="overshoot"

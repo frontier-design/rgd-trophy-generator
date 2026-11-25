@@ -265,7 +265,7 @@ function theatreProps(d: TimelineValues) {
     shape: types.compound({
       edge: num(d.shape.edge, [100, 1200]),
       mirror: types.boolean(d.shape.mirror),
-      overshoot: num(d.shape.overshoot, [0, 20]),
+      overshoot: num(d.shape.overshoot, [0, 120]),
     }),
     top: types.compound({
       height: num(d.top.height, [0, 1000]),
@@ -301,7 +301,7 @@ function theatreProps(d: TimelineValues) {
       grainSize: num(m.grainSize, [0.25, 3]),
     }),
     lighting: types.compound({
-      angle: num(l.angle, [-180, 180]),
+      angle: num(l.angle, [-360, 360]),
       height: num(l.height, [0, 90]),
       ambient: num(l.ambient, [0, 1]),
       softness: num(l.softness, [0, 1]),

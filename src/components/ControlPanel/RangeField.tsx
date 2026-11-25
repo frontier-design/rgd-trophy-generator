@@ -1,6 +1,7 @@
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import type { KeyframeControl } from '../../types'
 import { KeyframeButton } from './KeyframeButton'
+import { FieldAnimButton, FieldAnimPanel } from './FieldAnimControls'
 import { useFieldAnim } from './fieldAnim'
 
 interface RangeFieldProps {
@@ -44,7 +45,7 @@ export function RangeField({
 }: RangeFieldProps) {
   const id = useId()
   const anims = useFieldAnim()
-  const anim = param && anims ? anims.get(param) : undefined
+  const animated = Boolean(param && anims && anims.keyframes(param).length)
   const animatable = Boolean(param && anims)
   const [open, setOpen] = useState(false)
   // Share of the track up to the value: drives the solid line and the readout position.
@@ -53,7 +54,7 @@ export function RangeField({
     <div
       className="control-field"
       data-disabled={disabled || undefined}
-      data-animated={anim?.enabled || undefined}
+      data-animated={animated || undefined}
     >
       <label className="control-label" htmlFor={id} data-icon={icon ? '' : undefined}>
         {icon}
@@ -77,71 +78,15 @@ export function RangeField({
         </output>
       </div>
       <KeyframeButton label={label} keyframe={keyframe} />
-      {animatable && param && anims && (
+      {animatable && (
         <>
-          <button
-            type="button"
-            className="field-anim-fold"
-            aria-label={`${label} animation`}
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-          >
-            ›
-          </button>
-          {open && (
-            <div className="field-anim" role="group" aria-label={`${label} animation`}>
-              <label className="field-anim-toggle">
-                <input
-                  type="checkbox"
-                  aria-label={`animate ${label}`}
-                  checked={anim?.enabled ?? false}
-                  onChange={(e) => anims.setEnabled(param, e.target.checked, value)}
-                />
-                Anim
-              </label>
-              {anim?.enabled && (
-                <>
-                  <label className="field-anim-line">
-                    Line
-                    <input
-                      type="number"
-                      aria-label={`${label} line`}
-                      min={1}
-                      step={1}
-                      value={anim.line}
-                      onChange={(e) => {
-                        const line = Math.round(e.target.valueAsNumber)
-                        if (Number.isFinite(line) && line >= 1) anims.setLine(param, line)
-                      }}
-                    />
-                  </label>
-                  {(['from', 'to'] as const).map((which) => (
-                    <button
-                      key={which}
-                      type="button"
-                      className="control-button field-anim-which"
-                      aria-pressed={anim.editing === which}
-                      onClick={() => anims.setEditing(param, which)}
-                    >
-                      {which}
-                    </button>
-                  ))}
-                  <select
-                    className="field-anim-easing"
-                    aria-label={`${label} easing`}
-                    value={anim.easing ?? anims.easings[0]?.value}
-                    onChange={(e) => anims.setEasing(param, e.target.value)}
-                  >
-                    {anims.easings.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-            </div>
-          )}
+          <FieldAnimButton
+            label={label}
+            param={param}
+            open={open}
+            onToggle={() => setOpen(!open)}
+          />
+          {open && <FieldAnimPanel label={label} param={param} value={value} />}
         </>
       )}
     </div>

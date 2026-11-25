@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ModifierNode, TextNode } from './graph'
-import { animates } from './paramAnim'
 import { textAt, textDuration, textOf, typedParams } from './textLines'
 
 interface Playback {
@@ -83,13 +82,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
     })
   }, [nodes])
 
-  // One frame loop while anything plays; state changes only when a character appears, or
-  // every frame while a node's property animates (it follows the time).
-  const timed = nodes.some((node) => node.kind !== 'text' && animates(node.anims))
-  const timedRef = useRef(timed)
-  useEffect(() => {
-    timedRef.current = timed
-  })
+  // One frame loop while anything plays; state changes only when a character appears.
   const active = Object.keys(playing).length > 0
   useEffect(() => {
     if (!active) return
@@ -102,7 +95,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           const elapsed = (Date.now() - playback.start) / 1000
           const typed =
             node && elapsed < textDuration(node.params) ? textAt(node.params, elapsed) : null
-          if (typed === playback.typed && !timedRef.current) continue
+          if (typed === playback.typed) continue
           next ??= { ...current }
           if (typed === null) delete next[id]
           else next[id] = { ...playback, typed, elapsed }
@@ -120,7 +113,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
         const at = seeked[node.id]
         if (node.kind === 'text' && at !== undefined) {
           const typed = textAt(node.params, at)
-          return typed === textOf(node.params.lines) && !timed
+          return typed === textOf(node.params.lines)
             ? node
             : { ...node, params: typedParams(node.params, typed, at) }
         }
@@ -129,7 +122,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           ? { ...node, params: typedParams(node.params, playback.typed, playback.elapsed) }
           : node
       }),
-    [nodes, playing, seeked, timed],
+    [nodes, playing, seeked],
   )
   return { playing, toggle, stop, seek, previewNodes }
 }

@@ -71,3 +71,12 @@ export function RadiusIcon() {
     </Icon>
   )
 }
+
+/** Typing: a text cursor (I-beam). */
+export function CursorIcon() {
+  return (
+    <Icon>
+      <path d="M5 2.5h1.5A1.5 1.5 0 0 1 8 4v8a1.5 1.5 0 0 1-1.5 1.5H5M11 2.5H9.5A1.5 1.5 0 0 0 8 4M8 12a1.5 1.5 0 0 0 1.5 1.5H11M6.25 8h3.5" />
+    </Icon>
+  )
+}

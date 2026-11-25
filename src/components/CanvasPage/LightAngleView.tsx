@@ -90,7 +90,7 @@ export function LightAngleView({
     if (!matrix) return
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse())
     // Read the pointer on the ground: as if the light were dropped to it.
-    onChange(angleAt({ x: p.x, y: p.y + (onGround.y - light.y) }, GROUND, min, max))
+    onChange(angleAt({ x: p.x, y: p.y + (onGround.y - light.y) }, GROUND, min, max, angle))
   }
 
   const ray = (
@@ -154,9 +154,18 @@ export function LightAngleView({
         min: heightMin,
         max: heightMax,
         unit: '°',
+        param: 'lightHeight',
         onChange: onHeightChange,
       }}
-      horizontal={{ label: 'light angle', value: angle, min, max, unit: '°', onChange }}
+      horizontal={{
+        label: 'light angle',
+        value: angle,
+        min,
+        max,
+        unit: '°',
+        param: 'lightAngle',
+        onChange,
+      }}
     >
       <svg
         ref={svg}

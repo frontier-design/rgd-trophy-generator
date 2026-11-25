@@ -22,24 +22,29 @@ import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
 import { TextLinesField } from './TextLinesField'
 import { FieldAnimContext, type FieldAnimControls } from '../ControlPanel/fieldAnim'
+import { useAnimationClock, useClockTime } from '../ControlPanel/animationClock'
 import {
-  DEFAULT_EASING,
+  animatedParams,
+  animates,
   EASINGS,
+  moveKeyframe,
+  removeKeyframe,
   routeEdit,
-  shownParams,
-  startAnim,
+  setKeyframe,
+  setKeyframeEasing,
   type Easing,
-  type ParamAnim,
   type ParamAnims,
+  type ParamTrack,
 } from './paramAnim'
 
-/** The animation easings, as the anim row's dropdown lists them. */
+/** The easings, as a keyframe's dropdown lists them. */
 const EASING_OPTIONS = EASINGS.map((value) => ({ value, label: value.replace('-', ' ') }))
 import { BackspaceFields } from './BackspaceFields'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import type { TextParams } from './textLines'
 import { TextTypeFields } from './TextTypeFields'
 import { NodeDivider } from './NodeView'
+import { CursorIcon } from '../icons'
 import { DEFAULT_SETTINGS } from '../../state'
 
 /** A text node's type with no linked scene: the default settings'. */
@@ -99,9 +104,8 @@ interface NodeCardProps {
 
 /**
  * A modifier node (twist, etch, pattern, texture): a card with its fields and an output port at its
- * header's right end to drag onto scenes' inputs. Full size on screen down to
- * CARD_FULL_ZOOM, then shrinking with the canvas, and only its header when small (`compact`)
- * or folded. Dragging the card (not a field) moves it.
+ * header's right end to drag onto scenes' inputs. It scales with the canvas and shows
+ * only its header when small (`compact`) or folded. Dragging the card (not a field) moves it.
  */
 export const NodeCard = memo(function NodeCard({
   node,
@@ -129,37 +133,47 @@ export const NodeCard = memo(function NodeCard({
   const { id, params } = node
   const kind = 'kind' in node ? node.kind : 'master'
   const isMaster = kind === 'master'
-  // Modifier nodes' sliders can animate over a text line's typing (not the master's or the
-  // text node's own). Animated sliders show, and edit, their from or to value.
+  // Modifier nodes' sliders can animate by keyframes on the animation clock (not the
+  // master's or the text node's own). Animated sliders show, and edit, the value at the
+  // clock's time (an edit sets a keyframe there).
   const animatable = !isMaster && kind !== 'text' && Boolean(onAnimsChange)
   const anims = animatable ? (node as ModifierNode).anims : undefined
-  const shown = useMemo(() => shownParams(params, anims), [params, anims])
+  const time = useClockTime(animates(anims))
+  const shown = useMemo(() => animatedParams(params, anims, time), [params, anims, time])
+  const clock = useAnimationClock()
   const animControls = useMemo<FieldAnimControls | null>(() => {
     if (!animatable || !onAnimsChange) return null
-    const update = (param: string, change: (anim: ParamAnim) => ParamAnim | null, value = 0) => {
-      const next = change(anims?.[param] ?? startAnim(value))
-      const all: Record<string, ParamAnim> = { ...(anims ?? {}) }
-      if (next) all[param] = next
+    const update = (param: string, track: ParamTrack | null) => {
+      const all: Record<string, ParamTrack> = { ...(anims ?? {}) }
+      if (track?.keyframes.length) all[param] = track
       else delete all[param]
       onAnimsChange(id, Object.keys(all).length ? all : undefined)
     }
     return {
-      get: (param) => anims?.[param],
-      setEnabled: (param, enabled, value) =>
-        update(param, (anim) => (enabled ? { ...anim, enabled: true } : null), value),
-      setLine: (param, line) => update(param, (anim) => ({ ...anim, line })),
-      setEditing: (param, editing) => update(param, (anim) => ({ ...anim, editing })),
+      keyframes: (param) => anims?.[param]?.keyframes ?? [],
+      addKeyframe: (param, value) =>
+        update(param, setKeyframe(anims?.[param], clock?.get() ?? 0, value)),
+      removeKeyframe: (param, index) => {
+        const track = anims?.[param]
+        if (track) update(param, removeKeyframe(track, index))
+      },
+      moveKeyframe: (param, index, to) => {
+        const track = anims?.[param]
+        if (!track) return index
+        const moved = moveKeyframe(track, index, to)
+        update(param, moved.track)
+        return moved.index
+      },
+      setEasing: (param, index, easing) => {
+        const track = anims?.[param]
+        if (track) update(param, setKeyframeEasing(track, index, easing as Easing))
+      },
       easings: EASING_OPTIONS,
-      setEasing: (param, easing) =>
-        update(param, (anim) => {
-          const { easing: _, ...rest } = anim
-          return easing === DEFAULT_EASING ? rest : { ...rest, easing: easing as Easing }
-        }),
     }
-  }, [animatable, anims, id, onAnimsChange])
+  }, [animatable, anims, id, onAnimsChange, clock])
   const fields = useMemo(() => {
     const set = (patch: ParamsPatch) => {
-      const routed = routeEdit(params, shown, patch as Record<string, unknown>, anims)
+      const routed = routeEdit(params, shown, patch as Record<string, unknown>, anims, time)
       if (routed.anims !== anims) onAnimsChange?.(id, routed.anims)
       if (Object.keys(routed.params).length) onParamsChange(id, routed.params as ParamsPatch)
     }
@@ -186,6 +200,13 @@ export const NodeCard = memo(function NodeCard({
               onChange={(lines) => set({ lines })}
             />
             <NodeDivider />
+            {/* Typing letter by letter, or each line appearing whole at its turn. */}
+            <ToggleField
+              label="typing"
+              icon={<CursorIcon />}
+              checked={(params as TextParams).typing !== false}
+              onChange={(typing) => set({ typing })}
+            />
             <BackspaceFields
               backspace={(params as TextParams).backspace}
               set={(backspace) => set({ backspace })}
@@ -219,6 +240,7 @@ export const NodeCard = memo(function NodeCard({
     params,
     shown,
     anims,
+    time,
     id,
     onParamsChange,
     onAnimsChange,

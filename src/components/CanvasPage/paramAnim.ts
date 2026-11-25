@@ -1,48 +1,36 @@
 /**
- * Per-node property animation: a modifier node's slider can animate from one value to
- * another across one text line's typing (the text node linked into the same scene): from at
- * the line's first character, to once it's typed, eased in and out. Pure (no React).
+ * Per-node property animation: a modifier node's slider can animate over time, by keyframes
+ * in seconds on the canvas's animation clock (scrubbed and played from a node's timeline, or
+ * a record node's; rendered frame by frame by a record node). Each keyframe holds a value;
+ * between two, the value moves by the earlier one's easing. Before the first keyframe the
+ * value is the first's, after the last the last's. Pure (no React).
  */
 
-/** One animated property of a node. */
-export interface ParamAnim {
-  enabled: boolean
-  /** The text line (1-based) whose typing it follows. */
-  line: number
-  from: number
-  to: number
-  /** Which value the node's slider edits (and the scene shows at rest). */
-  editing: 'from' | 'to'
-  /** How it moves from `from` to `to` (absent in saves from before easings: `ease`). */
+/** One keyframe: a value at a time (s), and how the value moves on to the next keyframe. */
+export interface Keyframe {
+  time: number
+  value: number
+  /** Absent: `ease`. */
   easing?: Easing
+}
+
+/** One animated property: its keyframes, in time order. */
+export interface ParamTrack {
+  keyframes: readonly Keyframe[]
 }
 
 /** Easings: `ease` in and out (smoothstep), `linear`, `fast-out` (most of the change at the
  *  start, then settling) and `fast-in-out` (a quick, sharp move in the middle), both
- *  exponential; `hold` jumps to `to` when the line's first letter appears (and back to
- *  `from` once backspace has deleted all of it). */
+ *  exponential; `hold` keeps the value until the next keyframe, then jumps. */
 export const EASINGS = ['ease', 'linear', 'fast-out', 'fast-in-out', 'hold'] as const
 export type Easing = (typeof EASINGS)[number]
 export const DEFAULT_EASING: Easing = 'ease'
 
 /** A node's animated properties, by path (`flutes`, or `lineBox.padX` inside an object). */
-export type ParamAnims = Readonly<Record<string, ParamAnim>>
+export type ParamAnims = Readonly<Record<string, ParamTrack>>
 
-/** Where the text animation is, for a scene: seconds in, and each line's typing (s). Null:
- *  at rest (not playing, scrubbed or rendering). */
-export interface TextTiming {
-  time: number
-  /** Each line's typing (s), and when its first letter appears (`hold` switches then). */
-  lines: readonly { start: number; end: number; first?: number }[]
-  /** With backspace on: when each line is deleted (s). */
-  deletes?: readonly { start: number; end: number }[]
-}
-
-/** A new animation for a property at `value`: from and to both it, following line 1,
- *  editing to. */
-export function startAnim(value: number): ParamAnim {
-  return { enabled: true, line: 1, from: value, to: value, editing: 'to' }
-}
+/** Keyframes closer than this (s) are the same moment: an edit there changes that one. */
+export const KEYFRAME_EPSILON = 1e-3
 
 /** The value at a path (`a` or `a.b`), if it's a number. */
 export function valueAt(params: object, path: string): number | undefined {
@@ -65,7 +53,7 @@ export function withValueAt<T extends object>(params: T, path: string, value: nu
   return { ...params, [key]: next } as T
 }
 
-/** Progress (0–1 over the line) eased (0–1). */
+/** Progress (0–1 between two keyframes) eased (0–1). */
 export function ease(easing: Easing, t: number): number {
   switch (easing) {
     case 'linear':
@@ -83,85 +71,132 @@ export function ease(easing: Easing, t: number): number {
   }
 }
 
-/** How far `time` is through `window` (0–1); a zero-length window is a step at its start. */
-function through(window: { start: number; end: number }, time: number): number {
-  const length = window.end - window.start
-  if (length > 0) return Math.min(1, Math.max(0, (time - window.start) / length))
-  return time >= window.start ? 1 : 0
+/** A track's value at `time` (s); undefined with no keyframes. */
+export function trackValue(track: ParamTrack | undefined, time: number): number | undefined {
+  const keys = track?.keyframes
+  if (!keys?.length) return undefined
+  const first = keys[0]!
+  if (time <= first.time) return first.value
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i]!
+    const b = keys[i + 1]!
+    if (time < b.time) {
+      const span = b.time - a.time
+      const t = span > 0 ? (time - a.time) / span : 1
+      return a.value + (b.value - a.value) * ease(a.easing ?? DEFAULT_EASING, t)
+    }
+  }
+  return keys[keys.length - 1]!.value
 }
 
-/** An animation's value: interpolated over its line's typing when there's timing (from
- *  before the line starts, to after it's typed), and back again while backspace deletes the
- *  line (the typing played backwards: to → from as its characters go); else, at rest, the
- *  value its slider edits. */
-export function animValue(anim: ParamAnim, timing: TextTiming | null): number {
-  if (!timing) return anim.editing === 'from' ? anim.from : anim.to
-  const window = timing.lines[anim.line - 1]
-  if (!window) return anim.to
-  const deleting = timing.deletes?.[anim.line - 1]
-  // Hold: to from the moment the line's first letter appears until its last letter is
-  // deleted (while any of the line is on screen); from otherwise. No easing.
-  if ((anim.easing ?? DEFAULT_EASING) === 'hold') {
-    const time = timing.time + 1e-9
-    if (deleting && time >= deleting.start) return time >= deleting.end ? anim.from : anim.to
-    return time >= (window.first ?? window.end) ? anim.to : anim.from
-  }
-  const share =
-    deleting && timing.time >= deleting.start
-      ? 1 - through(deleting, timing.time)
-      : through(window, timing.time)
-  return anim.from + (anim.to - anim.from) * ease(anim.easing ?? DEFAULT_EASING, share)
+/** Whether a property animates (it has a keyframe). */
+export function animated(track: ParamTrack | undefined): boolean {
+  return Boolean(track?.keyframes.length)
 }
 
 /** Whether any of a node's properties animate. */
 export function animates(anims: ParamAnims | undefined): boolean {
-  return Boolean(anims && Object.values(anims).some((anim) => anim.enabled))
+  return Boolean(anims && Object.values(anims).some(animated))
 }
 
-/** `params` with each animated property at its value now; the same object when nothing
- *  animates. */
+/** `params` with each animated property at its value at `time`; the same object when
+ *  nothing animates. */
 export function animatedParams<T extends object>(
   params: T,
   anims: ParamAnims | undefined,
-  timing: TextTiming | null,
+  time: number,
 ): T {
   if (!anims || !animates(anims)) return params
   let out = params
-  for (const [path, anim] of Object.entries(anims)) {
-    if (!anim.enabled || valueAt(params, path) === undefined) continue
-    out = withValueAt(out, path, animValue(anim, timing))
+  for (const [path, track] of Object.entries(anims)) {
+    const value = trackValue(track, time)
+    if (value === undefined || valueAt(params, path) === undefined) continue
+    out = withValueAt(out, path, value)
   }
   return out
 }
 
-/** `params` as a node's sliders show them: each animated property at the value its slider
- *  edits (from or to). */
-export function shownParams<T extends object>(params: T, anims: ParamAnims | undefined): T {
-  return animatedParams(params, anims, null)
+/** The index of the keyframe at `time` (within KEYFRAME_EPSILON), or -1. */
+export function keyframeAt(track: ParamTrack | undefined, time: number): number {
+  return track?.keyframes.findIndex((key) => Math.abs(key.time - time) < KEYFRAME_EPSILON) ?? -1
+}
+
+const sorted = (keys: Keyframe[]) => keys.sort((a, b) => a.time - b.time)
+
+/** The track with `value` at `time`: that keyframe changed if there is one, else a new one
+ *  (easing like the one before it). */
+export function setKeyframe(
+  track: ParamTrack | undefined,
+  time: number,
+  value: number,
+): ParamTrack {
+  const keys = [...(track?.keyframes ?? [])]
+  const at = keyframeAt(track, time)
+  if (at >= 0) keys[at] = { ...keys[at]!, value }
+  else keys.push({ time: Math.max(0, time), value })
+  return { keyframes: sorted(keys) }
+}
+
+/** The track without keyframe `index`. */
+export function removeKeyframe(track: ParamTrack, index: number): ParamTrack {
+  return { keyframes: track.keyframes.filter((_, i) => i !== index) }
 }
 
 /**
- * A slider edit (`patch`, made against `shown`) split into what goes to the params and to
- * the animations: an animated property's new value goes to the value its slider edits, and
- * the node's own value (`params`, what it has with the animation off) stays.
+ * The track with keyframe `index` moved to `time` (s, never before 0), and where it now is
+ * in time order. Moved onto another keyframe's moment, it stays a hair after it.
+ */
+export function moveKeyframe(
+  track: ParamTrack,
+  index: number,
+  time: number,
+): { track: ParamTrack; index: number } {
+  const key = track.keyframes[index]
+  if (!key) return { track, index }
+  const moved = { ...key, time: Math.max(0, time) }
+  const keys = track.keyframes.filter((_, i) => i !== index)
+  if (keys.some((other) => Math.abs(other.time - moved.time) < KEYFRAME_EPSILON))
+    moved.time += KEYFRAME_EPSILON * 1.5
+  keys.push(moved)
+  sorted(keys)
+  return { track: { keyframes: keys }, index: keys.indexOf(moved) }
+}
+
+/** The track with keyframe `index`'s easing (how it moves on to the next) set. */
+export function setKeyframeEasing(track: ParamTrack, index: number, easing: Easing): ParamTrack {
+  return {
+    keyframes: track.keyframes.map((key, i) => {
+      if (i !== index) return key
+      const { easing: _, ...rest } = key
+      return easing === DEFAULT_EASING ? rest : { ...rest, easing }
+    }),
+  }
+}
+
+/**
+ * A slider edit (`patch`, made against `shown`, the params at `time`) split into what goes
+ * to the params and to the animations: an animated property's new value becomes a keyframe
+ * at `time` (that keyframe changed if there is one), and the node's own value (`params`,
+ * what it has without the animation) stays.
  */
 export function routeEdit(
   params: object,
   shown: object,
   patch: Record<string, unknown>,
   anims: ParamAnims | undefined,
+  time: number,
 ): { params: Record<string, unknown>; anims: ParamAnims | undefined } {
   if (!anims || !animates(anims)) return { params: patch, anims }
   let out: Record<string, unknown> = { ...patch }
-  let next: Record<string, ParamAnim> | undefined
-  for (const [path, anim] of Object.entries(anims)) {
-    if (!anim.enabled) continue
+  let next: Record<string, ParamTrack> | undefined
+  for (const [path, track] of Object.entries(anims)) {
+    if (!animated(track)) continue
     const [key] = path.split('.')
     if (!key || !(key in out)) continue
     const value = valueAt(out, path)
     if (value !== undefined && value !== valueAt(shown, path)) {
       next ??= { ...anims }
-      next[path] = { ...anim, [anim.editing]: value }
+      next[path] = setKeyframe(track, time, value)
     }
     // Whether or not it changed (a nested edit carries its siblings' shown values along),
     // the node keeps its own value.
@@ -172,27 +207,32 @@ export function routeEdit(
   return { params: out, anims: next ?? anims }
 }
 
-/** Saved animations, checked (broken entries dropped). */
+/** Saved animations, checked: tracks of keyframes (time order restored, broken ones
+ *  dropped). Animations saved before keyframes (a line's typing, from and to) are dropped. */
 export function parseAnims(value: unknown): ParamAnims | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const out: Record<string, ParamAnim> = {}
+  const out: Record<string, ParamTrack> = {}
+  const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
   for (const [path, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!raw || typeof raw !== 'object') continue
-    const anim = raw as Record<string, unknown>
-    const number = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
-    const from = number(anim.from)
-    const to = number(anim.to)
-    if (from === null || to === null) continue
-    out[path] = {
-      enabled: anim.enabled === true,
-      line: Math.max(1, Math.round(number(anim.line) ?? 1)),
-      from,
-      to,
-      editing: anim.editing === 'from' ? 'from' : 'to',
-      ...(EASINGS.includes(anim.easing as Easing) && anim.easing !== DEFAULT_EASING
-        ? { easing: anim.easing as Easing }
-        : {}),
-    }
+    const keys = (raw as { keyframes?: unknown } | null)?.keyframes
+    if (!Array.isArray(keys)) continue
+    const keyframes = keys.flatMap((entry): Keyframe[] => {
+      if (!entry || typeof entry !== 'object') return []
+      const key = entry as Record<string, unknown>
+      const time = number(key.time)
+      const v = number(key.value)
+      if (time === null || v === null) return []
+      return [
+        {
+          time: Math.max(0, time),
+          value: v,
+          ...(EASINGS.includes(key.easing as Easing) && key.easing !== DEFAULT_EASING
+            ? { easing: key.easing as Easing }
+            : {}),
+        },
+      ]
+    })
+    if (keyframes.length) out[path] = { keyframes: sorted(keyframes) }
   }
   return Object.keys(out).length ? out : undefined
 }

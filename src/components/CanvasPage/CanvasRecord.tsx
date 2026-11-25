@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import {
   memo,
   useCallback,
@@ -19,7 +20,8 @@ import {
 } from '../../export/recorder'
 import type { SceneFrameSource } from './CanvasScene'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
-import { RecordTimeline } from './RecordTimeline'
+import { useAnimationClock } from '../ControlPanel/animationClock'
+import { RecordTimeline, type KeyframeRow } from './RecordTimeline'
 import {
   RECORD_FPS,
   RECORD_HOLD_RANGE,
@@ -62,6 +64,9 @@ export interface CanvasRecordProps {
   onChange: (id: string, patch: Partial<Pick<RecordNode, 'fps' | 'holdIn' | 'holdOut'>>) => void
   /** Retiming the text node from the timeline (its lines' speeds, its backspace). */
   onTextChange: (id: string, patch: Partial<TextParams>) => void
+  /** The scene's nodes' animated properties, and moving their keyframes. */
+  keyframeRows?: readonly KeyframeRow[]
+  onKeyframeMove?: (row: KeyframeRow, index: number, time: number) => void
 }
 
 /** The preview's longer side, in output px. */
@@ -99,6 +104,8 @@ export const CanvasRecord = memo(function CanvasRecord({
   onInputDown,
   onChange,
   onTextChange,
+  keyframeRows,
+  onKeyframeMove,
 }: CanvasRecordProps) {
   // `video`: the size it renders at (its input's frame); `frame`: its small artboard.
   const { id, frame: artboard, video: frame, fps, holdIn, holdOut } = node
@@ -130,13 +137,17 @@ export const CanvasRecord = memo(function CanvasRecord({
     latest.current = { textId, holdIn, duration: timeline.duration }
     latestPlayhead.current = playhead
   })
+  // The animation clock follows the playhead (the video's time), so animated properties
+  // play with it; it's left where the playhead was when let go.
+  const clock = useAnimationClock()
   const show = useCallback(
     (time: number) => {
       setPlayhead(time)
+      clock?.set(time)
       const { textId, holdIn } = latest.current
       if (textId) seekTyping(textId, time - holdIn)
     },
-    [seekTyping],
+    [seekTyping, clock],
   )
   const release = useCallback(() => {
     setPlaying(false)
@@ -277,6 +288,8 @@ export const CanvasRecord = memo(function CanvasRecord({
         abort.signal.throwIfAborted()
         // The scene at this frame's time: before the hold in ends, nothing typed yet; past
         // the animation, its end state.
+        // Animated properties at this frame's time too (drawn before the compose).
+        flushSync(() => clock?.set(i / rate))
         if (renderText) seekTyping(renderText, i / rate - lead, true)
         const composition = source.compose(recorder.scale)
         if (composition.width !== width || composition.height !== height)
@@ -403,6 +416,8 @@ export const CanvasRecord = memo(function CanvasRecord({
             onPlay={play}
             onRestart={restart}
             onRetime={retime}
+            keyframeRows={keyframeRows}
+            onKeyframeMove={onKeyframeMove}
           />
         )}
         {inputId && !typing && (

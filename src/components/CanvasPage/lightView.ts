@@ -64,10 +64,13 @@ export function lightPoint(
 }
 
 /** The angle (degrees) a pointer points the light to: its place read on the ground plane
- *  about `ground` (undoing the foreshortening), clamped to [min, max] (the slider's range). */
-export function angleAt(point: Point, ground: Point, min: number, max: number): number {
+ *  about `ground` (undoing the foreshortening), clamped to [min, max] (the slider's range).
+ *  The range can span more than one turn: the pointer's direction is taken whole turns from
+ *  `near` (the current angle) so a drag carries on past ±180° instead of jumping. */
+export function angleAt(point: Point, ground: Point, min: number, max: number, near = 0): number {
   const degrees = (Math.atan2(point.x - ground.x, (point.y - ground.y) / TILT) * 180) / Math.PI
-  return Math.min(max, Math.max(min, Math.round(degrees)))
+  const unwrapped = degrees + 360 * Math.round((near - degrees) / 360)
+  return Math.min(max, Math.max(min, Math.round(unwrapped)))
 }
 
 /** A face to draw: its outline on the view and whether it's turned toward the viewer. */

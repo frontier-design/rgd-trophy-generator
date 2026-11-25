@@ -81,7 +81,13 @@ import { MASTER_ID, withMaster, type MasterNode, type MasterParams } from './mas
 import { NodeCard, type ParamsPatch } from './NodeCard'
 import { useTypingPlayback } from './useTypingPlayback'
 import { linesFromText } from './textLines'
-import type { ParamAnims } from './paramAnim'
+import { animates, moveKeyframe, type ParamAnims } from './paramAnim'
+import type { KeyframeRow } from './RecordTimeline'
+import {
+  AnimationClockContext,
+  createAnimationClock,
+  useClockTimeOf,
+} from '../ControlPanel/animationClock'
 import {
   createNodePositionStore,
   NodeDragContext,
@@ -141,6 +147,10 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+/** A property path as a label: its last part, words split (`lineBox.padX` → "pad x"). */
+const propertyLabel = (path: string) =>
+  (path.split('.').at(-1) ?? path).replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
 
 /** What a right-click was on. */
 type MenuTarget = {
@@ -1137,6 +1147,43 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     }
     return out
   }, [recordInputs, effectiveLinks, modifiers])
+  // Each record node's keyframe rows: the animated properties of the nodes linked into its
+  // scene (in link order), shown and moved on its timeline.
+  const recordKeyframes = useMemo(() => {
+    const out = new Map<string, KeyframeRow[]>()
+    for (const [recordId, scene] of recordInputs) {
+      const rows: KeyframeRow[] = []
+      const seen = new Set<string>()
+      for (const link of effectiveLinks) {
+        if (link.muted || link.to !== scene.id || seen.has(link.from)) continue
+        seen.add(link.from)
+        const node = modifiers.find((item) => item.id === link.from)
+        for (const [path, track] of Object.entries(node?.anims ?? {})) {
+          if (!node || !track.keyframes.length) continue
+          rows.push({
+            id: `${node.id}:${path}`,
+            label: `${node.name} · ${propertyLabel(path)}`,
+            times: track.keyframes.map((key) => key.time),
+          })
+        }
+      }
+      if (rows.length) out.set(recordId, rows)
+    }
+    return out
+  }, [recordInputs, effectiveLinks, modifiers])
+  const moveRecordKeyframe = useCallback(
+    (row: KeyframeRow, index: number, time: number) => {
+      const split = row.id.indexOf(':')
+      const nodeId = row.id.slice(0, split)
+      const path = row.id.slice(split + 1)
+      updateModifier(nodeId, (node) => {
+        const track = node.anims?.[path]
+        if (!track) return node
+        return { ...node, anims: { ...node.anims, [path]: moveKeyframe(track, index, time).track } }
+      })
+    },
+    [updateModifier],
+  )
   // A record node's timeline seeks the text node; its render, frame by frame, commits at
   // once (`sync`), so the scene is drawn and ready when this returns.
   const seekTypingNode = typing.seek
@@ -1149,9 +1196,16 @@ export function CanvasPage({ tools }: CanvasPageProps) {
   )
   // Position/name/fold changes don't invalidate artwork, and unrelated scenes keep their inputs.
   const resolveModifiers = useMemo(() => createSceneModifiersResolver(), [])
+  // Animated node properties follow the animation clock (only while something animates, so
+  // the page doesn't re-render as it moves otherwise).
+  const clock = useMemo(() => createAnimationClock(), [])
+  const clockTime = useClockTimeOf(
+    clock,
+    modifiers.some((node) => animates(node.anims)),
+  )
   const sceneModifiers = useMemo(
-    () => resolveModifiers(effectiveLinks, typing.previewNodes, patternMaps),
-    [resolveModifiers, effectiveLinks, typing.previewNodes, patternMaps],
+    () => resolveModifiers(effectiveLinks, typing.previewNodes, patternMaps, clockTime),
+    [resolveModifiers, effectiveLinks, typing.previewNodes, patternMaps, clockTime],
   )
   const [visualRevisions, setVisualRevisions] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
@@ -1225,12 +1279,12 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     return grouped
   }, [modifiers, effectiveLinks])
 
-  // Zoomed out far, node cards show only their headers (they're small, and it's less to draw).
-  const compactCards = cardScale(view.zoom) < CARD_COMPACT_SCALE
+  const cardOnScreen = cardScale(view.zoom)
+  const cardOnCanvas = cardOnScreen / view.zoom
+  const compactCards = cardOnScreen < CARD_COMPACT_SCALE
 
   // Clusters' frames, around their members' cards. A card's height comes from the page (its
   // fields, folded or not), measured after each render (only for clustered cards).
-  const cardOnCanvas = cardScale(view.zoom) / view.zoom
   const [cardHeights, setCardHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
   const clusteredKey = clusters.flatMap((cluster) => cluster.members).join(' ')
   const modifierKey = modifiers.map((node) => node.id).join(' ')
@@ -1410,292 +1464,306 @@ export function CanvasPage({ tools }: CanvasPageProps) {
     : []
 
   return (
-    <NodeDragContext.Provider value={dragController}>
-      <main className="canvas-page">
-        <section
-          ref={canvasRef}
-          className="infinite-canvas"
-          aria-label="Canvas"
-          style={grid}
-          data-linking={pending ? 'on' : undefined}
-          onPointerMove={(e) => {
-            pointer.current = toCanvas(e.clientX, e.clientY)
-          }}
-          onPointerLeave={() => {
-            pointer.current = null
-          }}
-          onFocusCapture={(e) => {
-            const target = e.target
-            if (!(target instanceof HTMLTextAreaElement) || !target.classList.contains('rag-text'))
-              return
-            const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
-            const source = links.findLast(
-              (link) =>
-                !link.muted &&
-                link.to === sceneId &&
-                modifiers.some((node) => node.id === link.from && node.kind === 'text'),
-            )
-            if (source) typing.stop(source.from)
-          }}
-          onContextMenu={(e) => {
-            const target = e.target as Element
-            if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
-            e.preventDefault()
-            const rect = e.currentTarget.getBoundingClientRect()
-            const repeatId = target.closest<HTMLElement>('[data-repeat-node]')?.dataset.sceneId
-            const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
-            const compositionId =
-              target.closest<HTMLElement>('[data-composition-node]')?.dataset.sceneId
-            const recordId = target.closest<HTMLElement>('[data-record-node]')?.dataset.sceneId
-            const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
-            const nodeId = nodeElement?.dataset.nodeId
-            const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
-            const clusterId = target.closest<HTMLElement>('[data-cluster-id]')?.dataset.clusterId
-            const menuTarget: MenuTarget = repeatId
-              ? { kind: 'repeat', id: repeatId }
-              : sceneId
-                ? { kind: 'scene', id: sceneId }
-                : !nodeElement && clusterId
-                  ? { kind: 'cluster', id: clusterId }
-                  : compositionId
-                    ? { kind: 'composition', id: compositionId }
-                    : recordId
-                      ? { kind: 'record', id: recordId }
-                      : nodeId && nodeKind && nodeId !== MASTER_ID
-                        ? { kind: nodeKind, id: nodeId }
-                        : null
-            if (menuTarget) selectNode(menuTarget.id)
-            else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
-            setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
-          }}
-        >
-          <div
-            className="infinite-canvas-world"
-            style={
-              {
-                transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-                '--zoom': view.zoom,
-                '--card-scale': cardScale(view.zoom),
-              } as CSSProperties
-            }
+    <AnimationClockContext.Provider value={clock}>
+      <NodeDragContext.Provider value={dragController}>
+        <main className="canvas-page">
+          <section
+            ref={canvasRef}
+            className="infinite-canvas"
+            aria-label="Canvas"
+            style={grid}
+            data-linking={pending ? 'on' : undefined}
+            onPointerMove={(e) => {
+              pointer.current = toCanvas(e.clientX, e.clientY)
+            }}
+            onPointerLeave={() => {
+              pointer.current = null
+            }}
+            onFocusCapture={(e) => {
+              const target = e.target
+              if (
+                !(target instanceof HTMLTextAreaElement) ||
+                !target.classList.contains('rag-text')
+              )
+                return
+              const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
+              const source = links.findLast(
+                (link) =>
+                  !link.muted &&
+                  link.to === sceneId &&
+                  modifiers.some((node) => node.id === link.from && node.kind === 'text'),
+              )
+              if (source) typing.stop(source.from)
+            }}
+            onContextMenu={(e) => {
+              const target = e.target as Element
+              if (target.closest(NATIVE_MENU) || target.closest('[data-scene-controls]')) return
+              e.preventDefault()
+              const rect = e.currentTarget.getBoundingClientRect()
+              const repeatId = target.closest<HTMLElement>('[data-repeat-node]')?.dataset.sceneId
+              const sceneId = target.closest<HTMLElement>('[data-scene-node]')?.dataset.sceneId
+              const compositionId =
+                target.closest<HTMLElement>('[data-composition-node]')?.dataset.sceneId
+              const recordId = target.closest<HTMLElement>('[data-record-node]')?.dataset.sceneId
+              const nodeElement = target.closest<HTMLElement>('[data-canvas-node]')
+              const nodeId = nodeElement?.dataset.nodeId
+              const nodeKind = nodeElement?.dataset.kind as ModifierKind | undefined
+              const clusterId = target.closest<HTMLElement>('[data-cluster-id]')?.dataset.clusterId
+              const menuTarget: MenuTarget = repeatId
+                ? { kind: 'repeat', id: repeatId }
+                : sceneId
+                  ? { kind: 'scene', id: sceneId }
+                  : !nodeElement && clusterId
+                    ? { kind: 'cluster', id: clusterId }
+                    : compositionId
+                      ? { kind: 'composition', id: compositionId }
+                      : recordId
+                        ? { kind: 'record', id: recordId }
+                        : nodeId && nodeKind && nodeId !== MASTER_ID
+                          ? { kind: nodeKind, id: nodeId }
+                          : null
+              if (menuTarget) selectNode(menuTarget.id)
+              else if (nodeId === MASTER_ID) selectNode(MASTER_ID)
+              setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, target: menuTarget })
+            }}
           >
-            {/* First, so the scenes and compositions (same layer, later) cover the links. */}
-            <svg className="node-links" aria-hidden="true">
-              {linkPaths.map(({ key, from, to, muted }) => (
-                <NodeLinkPath
-                  key={key}
-                  from={from}
-                  to={to}
-                  zoom={view.zoom}
-                  muted={muted}
-                  selected={selectedEdgeSet.has(key)}
-                />
-              ))}
-              {pendingPath && <path d={pendingPath} data-pending />}
-            </svg>
-            {/* The edges' hit areas (wider than the lines; under the nodes, like the lines). */}
-            <svg className="node-link-hits" data-no-pan aria-hidden="true">
-              {linkPaths.map(({ key, from, to }) => (
-                <NodeLinkHit
-                  key={key}
-                  edge={key}
-                  from={from}
-                  to={to}
-                  zoom={view.zoom}
-                  onSelect={selectEdge}
-                />
-              ))}
-            </svg>
-            {scenes.map((node) => (
-              <CanvasScene
-                key={node.id}
-                node={node}
-                selected={selectedIds.has(node.id)}
-                getZoom={getZoom}
-                renderZoom={renderZoom}
-                modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
-                rangeModifiers={rangeModifiersByScene.get(node.id)}
-                selectedRangeModifierIds={selectedIds}
-                textNodeId={
-                  links
-                    .filter(
-                      (link) =>
-                        !link.muted &&
-                        link.to === node.id &&
-                        modifiers.some(
-                          (modifier) => modifier.id === link.from && modifier.kind === 'text',
-                        ),
-                    )
-                    .at(-1)?.from
-                }
-                selectedTextNodeIds={selectedIds}
-                onRangeChange={setModifierParams}
-                onRangeBoundary={checkpoint}
-                onSelect={selectNode}
-                onInputDown={pickUpLink}
-                onOutputDown={startLink}
-                onToggleMute={toggleOutgoingMute}
-                muted={mutedNodes.has(node.id)}
-                onMove={moveScene}
-                onTextChange={setSceneText}
-                onExporter={setExporter}
-                onFrameSource={setFrameSource}
-                onVisualChange={onVisualChange}
-                onResize={resizeScene}
-                onImageExportChange={setSceneImageExport}
-                exporter={getExporter}
-              />
-            ))}
-            {repeats.map((node) => (
-              <RepeatArtboard
-                key={node.id}
-                node={node}
-                selected={selectedIds.has(node.id)}
-                getZoom={getZoom}
-                renderZoom={renderZoom}
-                modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
-                onSelect={selectNode}
-                onInputDown={pickUpLink}
-                onMove={moveRepeat}
-                onResize={resizeRepeat}
-                onLayoutChange={setRepeatLayout}
-                onExporter={setExporter}
-                onFrameSource={setFrameSource}
-                onOutputDown={startLink}
-              />
-            ))}
-            {fittedCompositions.map((node) => {
-              const link = links.findLast((item) => item.to === node.id && !item.muted)
-              return (
-                <CanvasComposition
+            <div
+              className="infinite-canvas-world"
+              style={
+                {
+                  transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+                  '--zoom': view.zoom,
+                  '--card-world-scale': cardOnCanvas,
+                  '--artboard-control-world-scale': Math.min(1, cardOnScreen) / view.zoom,
+                } as CSSProperties
+              }
+            >
+              {/* First, so the scenes and compositions (same layer, later) cover the links. */}
+              <svg className="node-links" aria-hidden="true">
+                {linkPaths.map(({ key, from, to, muted }) => (
+                  <NodeLinkPath
+                    key={key}
+                    from={from}
+                    to={to}
+                    zoom={view.zoom}
+                    muted={muted}
+                    selected={selectedEdgeSet.has(key)}
+                  />
+                ))}
+                {pendingPath && <path d={pendingPath} data-pending />}
+              </svg>
+              {/* The edges' hit areas (wider than the lines; under the nodes, like the lines). */}
+              <svg className="node-link-hits" data-no-pan aria-hidden="true">
+                {linkPaths.map(({ key, from, to }) => (
+                  <NodeLinkHit
+                    key={key}
+                    edge={key}
+                    from={from}
+                    to={to}
+                    zoom={view.zoom}
+                    onSelect={selectEdge}
+                  />
+                ))}
+              </svg>
+              {scenes.map((node) => (
+                <CanvasScene
                   key={node.id}
                   node={node}
                   selected={selectedIds.has(node.id)}
                   getZoom={getZoom}
-                  imageUrl={link ? sceneImages.get(link.from) : undefined}
-                  connected={Boolean(link)}
+                  renderZoom={renderZoom}
+                  modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
+                  rangeModifiers={rangeModifiersByScene.get(node.id)}
+                  selectedRangeModifierIds={selectedIds}
+                  textNodeId={
+                    links
+                      .filter(
+                        (link) =>
+                          !link.muted &&
+                          link.to === node.id &&
+                          modifiers.some(
+                            (modifier) => modifier.id === link.from && modifier.kind === 'text',
+                          ),
+                      )
+                      .at(-1)?.from
+                  }
+                  selectedTextNodeIds={selectedIds}
+                  onRangeChange={setModifierParams}
+                  onRangeBoundary={checkpoint}
                   onSelect={selectNode}
-                  onMove={moveComposition}
                   onInputDown={pickUpLink}
-                  onResize={resizeComposition}
-                  onImageChange={setCompositionImage}
+                  onOutputDown={startLink}
+                  onToggleMute={toggleOutgoingMute}
+                  muted={mutedNodes.has(node.id)}
+                  onMove={moveScene}
+                  onTextChange={setSceneText}
+                  onExporter={setExporter}
+                  onFrameSource={setFrameSource}
+                  onVisualChange={onVisualChange}
+                  onResize={resizeScene}
+                  onImageExportChange={setSceneImageExport}
+                  exporter={getExporter}
                 />
-              )
-            })}
-            {placedRecords.map((node) => {
-              const input = recordInputs.get(node.id)
-              return (
-                <CanvasRecord
+              ))}
+              {repeats.map((node) => (
+                <RepeatArtboard
                   key={node.id}
                   node={node}
                   selected={selectedIds.has(node.id)}
                   getZoom={getZoom}
-                  inputId={input?.id ?? null}
-                  inputScale={input?.imageExport.scale ?? 1}
-                  typing={recordTypings.get(node.id) ?? null}
-                  getFrameSource={getFrameSource}
-                  seekTyping={seekTyping}
+                  renderZoom={renderZoom}
+                  modifiers={sceneModifiers.get(node.id) ?? NO_MODIFIERS}
                   onSelect={selectNode}
-                  onMove={moveRecord}
                   onInputDown={pickUpLink}
-                  onChange={updateRecord}
-                  onTextChange={setModifierParams}
+                  onMove={moveRepeat}
+                  onResize={resizeRepeat}
+                  onLayoutChange={setRepeatLayout}
+                  onExporter={setExporter}
+                  onFrameSource={setFrameSource}
+                  onOutputDown={startLink}
                 />
-              )
-            })}
-            {clusterLayouts.map(({ cluster, bounds, rects }) => (
-              <ClusterFrame
-                key={cluster.id}
-                cluster={cluster}
-                bounds={bounds}
-                members={rects}
-                scale={cardOnCanvas}
-                selected={selectedIds.has(cluster.id)}
-                connected={links.some((link) => link.from === cluster.id)}
-                getZoom={getZoom}
-                onSelect={selectNode}
-                onMove={moveModifier}
-                onOutputDown={startLink}
-                muted={mutedNodes.has(cluster.id)}
-                onToggleMute={toggleOutgoingMute}
-                onArrange={arrangeCluster}
-              />
-            ))}
-            <NodeCard
-              node={master}
-              selected={selectedIds.has(MASTER_ID)}
-              getZoom={getZoom}
-              connected={false}
-              compact={compactCards}
-              onCollapsedChange={setModifierCollapsed}
-              onSelect={selectNode}
-              onMove={moveModifier}
-              onParamsChange={setModifierParams}
-              onOutputDown={startLink}
-            />
-            {modifiers.map((node) => (
+              ))}
+              {fittedCompositions.map((node) => {
+                const link = links.findLast((item) => item.to === node.id && !item.muted)
+                return (
+                  <CanvasComposition
+                    key={node.id}
+                    node={node}
+                    selected={selectedIds.has(node.id)}
+                    getZoom={getZoom}
+                    imageUrl={link ? sceneImages.get(link.from) : undefined}
+                    connected={Boolean(link)}
+                    onSelect={selectNode}
+                    onMove={moveComposition}
+                    onInputDown={pickUpLink}
+                    onResize={resizeComposition}
+                    onImageChange={setCompositionImage}
+                  />
+                )
+              })}
+              {placedRecords.map((node) => {
+                const input = recordInputs.get(node.id)
+                return (
+                  <CanvasRecord
+                    key={node.id}
+                    node={node}
+                    selected={selectedIds.has(node.id)}
+                    getZoom={getZoom}
+                    inputId={input?.id ?? null}
+                    inputScale={input?.imageExport.scale ?? 1}
+                    typing={recordTypings.get(node.id) ?? null}
+                    getFrameSource={getFrameSource}
+                    seekTyping={seekTyping}
+                    onSelect={selectNode}
+                    onMove={moveRecord}
+                    onInputDown={pickUpLink}
+                    onChange={updateRecord}
+                    onTextChange={setModifierParams}
+                    keyframeRows={recordKeyframes.get(node.id)}
+                    onKeyframeMove={moveRecordKeyframe}
+                  />
+                )
+              })}
+              {clusterLayouts.map(({ cluster, bounds, rects }) => (
+                <ClusterFrame
+                  key={cluster.id}
+                  cluster={cluster}
+                  bounds={bounds}
+                  members={rects}
+                  scale={cardOnCanvas}
+                  selected={selectedIds.has(cluster.id)}
+                  connected={links.some((link) => link.from === cluster.id)}
+                  getZoom={getZoom}
+                  onSelect={selectNode}
+                  onMove={moveModifier}
+                  onOutputDown={startLink}
+                  muted={mutedNodes.has(cluster.id)}
+                  onToggleMute={toggleOutgoingMute}
+                  onArrange={arrangeCluster}
+                />
+              ))}
               <NodeCard
-                key={node.id}
-                node={node}
-                selected={selectedIds.has(node.id)}
+                node={master}
+                selected={selectedIds.has(MASTER_ID)}
                 getZoom={getZoom}
-                connected={linkedNodes.has(node.id)}
-                grouped={groupedNodes.has(node.id)}
-                muted={mutedNodes.has(node.id)}
-                onToggleMute={toggleOutgoingMute}
-                pattern={patternStatuses.get(node.id)}
-                typingPlaying={Boolean(typing.playing[node.id])}
-                typeFallbackSize={textTypeFallbacks.get(node.id)?.fontSize}
-                typeFallbackLeading={textTypeFallbacks.get(node.id)?.leading}
-                onTypingToggle={typing.toggle}
+                connected={false}
                 compact={compactCards}
                 onCollapsedChange={setModifierCollapsed}
                 onSelect={selectNode}
                 onMove={moveModifier}
                 onParamsChange={setModifierParams}
-                onAnimsChange={setModifierAnims}
                 onOutputDown={startLink}
               />
-            ))}
-          </div>
-          <SelectionMarquee canvasRef={canvasRef} onSelect={addSelected} onClear={clearSelected} />
-          {scenes.length === 0 &&
-            compositions.length === 0 &&
-            records.length === 0 &&
-            repeats.length === 0 &&
-            modifiers.length === 0 && <p className="canvas-hint">Right-click to insert a scene</p>}
-          {selectedRepeat && (
-            <PositionedSceneControls node={selectedRepeat} view={view} size={size}>
-              <RepeatControls
-                key={selectedRepeat.id}
-                node={selectedRepeat}
-                onUpdate={updateRepeat}
-                exporter={getExporter}
-              />
-            </PositionedSceneControls>
-          )}
-          {menu && (
-            <ContextMenu
-              x={clamp(menu.x, 0, Math.max(0, size.width - MENU_SIZE.width))}
-              y={clamp(menu.y, 0, Math.max(0, size.height - MENU_SIZE.height))}
-              items={menuItems}
-              onClose={closeMenu}
+              {modifiers.map((node) => (
+                <NodeCard
+                  key={node.id}
+                  node={node}
+                  selected={selectedIds.has(node.id)}
+                  getZoom={getZoom}
+                  connected={linkedNodes.has(node.id)}
+                  grouped={groupedNodes.has(node.id)}
+                  muted={mutedNodes.has(node.id)}
+                  onToggleMute={toggleOutgoingMute}
+                  pattern={patternStatuses.get(node.id)}
+                  typingPlaying={Boolean(typing.playing[node.id])}
+                  typeFallbackSize={textTypeFallbacks.get(node.id)?.fontSize}
+                  typeFallbackLeading={textTypeFallbacks.get(node.id)?.leading}
+                  onTypingToggle={typing.toggle}
+                  compact={compactCards}
+                  onCollapsedChange={setModifierCollapsed}
+                  onSelect={selectNode}
+                  onMove={moveModifier}
+                  onParamsChange={setModifierParams}
+                  onAnimsChange={setModifierAnims}
+                  onOutputDown={startLink}
+                />
+              ))}
+            </div>
+            <SelectionMarquee
+              canvasRef={canvasRef}
+              onSelect={addSelected}
+              onClear={clearSelected}
             />
-          )}
-          <div className="canvas-page-tools" data-no-pan>
-            {tools}
-          </div>
-          <div className="view-tools" data-no-pan>
-            <output className="view-zoom" aria-label="Zoom">
-              {Math.round(view.zoom * 100)}%
-            </output>
-            <button type="button" className="control-button" onClick={reset}>
-              reset
-            </button>
-          </div>
-        </section>
-      </main>
-    </NodeDragContext.Provider>
+            {scenes.length === 0 &&
+              compositions.length === 0 &&
+              records.length === 0 &&
+              repeats.length === 0 &&
+              modifiers.length === 0 && (
+                <p className="canvas-hint">Right-click to insert a scene</p>
+              )}
+            {selectedRepeat && (
+              <PositionedSceneControls node={selectedRepeat} view={view} size={size}>
+                <RepeatControls
+                  key={selectedRepeat.id}
+                  node={selectedRepeat}
+                  onUpdate={updateRepeat}
+                  exporter={getExporter}
+                />
+              </PositionedSceneControls>
+            )}
+            {menu && (
+              <ContextMenu
+                x={clamp(menu.x, 0, Math.max(0, size.width - MENU_SIZE.width))}
+                y={clamp(menu.y, 0, Math.max(0, size.height - MENU_SIZE.height))}
+                items={menuItems}
+                onClose={closeMenu}
+              />
+            )}
+            <div className="canvas-page-tools" data-no-pan>
+              {tools}
+            </div>
+            <div className="view-tools" data-no-pan>
+              <output className="view-zoom" aria-label="Zoom">
+                {Math.round(view.zoom * 100)}%
+              </output>
+              <button type="button" className="control-button" onClick={reset}>
+                reset
+              </button>
+            </div>
+          </section>
+        </main>
+      </NodeDragContext.Provider>
+    </AnimationClockContext.Provider>
   )
 }
 

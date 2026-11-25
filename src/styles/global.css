@@ -1027,7 +1027,7 @@ body {
   align-items: center;
   padding-top: 10px;
   white-space: nowrap;
-  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: scale(var(--artboard-control-world-scale));
 }
 
 .scene-tools-group[data-side='left'] {
@@ -1102,7 +1102,7 @@ body {
   width: 440px;
   padding-top: 10px;
   font-size: 12px;
-  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: scale(var(--artboard-control-world-scale));
   transform-origin: 0 0;
 }
 
@@ -1279,25 +1279,29 @@ body {
   background: #6b6b66;
 }
 
+/* A bar's length: a small gray tag at its end (beside it when the bar is too short). */
 .record-clip-length {
-  padding-right: 8px;
-  font-size: 10px;
+  margin-right: 4px;
+  padding: 1px 3px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--color-text);
   white-space: nowrap;
   pointer-events: none;
+  background: var(--color-label-bg);
 }
 
 .record-clip[data-narrow] .record-clip-length {
   position: absolute;
   left: 100%;
-  padding: 0 0 0 4px;
-  color: var(--color-text);
+  margin: 0 0 0 4px;
 }
 
 .record-clip[data-narrow='before'] .record-clip-length {
   right: 100%;
   left: auto;
-  padding: 0 4px 0 0;
+  margin: 0 4px 0 0;
 }
 
 .record-clip-handle {
@@ -1312,6 +1316,22 @@ body {
 
 .record-clip-handle:hover {
   background: rgb(0 0 0 / 0.25);
+}
+
+/* An animated property's row: its keyframes, yellow diamonds dragged in time. */
+.record-row-label[data-keyframes] {
+  color: #8a6500;
+}
+
+.record-keyframe {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  cursor: ew-resize;
+  background: #ffd666;
+  border: 1.5px solid #b98900;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 /* Across the ruler and the tracks (not a grid item: it would push the rows out of their
@@ -1416,7 +1436,7 @@ body {
 
 /* ---- Canvas nodes (twist) and links -------------------------------------- */
 
-/* A node at its canvas position; its card keeps its size on screen at any zoom. */
+/* A node at its canvas position, with a card that scales with the canvas. */
 .canvas-node {
   position: absolute;
   z-index: 3;
@@ -1438,8 +1458,7 @@ body {
   background: var(--color-panel-bg);
   border: 1px solid var(--color-panel-border);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
-  /* Its on-screen scale (--card-scale: 1, or with the canvas when zoomed far out). */
-  transform: scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: scale(var(--card-world-scale));
   transform-origin: 0 0;
 }
 
@@ -1490,28 +1509,39 @@ body {
   padding: 12px 14px;
 }
 
-/* A modifier slider's animation (RangeField `param`, fieldAnim.ts): a chevron after the
-   slider unfolds a row under it: Anim, then the line it follows and From / To (which value
-   the slider edits). An animated slider's label is marked. */
+/* A modifier slider's animation (RangeField `param`, fieldAnim.ts): a keyframe button after
+   the slider unfolds a row under it: Anim, then the line it follows and From / To (which
+   value the slider edits). An animated slider's label is marked. */
 .field-anim-fold {
   grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 14px;
+  height: 14px;
   padding: 0;
-  font: inherit;
-  font-weight: 700;
-  line-height: 1;
   color: inherit;
   cursor: pointer;
   background: none;
   border: 0;
-  opacity: 0.6;
-  transition: transform 120ms;
+  opacity: 0.45;
 }
 
-.field-anim-fold[aria-expanded='true'] {
-  transform: rotate(90deg);
+/* A keyframe diamond: outlined while static, filled once animated; full strength while its
+   controls are open or hovered. */
+.field-anim-fold svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
 }
 
+.field-anim-fold[data-animated] svg {
+  fill: currentColor;
+}
+
+.field-anim-fold[data-animated],
+.field-anim-fold[aria-expanded='true'],
 .field-anim-fold:hover {
   opacity: 1;
 }
@@ -1550,6 +1580,115 @@ body {
 .field-anim-which {
   padding: 2px 8px;
   text-transform: capitalize;
+}
+
+/* A slider's keyframe timeline (KeyframeTimeline): a bar (play, keyframe at the playhead,
+   the selected keyframe's easing, the time), then the track: a ruler in seconds, the
+   keyframes (yellow diamonds, draggable) and the playhead. Scroll pans, ⌘/pinch zooms. */
+.keyframe-timeline {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  padding: 2px 0 6px;
+  font-size: 11px;
+}
+
+.keyframe-timeline-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.keyframe-timeline-bar .control-button {
+  min-width: 26px;
+  padding: 3px 6px;
+  text-transform: none;
+}
+
+.keyframe-toggle svg {
+  display: block;
+  fill: none;
+  stroke: #b98900;
+  stroke-width: 1.2;
+}
+
+.keyframe-toggle[aria-pressed='true'] {
+  background: var(--color-label-bg);
+}
+
+.keyframe-toggle[aria-pressed='true'] svg {
+  fill: #ffd666;
+}
+
+.keyframe-easing {
+  font: inherit;
+}
+
+.keyframe-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.keyframe-track {
+  position: relative;
+  height: 34px;
+  overflow: hidden;
+  cursor: text;
+  background: #ffffff;
+  border: 1px solid var(--color-panel-border);
+  touch-action: none;
+}
+
+.keyframe-track:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 1px;
+}
+
+.keyframe-tick {
+  position: absolute;
+  top: 0;
+  height: 5px;
+  border-left: 1px solid #c9c9c4;
+  pointer-events: none;
+}
+
+.keyframe-tick[data-major] {
+  height: 9px;
+  border-left-color: #8c8c88;
+}
+
+.keyframe-tick {
+  font-size: 9px;
+  line-height: 1;
+  color: #8c8c88;
+  white-space: nowrap;
+  text-indent: 2px;
+}
+
+.keyframe {
+  position: absolute;
+  top: 19px;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  cursor: ew-resize;
+  background: #ffd666;
+  border: 1.5px solid #b98900;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.keyframe[data-selected] {
+  background: #f0b400;
+  border-color: #7a5a00;
+}
+
+.keyframe-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #111111;
+  pointer-events: none;
 }
 
 .control-field[data-animated] > .control-label::after {
@@ -1620,8 +1759,8 @@ body {
 .node-view {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 196px 16px;
-  gap: 6px 10px;
+  grid-template-columns: 182px 16px 14px;
+  gap: 6px 8px;
   justify-content: start;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--color-panel-border);
@@ -1629,8 +1768,8 @@ body {
 
 .node-view-box {
   display: block;
-  width: 196px;
-  height: 128px;
+  width: 182px;
+  height: 119px;
   background: #ffffff;
   border: 1.5px solid #111111;
 }
@@ -1638,15 +1777,31 @@ body {
 .node-view-vertical {
   position: relative;
   width: 16px;
-  height: 128px;
+  height: 119px;
 }
 
 .node-view-vertical > .range-wrap {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 128px;
+  width: 119px;
   transform: translate(-50%, -50%) rotate(-90deg);
+}
+
+/* Each slider's keyframe button: the vertical one's at its top, the horizontal one's beside
+   it. With none (a view whose sliders don't animate), the column stays empty. */
+.node-view-key {
+  display: flex;
+  justify-content: center;
+}
+
+.node-view-key[data-for='vertical'] {
+  align-items: start;
+}
+
+.node-view-key[data-for='horizontal'] {
+  grid-column: 3;
+  align-items: center;
 }
 
 /* Its sliders: a shorter tick than the fields' (and a track to match). Separate rules: a
@@ -1862,14 +2017,14 @@ body {
   z-index: 3;
   top: 25%;
   right: 0;
-  transform: translate(50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: translate(50%, -50%) scale(var(--artboard-control-world-scale));
 }
 
 /* On a scene: the middle of its left side, at screen size. */
 .node-port-in {
   top: 25%; /* INPUT_PORT_AT in CanvasPage/graph.ts */
   left: 0;
-  transform: translate(-50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: translate(-50%, -50%) scale(var(--artboard-control-world-scale));
 }
 
 /* Links, in canvas px under the scenes (drawn before them, same layer) and the node cards. */
@@ -1955,10 +2110,76 @@ body {
   gap: 6px;
 }
 
+/* The hamburger and its menu (save, open). */
+.save-menu {
+  position: relative;
+}
+
+.save-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  color: #111111;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.save-menu-button svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.save-menu-items {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--color-panel-bg);
+  border: 1px solid var(--color-panel-border);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+
+.save-menu-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-transform: capitalize;
+  color: var(--color-text);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.save-menu-item:hover,
+.save-menu-item:focus-visible {
+  background: var(--color-label-bg);
+}
+
+.save-menu-item kbd {
+  font: inherit;
+  font-weight: 400;
+  color: #6b6b66;
+}
+
+/* When it last autosaved (or why it couldn't), in a gray box like the labels. */
 .save-status {
+  padding: 4px 8px;
   font-size: 11px;
   color: #6b6b66;
   white-space: nowrap;
+  background: var(--color-label-bg);
 }
 
 .save-status[data-error] {
@@ -2245,7 +2466,7 @@ body {
   background: var(--color-panel-bg);
   border: 1.5px solid #8a8a85;
   border-radius: 2px;
-  transform: translate(-50%, -50%) scale(calc(var(--card-scale, 1) / var(--zoom)));
+  transform: translate(-50%, -50%) scale(var(--artboard-control-world-scale));
 }
 
 .frame-handle:hover,
@@ -2295,14 +2516,14 @@ body {
 .frame-size[data-axis='width'] {
   top: 0;
   left: 50%;
-  transform: scale(calc(var(--card-scale, 1) / var(--zoom))) translate(-50%, calc(-100% - 16px));
+  transform: scale(var(--artboard-control-world-scale)) translate(-50%, calc(-100% - 16px));
   transform-origin: 0 0;
 }
 
 .frame-size[data-axis='height'] {
   top: 50%;
   left: 100%;
-  transform: scale(calc(var(--card-scale, 1) / var(--zoom))) translate(18px, -50%);
+  transform: scale(var(--artboard-control-world-scale)) translate(18px, -50%);
   transform-origin: 0 0;
 }
 

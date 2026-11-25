@@ -141,3 +141,15 @@ it('turns the light with the arrow keys, and sets angle and height on its slider
   fireEvent.change(height, { target: { value: '60' } })
   expect(onHeightChange).toHaveBeenLastCalledWith(60)
 })
+
+describe('angleAt past one turn', () => {
+  const ground = { x: 100, y: 80 }
+  const onGround = (angle: number) => lightPoint(angle, 0, ground, 40, 30, 0).onGround
+  it('keeps the drag whole turns from the current angle, within the range', () => {
+    expect(angleAt(onGround(-60), ground, -360, 360, 290)).toBe(300)
+    expect(angleAt(onGround(60), ground, -360, 360, -290)).toBe(-300)
+    expect(angleAt(onGround(170), ground, -360, 360, -175)).toBe(-190)
+    expect(angleAt(onGround(-30), ground, -360, 360, 0)).toBe(-30)
+    expect(angleAt(onGround(10), ground, -360, 360, 355)).toBe(360)
+  })
+})

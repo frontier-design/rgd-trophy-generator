@@ -4,7 +4,7 @@ import { LightAngleView } from './LightAngleView'
 import { NodeDivider } from './NodeView'
 
 /** The light's angle and height ranges (degrees): the view's sliders and its drag. */
-const LIGHT_ANGLE = { min: -180, max: 180 }
+const LIGHT_ANGLE = { min: -360, max: 360 }
 const LIGHT_HEIGHT = { min: 0, max: 90 }
 
 interface LightingFieldsProps {

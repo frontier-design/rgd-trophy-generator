@@ -71,7 +71,11 @@ it("takes a scene's frame and export scale, and times the render by its text nod
   fireEvent.click(within(text).getByRole('checkbox', { name: 'line 1 hold' }))
   expect(within(text).getByRole('slider', { name: 'line 1 hold time' })).toHaveValue('0.5')
   const holdBar = record.querySelector('.record-clip[data-kind="line-hold"]')
-  expect(holdBar).toHaveTextContent('0.50s')
+  expect(holdBar).toBeInTheDocument()
+  // Holds show no length tag (the typed lines do).
+  expect(holdBar?.querySelector('.record-clip-length')).toBeNull()
+  expect(record.querySelector('.record-clip[data-kind="hold-in"] .record-clip-length')).toBeNull()
+  expect(record.querySelector('.record-clip[data-kind="line"] .record-clip-length')).not.toBeNull()
   expect(
     within(record).getByRole('slider', { name: `${lines[0]!.text} hold length` }),
   ).toBeInTheDocument()
