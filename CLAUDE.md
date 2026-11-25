@@ -50,7 +50,8 @@ Shared types live in `src/types/index.ts`.
 src/
   main.tsx, Root.tsx   entry; Root renders CanvasPage with shared save/open controls.
                        CanvasPage owns scenes, modifier nodes, links and workspace state.
-                       Selected scenes expose ControlPanel; CanvasScene renders SceneArtboard.
+                       Scenes have no inspector (SceneTools under each: frame size, PNG export);
+                       selected repeats expose RepeatControls; CanvasScene renders SceneArtboard.
   state/               Settings via React context + useReducer (useSettings, SettingsProvider)
   measure/             Pretext wrapper + font loading (no React)
   banner/              pure math: the banner's layout (scaled from RGD's 2000 px artwork) and
@@ -343,9 +344,11 @@ are editor overlays and are not included in exports.
 - **Canvas scenes, node-style** (`CanvasPage`, `CanvasScene`, `sceneNode.ts`): right-click
   → **insert scene** (`ContextMenu`) centers a 1920 × 1080 scene on the click; each has its
   own state (`SceneNode`: settings, scene params, view toggles, position), no timeline.
-  Pressing a scene selects it (raised, outlined) and its controls float beside it (the
-  sidebar's `ControlPanel` with no keyframes, no timeline, no banner section and
-  `revealControls={false}`), kept on screen; dragging it (not its text) moves it; its text
+  Pressing a scene selects it (raised, outlined). Scenes have no inspector: type comes from
+  the linked text node, shape/material/lighting from their nodes, shared settings from the
+  master, and `SceneTools` sits under the artboard (width and height bottom left; PNG export
+  bottom right: scale, ×2 by default, a **transparent** toggle dimmed while off, **export
+  png**); dragging it (not its text) moves it; its text
   edits as in the generator; a click on the empty canvas deselects; Delete/Backspace
   (unless typing) or right-click → **delete scene** removes it. **Copy / paste**: right-click
   a scene or node → **copy** / **duplicate** (beside it), right-click anywhere → **paste**
@@ -365,12 +368,20 @@ are editor overlays and are not included in exports.
   mirrored, the widest line + box carving 80% of the radius, the top band up to the top
   margin), boxes, corners and joins scaled with the type, round top on. Each scene is its
   own WebGL context (browsers cap them, ~16) and render loop. Saved (see Saving).
+<<<<<<< Updated upstream
 - **Node cards** (`NodeCard`): full size on screen down to 50% zoom, then shrinking with the
   canvas to a 30% floor (`cardScale`; `--card-scale` on the world layer, which also scales
   scene input ports and places output ports, `outputPort`), so zoomed out they don't cover
   the scenes. Below 60% scale they show only their header (no fields in the DOM); the header's
   −/+ folds a card at any zoom (`collapsed`, saved). The selected scene's panel is
   `SceneControls`, memoized so panning (which re-renders the page) doesn't re-render it.
+=======
+- **Node cards** (`NodeCard`): base size at 50% canvas zoom, growing and shrinking with
+  the canvas (with a 30% floor for readability, `cardScale`). `--card-world-scale` sets
+  the card transform; `outputPort` uses the same ratio to place links. Separate artboard
+  controls and ports stop growing at 50%. Below 40% scale (20% zoom) they show only their header (no fields in the DOM); the header's
+  −/+ folds a card at any zoom (`collapsed`, saved).
+>>>>>>> Stashed changes
 - **Twist node** (`TwistFields`, `graph.ts`; right-click → **insert twist**): a card with
   fields: **section**
   (lobes: raised lobes, grooves between; grooves: narrow rounded channels in flat ribs),
@@ -419,18 +430,18 @@ are editor overlays and are not included in exports.
   dashes). GLSL ES 3.0 reserves names like `layout` and `sample`: a test scans the shader
   for reserved names used as variables, and another checks both shaders declare the same
   varyings once each (each mistake blanked every trophy once: jsdom can't compile GLSL). No rebuild: uniforms only (`setEtches`).
-- **Frame size** (canvas scenes; scene controls' **frame** section): each scene has its own
-  `frame` (presets 16:9, 1:1, 4:5, 9:16, 4K, or any width × height, 256–8192 px). A new size
+- **Frame size** (canvas scenes; `SceneTools`' width and height): each scene has its own
+  `frame` (any width × height, 256–8192 px). A new size
   re-fits the text and trophy to it (`fitSceneToFrame`: measures the scene's text and runs
-  the sculpt intro's rule, `rag/fitToFrame`, scaling boxes/corners/joins with the type);
-  **fit to frame** does it again after text edits. Selected, a scene also has resize
+  the sculpt intro's rule, `rag/fitToFrame`, scaling boxes/corners/joins with the type).
+  Selected, a scene also has resize
   handles at its edges' midpoints (`frame-handle`, screen-sized; `resizeFrame`: the opposite
   edge stays, Shift keeps the ratio) with its width and height beside them, re-fitting live;
   its input port moved up its left side (`INPUT_PORT_AT`, a quarter down) for the left
   handle. `useSceneModel` takes the frame (banner
   layout, reveal fill), CanvasScene sizes the artboard with it (`--artboard-*`), and ports and
   the controls' position follow it. The generator stays 1920 × 1080 (`ARTBOARD`, the video).
-- **Image export** (generator and canvas scenes; **image** section): the frame as it is now
+- **Image export** (generator: **image** section; canvas scenes: `SceneTools`, PNG only): the frame as it is now
   as PNG (optionally **transparent**: no background, the banner's bar too) or JPEG (opaque,
   0.92), at ×1–×5 (`export/image.ts` `renderImage`; `maxImageScale` caps it so the longest side
   stays ≤ 16384 px and the image ≤ 100 M px, e.g. 4K at ×3). Both pages build the layers with
@@ -484,6 +495,36 @@ are editor overlays and are not included in exports.
   (all typed) nothing is clipped. On screen it's a CSS `clip-path` on the 3D and 2D layers
   (`.artboard[data-masked]`, `--mask-top`); exports clip the trophy image
   (`PlacedImage.clipTop`, via `composeScene`'s `maskTop`). Text is never masked.
+<<<<<<< Updated upstream
+=======
+- **Animated node properties** (`paramAnim.ts`, `ControlPanel/fieldAnim.ts`,
+  `ControlPanel/KeyframeTimeline.tsx`, `ControlPanel/animationClock.ts`): every slider on a
+  modifier node (shape, twist, etch, pattern, texture, material, lighting, and the lighting /
+  shape views' sliders; not the master, the text node or scene panels) has a keyframe diamond
+  (`RangeField` / `NodeView` `param`, the property's path, `lineBox.padX` inside an object;
+  outlined while static, filled once it has keyframes) opening its **keyframe timeline**
+  under it: a ruler in seconds, its keyframes (yellow diamonds) and the playhead. Click or
+  drag the track to scrub; drag a keyframe left/right to retime it (selecting it moves the
+  playhead to it); scroll pans, ⌘/Ctrl-scroll or a pinch zooms about the pointer; the bar
+  plays the clock, adds/removes a keyframe at the playhead, and sets the selected keyframe's
+  **easing** (how it moves on to the next: `EASINGS` ease (smoothstep, default, not saved),
+  linear, fast out, fast in-out, hold). Keyframes are in seconds on the canvas's **animation
+  clock** (one time for the whole canvas, `AnimationClockContext`; a node's timeline scrubs
+  and plays it, a record node moves it while scrubbing, playing and rendering, `flushSync`
+  per frame; it stays where it was left), independent of the text's typing. A track's value
+  (`trackValue`): the first keyframe's before it, the last's after, eased between. An
+  animated slider shows the value at the clock's time and an edit sets a keyframe there
+  (`routeEdit`; the node's own value stays); its label is marked ◆. Saved per node under
+  `anims` (`ParamAnims`: `{ keyframes: [{ time, value, easing? }] }` per path); animations
+  saved before keyframes (a line's typing, from / to) are dropped on load. `modifiersByScene`
+  resolves each node's params at the clock's time (`sceneParams`, cached by params, anims and
+  time); the page follows the clock only while some node animates. Record nodes show one
+  row per animated property of the nodes linked into their scene (`KeyframeRow`, "node ·
+  property"), its keyframes draggable there too.
+- **Text node typing** (**typing** toggle, cursor icon, above backspace; `TextParams.typing`,
+  absent = on): off, each line appears whole at its turn instead of letter by letter
+  (`timedLines`: no time to type), holds and backspace still play.
+>>>>>>> Stashed changes
 - **Text node backspace** (`BackspaceFields`, `TextParams.backspace`, `textLines.ts`): after
   the typing, a **pause** on the whole text, then deleting it one character at a time from
   the end at **delete speed** (`textSegments`, `textDuration`, `textAt`). It's the text
@@ -551,6 +592,10 @@ are editor overlays and are not included in exports.
   height up to half the feature size × strength (same steepness at any scale); octaves
   smaller than ~2 px on screen fade out instead of shimmering; pits or streaks a touch
   darker. Up to `MAX_TEXTURES` (4) per scene; uniforms only (`setTextures`).
+- **Text node type** (`TextTypeFields`; `TextParams.fontSize` px, `leading` × size; absent =
+  each linked scene keeps its own, fitted to its frame): **size** and **line height** for every
+  linked scene (`withTextType`, via `SceneModifiers.textType`); the font is always PP Mori.
+  Until set, the sliders show the first linked scene's type.
 - **Text node** (`TextLinesField`, `textLines.ts`, pure and tested; params `{ lines }`, each
   `{ text, speed, tracking }`; saves with one `text` load as lines): one input per line that
   edits like a textarea (Enter at a line's end goes to the next line or makes one after the
