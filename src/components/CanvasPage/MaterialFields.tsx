@@ -61,6 +61,7 @@ export function MaterialFields({
         max={1}
         step={0.01}
         digits={2}
+        param="banding"
         onChange={(banding) => set({ banding })}
       />
       <RangeField
@@ -70,6 +71,7 @@ export function MaterialFields({
         max={0.5}
         step={0.01}
         digits={2}
+        param="gradientOffset"
         onChange={(gradientOffset) => set({ gradientOffset })}
       />
       <RangeField
@@ -79,6 +81,7 @@ export function MaterialFields({
         max={3}
         step={0.05}
         digits={2}
+        param="gradientScale"
         onChange={(gradientScale) => set({ gradientScale })}
       />
       <RangeField
@@ -88,6 +91,7 @@ export function MaterialFields({
         max={1}
         step={0.01}
         digits={2}
+        param="tilt"
         onChange={(tilt) => set({ tilt })}
       />
       <RangeField
@@ -97,6 +101,7 @@ export function MaterialFields({
         max={5}
         step={0.01}
         digits={2}
+        param="wobble"
         onChange={(wobble) => set({ wobble })}
       />
       <RangeField
@@ -106,6 +111,7 @@ export function MaterialFields({
         max={1}
         step={0.01}
         digits={2}
+        param="edgeDepth"
         onChange={(edgeDepth) => set({ edgeDepth })}
       />
       <RangeField
@@ -113,6 +119,7 @@ export function MaterialFields({
         value={params.edgeHue}
         min={-90}
         max={90}
+        param="edgeHue"
         onChange={(edgeHue) => set({ edgeHue })}
       />
       <RangeField
@@ -122,6 +129,7 @@ export function MaterialFields({
         max={1}
         step={0.01}
         digits={2}
+        param="ledgeShadow"
         onChange={(ledgeShadow) => set({ ledgeShadow })}
       />
       <RangeField
@@ -131,6 +139,7 @@ export function MaterialFields({
         max={1}
         step={0.01}
         digits={2}
+        param="grain"
         onChange={(grain) => set({ grain })}
       />
       <RangeField
@@ -140,6 +149,7 @@ export function MaterialFields({
         max={3}
         step={0.05}
         digits={2}
+        param="grainSize"
         onChange={(grainSize) => set({ grainSize })}
       />
     </>

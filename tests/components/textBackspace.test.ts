@@ -94,5 +94,5 @@ it('waits after a held line before typing the next, and keeps the hold through e
     },
     '',
   )
-  expect(saved.lines.map((line) => line.hold)).toEqual([10, undefined])
+  expect(saved.lines.map((line) => line.hold)).toEqual([30, undefined])
 })

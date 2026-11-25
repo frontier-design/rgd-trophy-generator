@@ -1,11 +1,19 @@
 import { memo, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { CLUSTER_FRAME, type ClusterNode, type Rect } from './cluster'
-import { useNodeDrag, useNodePosition } from './nodeDrag'
+import {
+  CLUSTER_FRAME,
+  liveClusterBounds,
+  type ClusterNode,
+  type MemberRect,
+  type Rect,
+} from './cluster'
+import { useNodeDrag, useNodePositions } from './nodeDrag'
 
 interface ClusterFrameProps {
   cluster: ClusterNode
   /** Its frame around the members' cards (canvas px). */
   bounds: Rect
+  /** The members' cards (canvas px), so the frame follows their drag previews live. */
+  members: readonly MemberRect[]
   /** A card's on-canvas scale (cardScale(zoom) / zoom): the header and port scale like cards. */
   scale: number
   selected: boolean
@@ -20,6 +28,8 @@ interface ClusterFrameProps {
   muted?: boolean
   /** ⌘-click on its header: mutes (or unmutes) its outgoing links, like a node's. */
   onToggleMute?: (id: string) => void
+  /** The ↓ button: stacks its members one under another, by their ranges. */
+  onArrange?: (id: string) => void
 }
 
 /**
@@ -30,6 +40,7 @@ interface ClusterFrameProps {
 export const ClusterFrame = memo(function ClusterFrame({
   cluster,
   bounds,
+  members,
   scale,
   selected,
   connected,
@@ -39,10 +50,13 @@ export const ClusterFrame = memo(function ClusterFrame({
   onOutputDown,
   muted,
   onToggleMute,
+  onArrange,
 }: ClusterFrameProps) {
   const { id } = cluster
   const anchor = { id, x: bounds.x, y: bounds.y }
-  const position = useNodePosition(id, anchor)
+  // Dragging the header previews every member too, so following them covers both drags.
+  const previews = useNodePositions(members.map((member) => member.id))
+  const live = liveClusterBounds(members, previews, scale) ?? bounds
   const drag = useNodeDrag(anchor, getZoom, onMove)
   const header = CLUSTER_FRAME.header * scale
   return (
@@ -54,14 +68,10 @@ export const ClusterFrame = memo(function ClusterFrame({
       data-no-pan
       style={
         {
-          left: bounds.x,
-          top: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-          transform:
-            position === anchor
-              ? undefined
-              : `translate(${position.x - bounds.x}px, ${position.y - bounds.y}px)`,
+          left: live.x,
+          top: live.y,
+          width: live.width,
+          height: live.height,
           '--cluster-header': `${header}px`,
           '--cluster-scale': scale,
         } as CSSProperties
@@ -89,6 +99,21 @@ export const ClusterFrame = memo(function ClusterFrame({
       >
         <span className="cluster-frame-name">{cluster.name}</span>
         <span className="cluster-frame-count">{cluster.members.length}</span>
+        {onArrange && (
+          <button
+            type="button"
+            className="cluster-frame-arrange"
+            aria-label={`arrange ${cluster.name}`}
+            title="Stack the nodes by their from %, then to %"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onArrange(id)
+            }}
+          >
+            ↓
+          </button>
+        )}
         <span
           className="node-port node-port-out"
           data-port="out"

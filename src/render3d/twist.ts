@@ -130,3 +130,41 @@ export function twistDeform(
     return m
   }
 }
+
+/**
+ * A twist node's flutes for its card header (`width` × `height` px, row by row): how deeply
+ * each pixel is cut, 0…1 of the node's own depth (so shallow twists still read). The header
+ * stands for the band unrolled (top to bottom = from to to, across = all the way around, or
+ * `flutesAcross` flutes' worth), so
+ * it shows the flutes, section, sharpness, twist, curve, rotate and ends.
+ */
+export function twistPreview(
+  params: TwistParams,
+  width: number,
+  height: number,
+  /** How many flutes across (at most all of them, the whole way around): fewer read at a
+   *  small size. Infinity: all the way around. */
+  flutesAcross = Infinity,
+): Float32Array {
+  const s = twistShape(params)
+  const span = Math.max(s.to - s.from, 1e-6)
+  // The band fills the header: its ends (a share of the height) are scaled to it, and an end
+  // inside the trophy stays an end (one at the rim, with no end size, runs off the edge).
+  const band: TwistShape = {
+    ...s,
+    from: s.from > 0 ? 1e-6 : 0,
+    to: s.to < 1 ? 1 - 1e-6 : 1,
+    depth: 0.95,
+    endSize: s.endSize / span,
+  }
+  const around = (2 * Math.PI * Math.min(flutesAcross, s.flutes)) / s.flutes
+  const out = new Float32Array(width * height)
+  for (let y = 0; y < height; y++) {
+    const v = (y + 0.5) / height
+    for (let x = 0; x < width; x++) {
+      const phi = ((x + 0.5) / width) * around
+      out[y * width + x] = (1 - twistScale(band, v, phi)) / band.depth
+    }
+  }
+  return out
+}

@@ -1,9 +1,13 @@
-import { useId, type CSSProperties } from 'react'
+import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import type { KeyframeControl } from '../../types'
 import { KeyframeButton } from './KeyframeButton'
+import { FieldAnimButton, FieldAnimPanel } from './FieldAnimControls'
+import { useFieldAnim } from './fieldAnim'
 
 interface RangeFieldProps {
   label: string
+  /** Shown before the label's text. */
+  icon?: ReactNode
   value: number
   min: number
   max: number
@@ -14,6 +18,9 @@ interface RangeFieldProps {
   disabled?: boolean
   /** Timeline keyframe toggle for this param. */
   keyframe?: KeyframeControl
+  /** The property it edits (`flutes`, `lineBox.padX`): on node cards it can then animate
+   *  over a text line's typing (a chevron unfolds the animation's controls). */
+  param?: string
   onChange: (value: number) => void
 }
 
@@ -24,6 +31,7 @@ interface RangeFieldProps {
  */
 export function RangeField({
   label,
+  icon,
   value,
   min,
   max,
@@ -32,14 +40,24 @@ export function RangeField({
   unit = 'px',
   disabled = false,
   keyframe,
+  param,
   onChange,
 }: RangeFieldProps) {
   const id = useId()
+  const anims = useFieldAnim()
+  const animated = Boolean(param && anims && anims.keyframes(param).length)
+  const animatable = Boolean(param && anims)
+  const [open, setOpen] = useState(false)
   // Share of the track up to the value: drives the solid line and the readout position.
   const fill = max > min ? Math.min(1, Math.max(0, (value - min) / (max - min))) : 0
   return (
-    <div className="control-field" data-disabled={disabled || undefined}>
-      <label className="control-label" htmlFor={id}>
+    <div
+      className="control-field"
+      data-disabled={disabled || undefined}
+      data-animated={animated || undefined}
+    >
+      <label className="control-label" htmlFor={id} data-icon={icon ? '' : undefined}>
+        {icon}
         {label}
       </label>
       <div className="range-wrap" style={{ '--fill': fill } as CSSProperties}>
@@ -60,6 +78,17 @@ export function RangeField({
         </output>
       </div>
       <KeyframeButton label={label} keyframe={keyframe} />
+      {animatable && (
+        <>
+          <FieldAnimButton
+            label={label}
+            param={param}
+            open={open}
+            onToggle={() => setOpen(!open)}
+          />
+          {open && <FieldAnimPanel label={label} param={param} value={value} />}
+        </>
+      )}
     </div>
   )
 }

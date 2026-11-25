@@ -9,6 +9,8 @@ interface Playback {
   start: number
   /** What has been typed so far. */
   typed: string
+  /** Seconds in, as of the last update. */
+  elapsed: number
 }
 
 const textNode = (nodes: readonly ModifierNode[], id: string) =>
@@ -47,7 +49,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
       const node = textNode(nodesRef.current, id)
       const text = node ? textOf(node.params.lines) : ''
       if (next[id]) delete next[id]
-      else if (text) next[id] = { text, start: Date.now(), typed: '' }
+      else if (text) next[id] = { text, start: Date.now(), typed: '', elapsed: 0 }
       return next
     })
   }, [])
@@ -96,7 +98,7 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           if (typed === playback.typed) continue
           next ??= { ...current }
           if (typed === null) delete next[id]
-          else next[id] = { ...playback, typed }
+          else next[id] = { ...playback, typed, elapsed }
         }
         return next ?? current
       })
@@ -113,11 +115,11 @@ export function useTypingPlayback(nodes: readonly ModifierNode[]) {
           const typed = textAt(node.params, at)
           return typed === textOf(node.params.lines)
             ? node
-            : { ...node, params: typedParams(node.params, typed) }
+            : { ...node, params: typedParams(node.params, typed, at) }
         }
         const playback = playing[node.id]
         return node.kind === 'text' && playback && playback.text === textOf(node.params.lines)
-          ? { ...node, params: typedParams(node.params, playback.typed) }
+          ? { ...node, params: typedParams(node.params, playback.typed, playback.elapsed) }
           : node
       }),
     [nodes, playing, seeked],

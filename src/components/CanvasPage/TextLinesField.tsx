@@ -1,3 +1,4 @@
+import { TrackingIcon } from '../icons'
 import {
   useLayoutEffect,
   useRef,
@@ -218,7 +219,10 @@ export function TextLinesField({ lines, onChange }: TextLinesFieldProps) {
             />
             {unfolded && (
               <div className="text-line-format">
-                <span className="text-line-format-label">Tracking</span>
+                <span className="text-line-format-label" data-icon="" title="Tracking">
+                  <TrackingIcon />
+                  <span className="visually-hidden">Tracking</span>
+                </span>
                 <LineSlider
                   label={`line ${number} tracking`}
                   value={line.tracking}

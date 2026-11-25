@@ -117,17 +117,17 @@ describe('pattern nodes in scenes', () => {
 })
 
 describe('node cards', () => {
-  it('stay full size on screen down to half zoom, then shrink with the canvas (to a floor)', () => {
-    expect(cardScale(2)).toBe(1)
+  it('scale with the canvas above and below half zoom, with a readability floor', () => {
+    expect(cardScale(2)).toBe(4)
+    expect(cardScale(1)).toBe(2)
     expect(cardScale(0.5)).toBe(1)
     expect(cardScale(0.25)).toBe(0.5)
     // …but never so small their names can't be read.
     expect(cardScale(0.05)).toBe(0.3)
   })
 
-  it('put the output port at the card’s scale', () => {
-    // At 25% the card is half size on screen: 130 px wide, i.e. 520 canvas px.
-    expect(outputPort({ x: 0, y: 0 }, 0.25)).toEqual({
+  it.each([0.25, 0.5, 1, 2])('places the output port on the card at %s zoom', (zoom) => {
+    expect(outputPort({ x: 0, y: 0 }, zoom)).toEqual({
       x: NODE_CARD.width * 2,
       y: NODE_CARD.header,
     })

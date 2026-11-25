@@ -26,6 +26,20 @@ export interface TextBackspace {
   speed: number
 }
 
+/** A typing preview's place: characters typed of all of them (the mask), and, when it's
+ *  timed (playing, scrubbed, rendering), seconds in and each line's typing (s): what nodes'
+ *  animated properties follow. */
+export interface TextProgress {
+  typed: number
+  total: number
+  time?: number
+  /** Each line's typing (s): from its start to its end, and when its first letter appears. */
+  lines?: { start: number; end: number; first: number }[]
+  /** With backspace on: when each line is deleted (s; from the end, so the last line
+   *  first). */
+  deletes?: { start: number; end: number }[]
+}
+
 export interface TextParams {
   lines: TextLine[]
   /** Absent in saves from before backspacing (off). */
@@ -34,9 +48,17 @@ export interface TextParams {
    *  the trophy from the first line down; its top (no text) shows over the last few
    *  characters (`textMask`). */
   mask?: boolean
+  /** Typed letter by letter (absent: on). Off, each line appears whole at its turn (holds
+   *  and backspace still play). */
+  typing?: boolean
+  /** Type size (px) for linked scenes; absent: each scene keeps its own (fitted to its
+   *  frame). The font is always PP Mori. */
+  fontSize?: number
+  /** Line height as a multiple of the size; absent: each scene's own. */
+  leading?: number
   /** Set on typing previews only (never saved): characters typed of all of them, for the
    *  mask. Absent: all typed. */
-  progress?: { typed: number; total: number }
+  progress?: TextProgress
 }
 
 export const DEFAULT_LINE_SPEED = 8
@@ -45,7 +67,7 @@ export const DEFAULT_TRACKING = -3
 export const LINE_SPEED_RANGE = { min: 0.25, max: 18, step: 0.25 } as const
 export const TRACKING_RANGE = { min: -95, max: 25, step: 1 } as const
 
-export const LINE_HOLD_RANGE = { min: 0.1, max: 10, step: 0.1 } as const
+export const LINE_HOLD_RANGE = { min: 0.1, max: 30, step: 0.1 } as const
 /** A line's hold when its checkbox is ticked. */
 export const DEFAULT_LINE_HOLD = 0.5
 
@@ -106,7 +128,32 @@ function withBackspace(params: TextParams, raw: unknown): TextParams {
 /** A saved node's params, validated: `lines`, or a legacy `text` string. */
 export function parseTextParams(params: Record<string, unknown>, fallback: string): TextParams {
   const parsed = withBackspace(parseTextLines(params, fallback), params.backspace)
-  return params.mask === true ? { ...parsed, mask: true } : parsed
+  const number = (v: unknown, range: { min: number; max: number }) =>
+    typeof v === 'number' && Number.isFinite(v) ? clamp(v, range.min, range.max) : undefined
+  const fontSize = number(params.fontSize, TEXT_SIZE_RANGE)
+  const leading = number(params.leading, TEXT_LEADING_RANGE)
+  return {
+    ...parsed,
+    ...(params.mask === true ? { mask: true } : {}),
+    ...(params.typing === false ? { typing: false } : {}),
+    ...(fontSize !== undefined ? { fontSize } : {}),
+    ...(leading !== undefined ? { leading } : {}),
+  }
+}
+
+/** A text node's type size (px) and line height (× size) ranges. */
+export const TEXT_SIZE_RANGE = { min: 12, max: 300, step: 0.1 } as const
+export const TEXT_LEADING_RANGE = { min: 0.7, max: 2.5, step: 0.01 } as const
+
+/** A scene's type with a text node's size and leading over it (where the node sets them). */
+export function withTextType<T extends { fontSize: number; lineHeight: number }>(
+  settings: T,
+  type: { fontSize?: number; leading?: number } | undefined,
+): T {
+  if (type?.fontSize === undefined && type?.leading === undefined) return settings
+  const fontSize = type.fontSize ?? settings.fontSize
+  const leading = type.leading ?? settings.lineHeight / settings.fontSize
+  return { ...settings, fontSize, lineHeight: fontSize * leading }
 }
 
 function parseTextLines(params: Record<string, unknown>, fallback: string): TextParams {
@@ -244,6 +291,14 @@ export function typedText(lines: readonly TextLine[], elapsed: number): string |
   return null
 }
 
+/** The lines as the animation times them: typing off, each appears at once (no time to
+ *  type it), else at its own speed. */
+export function timedLines(params: Pick<TextParams, 'lines' | 'typing'>): TextLine[] {
+  return params.typing === false
+    ? params.lines.map((line) => ({ ...line, speed: Number.POSITIVE_INFINITY }))
+    : params.lines
+}
+
 // --- The whole animation: the lines typed one after another, then (with backspace) a
 // pause on the whole text and the text deleted from the end.
 
@@ -285,7 +340,7 @@ export interface TextSegment {
 export function textSegments(params: TextParams): TextSegment[] {
   const out: TextSegment[] = []
   let time = 0
-  params.lines.forEach((line, index) => {
+  timedLines(params).forEach((line, index) => {
     const end = time + Array.from(line.text).length / line.speed
     out.push({ kind: 'line', index, start: time, end })
     time = end
@@ -317,12 +372,13 @@ export function textDuration(params: TextParams): number {
  *  on) deleting down to nothing. Before the start nothing is typed; after the end it holds
  *  its last state (the whole text, or nothing once deleted). */
 export function textAt(params: TextParams, elapsed: number): string {
-  const typed = typedText(params.lines, elapsed)
+  const lines = timedLines(params)
+  const typed = typedText(lines, elapsed)
   if (typed !== null) return typed
   const whole = textOf(params.lines)
   const backspace = params.backspace
   if (!backspace?.enabled) return whole
-  const deleting = elapsed - typingDuration(params.lines) - backspace.pause
+  const deleting = elapsed - typingDuration(lines) - backspace.pause
   if (deleting <= 0) return whole
   const count = characterCount(params.lines) - Math.floor(deleting * backspace.speed + 1e-9)
   return prefixText(params.lines, count)
@@ -349,22 +405,50 @@ export function maskReveal(typed: number, total: number): number {
  *  typing preview). Null when it doesn't mask. */
 export function textMask(params: TextParams): { typed: number; total: number } | null {
   if (!params.mask) return null
-  if (params.progress) return params.progress
+  if (params.progress) return { typed: params.progress.typed, total: params.progress.total }
   const total = characterCount(params.lines)
   return { typed: total, total }
 }
 
-/** Preview params showing `typed` text of `params`: its lines, with the progress the mask
- *  needs. */
-export function typedParams(params: TextParams, typed: string): TextParams {
+/** Preview params showing `typed` text of `params` at `time` (s into its animation): its
+ *  lines, with the progress the mask and animated properties need. */
+export function typedParams(params: TextParams, typed: string, time: number): TextParams {
   return {
     ...params,
     lines: linesFromText(typed, params.lines),
     progress: {
       typed: Array.from(typed.replace(/\n/g, '')).length,
       total: characterCount(params.lines),
+      time,
+      lines: textSegments(params).flatMap((segment) => {
+        if (segment.kind !== 'line') return []
+        const line = timedLines(params)[segment.index ?? 0]
+        // The first letter appears one character's time in (an empty line: at its start).
+        const first =
+          line && line.text && line.speed > 0
+            ? Math.min(segment.end, segment.start + 1 / line.speed)
+            : segment.start
+        return [{ start: segment.start, end: segment.end, first }]
+      }),
+      ...(params.backspace?.enabled ? { deletes: deleteWindows(params) } : {}),
     },
   }
+}
+
+/** When each line is deleted (s), backspace on: characters go from the end at its speed,
+ *  so a line's window starts once every later line is gone. */
+export function deleteWindows(params: TextParams): { start: number; end: number }[] {
+  const start = textSegments(params).find((segment) => segment.kind === 'delete')?.start
+  const speed = params.backspace?.speed ?? 0
+  if (start === undefined || !(speed > 0)) return []
+  const counts = params.lines.map((line) => Array.from(line.text).length)
+  let after = 0
+  const out = counts.map(() => ({ start: 0, end: 0 }))
+  for (let i = counts.length - 1; i >= 0; i--) {
+    out[i] = { start: start + after / speed, end: start + (after + counts[i]!) / speed }
+    after += counts[i]!
+  }
+  return out
 }
 
 /**

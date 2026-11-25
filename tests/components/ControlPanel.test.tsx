@@ -204,7 +204,7 @@ describe('ControlPanel', () => {
     const { container } = renderApp()
     const slider = screen.getByRole('slider', { name: 'overshoot' })
     expect(slider).toHaveValue('3')
-    expect(slider).toHaveAttribute('max', '20')
+    expect(slider).toHaveAttribute('max', '120')
 
     const editor = container.querySelector<HTMLElement>('.rag-editor')
     const guides = () => [...container.querySelectorAll<HTMLElement>('.rag-baseline')]

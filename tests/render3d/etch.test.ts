@@ -12,7 +12,7 @@ const DEFAULT_ETCH = {
   strength: 85,
   layout: 'diagonal',
 } satisfies typeof NEW_ETCH
-import { etchDistance, etchShape, MAX_ETCH_LINES } from '../../src/render3d/etch'
+import { etchDistance, etchPreview, etchShape, MAX_ETCH_LINES } from '../../src/render3d/etch'
 import type { EtchParams } from '../../src/types'
 
 const shape = (patch: Partial<EtchParams> = {}) =>
@@ -157,5 +157,51 @@ describe('pattern scale', () => {
     expect(at(100)).toBe(3)
     expect(at(40)).toBe(8)
     expect(at(400)).toBe(1)
+  })
+})
+
+describe('etch header preview', () => {
+  const base = {
+    ...DEFAULT_ETCH,
+    from: 0,
+    to: 100,
+    bundles: 4,
+    lines: 1,
+    width: 4,
+    fade: 0,
+    depthTop: 100,
+    depthBottom: 100,
+    strength: 100,
+    cross: false,
+  }
+  const column = (image: Float32Array, width: number, height: number, x: number) =>
+    Array.from({ length: height }, (_, y) => image[y * width + x]!)
+  const row = (image: Float32Array, width: number, y: number) =>
+    Array.from(image.slice(y * width, (y + 1) * width))
+
+  it('draws vertical lines as columns, the same down the header', () => {
+    const image = etchPreview({ ...base, layout: 'vertical' }, 200, 20)
+    // 4 bundles around: 2 over the front half, one centered in each half of the header.
+    const lit = row(image, 200, 10).flatMap((value, x) => (value > 0.5 ? [x] : []))
+    expect(lit.length).toBeGreaterThan(0)
+    expect(lit.every((x) => Math.abs(x - 50) < 4 || Math.abs(x - 150) < 4)).toBe(true)
+    expect(row(image, 200, 0)).toEqual(row(image, 200, 19))
+  })
+
+  it('draws horizontal rings as rows, and cross adds columns', () => {
+    const rings = etchPreview({ ...base, layout: 'horizontal', bundles: 2 }, 100, 40)
+    const lit = column(rings, 100, 40, 3).flatMap((value, y) => (value > 0.5 ? [y] : []))
+    expect(lit.every((y) => Math.abs(y - 10) < 3 || Math.abs(y - 30) < 3)).toBe(true)
+    expect(row(rings, 100, 20).every((value) => value === 0)).toBe(true)
+    const grid = etchPreview({ ...base, layout: 'horizontal', bundles: 2, cross: true }, 100, 40)
+    expect(row(grid, 100, 20).some((value) => value > 0.5)).toBe(true)
+  })
+
+  it('slants diagonal lines and fades them with the depth', () => {
+    const image = etchPreview({ ...base, layout: 'diagonal', slant: 60 }, 200, 40)
+    const peak = (y: number) => row(image, 200, y).indexOf(Math.max(...row(image, 200, y)))
+    expect(peak(39)).not.toBe(peak(0))
+    const faded = etchPreview({ ...base, layout: 'vertical', depthTop: 0 }, 200, 40)
+    expect(Math.max(...row(faded, 200, 0))).toBeLessThan(Math.max(...row(faded, 200, 39)))
   })
 })

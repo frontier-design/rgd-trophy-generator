@@ -88,7 +88,6 @@ describe('manual save', () => {
   })
 })
 
-
 describe('portable project save with image assets', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -116,7 +115,8 @@ describe('portable project save with image assets', () => {
     })
     render(<SaveControls />)
     // Shift asks for a file, even if an earlier test picked one in this module.
-    fireEvent.click(screen.getByRole('button', { name: 'save' }), { shiftKey: true })
+    fireEvent.click(screen.getByRole('button', { name: 'menu' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'save' }), { shiftKey: true })
     expect(await screen.findByText(/saved portable\.json/)).toBeInTheDocument()
     const file = JSON.parse(write.mock.calls[0]?.[0] as string)
     expect(file.canvas.modifiers[0].params.image).toBe(image)
@@ -127,7 +127,8 @@ describe('portable project save with image assets', () => {
       modifiers: [{ id: 'pattern-1', kind: 'pattern', params: { image: 'rgd-asset:missing' } }],
     })
     render(<SaveControls />)
-    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'menu' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'save' }))
     expect(await screen.findByText(/couldn't save: .*Missing image asset/)).toBeInTheDocument()
   })
 })

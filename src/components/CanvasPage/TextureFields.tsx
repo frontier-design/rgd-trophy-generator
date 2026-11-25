@@ -30,6 +30,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         step={0.5}
         digits={1}
         unit="px"
+        param="scale"
         onChange={(scale) => set({ scale })}
       />
       <RangeField
@@ -38,6 +39,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="strength"
         onChange={(strength) => set({ strength })}
       />
       <RangeField
@@ -47,6 +49,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         max={90}
         unit="°"
         disabled={params.style !== 'brushed'}
+        param="angle"
         onChange={(angle) => set({ angle })}
       />
       <div className="node-card-wide control-actions">
@@ -66,6 +69,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="from"
         onChange={(from) => set({ from })}
       />
       <RangeField
@@ -74,6 +78,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="to"
         onChange={(to) => set({ to })}
       />
       <RangeField
@@ -82,6 +87,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={50}
         unit="%"
+        param="fade"
         onChange={(fade) => set({ fade })}
       />
       <RangeField
@@ -90,6 +96,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthTop"
         onChange={(depthTop) => set({ depthTop })}
       />
       <RangeField
@@ -98,6 +105,7 @@ export function TextureFields({ params, set }: TextureFieldsProps) {
         min={0}
         max={100}
         unit="%"
+        param="depthBottom"
         onChange={(depthBottom) => set({ depthBottom })}
       />
     </>

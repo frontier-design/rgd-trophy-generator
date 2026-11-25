@@ -1,4 +1,4 @@
-import { memo, useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { memo, useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
 import type { PatternStatus } from '../../hooks'
 import type {
@@ -11,7 +11,8 @@ import type {
 import { MaterialFields } from './MaterialFields'
 import { paletteColors, paletteGradient } from '../../material'
 import { EtchFields } from './EtchFields'
-import type { LightingParams, ModifierNode, ShapeParams } from './graph'
+import { EtchPreview, PatternPreview, TwistPreview } from './NodePreview'
+import { PREVIEW_KINDS, type LightingParams, type ModifierNode, type ShapeParams } from './graph'
 import { ShapeFields } from './ShapeFields'
 import { LightingFields } from './LightingFields'
 import type { MasterNode, MasterParams } from './master'
@@ -20,9 +21,37 @@ import { PatternFields } from './PatternFields'
 import { TextureFields } from './TextureFields'
 import { TwistFields } from './TwistFields'
 import { TextLinesField } from './TextLinesField'
+import { FieldAnimContext, type FieldAnimControls } from '../ControlPanel/fieldAnim'
+import { useAnimationClock, useClockTime } from '../ControlPanel/animationClock'
+import {
+  animatedParams,
+  animates,
+  EASINGS,
+  moveKeyframe,
+  removeKeyframe,
+  routeEdit,
+  setKeyframe,
+  setKeyframeEasing,
+  type Easing,
+  type ParamAnims,
+  type ParamTrack,
+} from './paramAnim'
+
+/** The easings, as a keyframe's dropdown lists them. */
+const EASING_OPTIONS = EASINGS.map((value) => ({ value, label: value.replace('-', ' ') }))
 import { BackspaceFields } from './BackspaceFields'
 import { ToggleField } from '../ControlPanel/ToggleField'
 import type { TextParams } from './textLines'
+import { TextTypeFields } from './TextTypeFields'
+import { NodeDivider } from './NodeView'
+import { CursorIcon } from '../icons'
+import { DEFAULT_SETTINGS } from '../../state'
+
+/** A text node's type with no linked scene: the default settings'. */
+const TEXT_TYPE_DEFAULT = {
+  fontSize: DEFAULT_SETTINGS.fontSize,
+  leading: DEFAULT_SETTINGS.lineHeight / DEFAULT_SETTINGS.fontSize,
+}
 
 /** A node's field edit: a patch of its params. */
 export type ParamsPatch =
@@ -55,6 +84,10 @@ interface NodeCardProps {
   /** A pattern node's map as it's being made. */
   pattern?: PatternStatus
   typingPlaying?: boolean
+  /** A text node's type before it sets its own: the first linked scene's size (px) and
+   *  line height (× size). Numbers, so the card's memo holds. */
+  typeFallbackSize?: number
+  typeFallbackLeading?: number
   onTypingToggle?: (id: string) => void
   /** Zoomed out so far the card is small: show only its header. */
   compact: boolean
@@ -62,15 +95,17 @@ interface NodeCardProps {
   onSelect: (id: string, additive?: boolean, preserveGroup?: boolean) => void
   onMove: (id: string, x: number, y: number) => void
   onParamsChange: (id: string, patch: ParamsPatch) => void
+  /** Its animated properties changed (a slider's anim controls, or an edit routed to an
+   *  animated slider's from / to value). */
+  onAnimsChange?: (id: string, anims: ParamAnims | undefined) => void
   /** A press on its output port: starts dragging a link from it. */
   onOutputDown: (id: string, e: ReactPointerEvent) => void
 }
 
 /**
  * A modifier node (twist, etch, pattern, texture): a card with its fields and an output port at its
- * header's right end to drag onto scenes' inputs. Full size on screen down to
- * CARD_FULL_ZOOM, then shrinking with the canvas, and only its header when small (`compact`)
- * or folded. Dragging the card (not a field) moves it.
+ * header's right end to drag onto scenes' inputs. It scales with the canvas and shows
+ * only its header when small (`compact`) or folded. Dragging the card (not a field) moves it.
  */
 export const NodeCard = memo(function NodeCard({
   node,
@@ -82,12 +117,15 @@ export const NodeCard = memo(function NodeCard({
   onToggleMute,
   pattern,
   typingPlaying,
+  typeFallbackSize = TEXT_TYPE_DEFAULT.fontSize,
+  typeFallbackLeading = TEXT_TYPE_DEFAULT.leading,
   onTypingToggle,
   compact,
   onCollapsedChange,
   onSelect,
   onMove,
   onParamsChange,
+  onAnimsChange,
   onOutputDown,
 }: NodeCardProps) {
   const drag = useNodeDrag(node, getZoom, onMove)
@@ -95,28 +133,85 @@ export const NodeCard = memo(function NodeCard({
   const { id, params } = node
   const kind = 'kind' in node ? node.kind : 'master'
   const isMaster = kind === 'master'
+  // Modifier nodes' sliders can animate by keyframes on the animation clock (not the
+  // master's or the text node's own). Animated sliders show, and edit, the value at the
+  // clock's time (an edit sets a keyframe there).
+  const animatable = !isMaster && kind !== 'text' && Boolean(onAnimsChange)
+  const anims = animatable ? (node as ModifierNode).anims : undefined
+  const time = useClockTime(animates(anims))
+  const shown = useMemo(() => animatedParams(params, anims, time), [params, anims, time])
+  const clock = useAnimationClock()
+  const animControls = useMemo<FieldAnimControls | null>(() => {
+    if (!animatable || !onAnimsChange) return null
+    const update = (param: string, track: ParamTrack | null) => {
+      const all: Record<string, ParamTrack> = { ...(anims ?? {}) }
+      if (track?.keyframes.length) all[param] = track
+      else delete all[param]
+      onAnimsChange(id, Object.keys(all).length ? all : undefined)
+    }
+    return {
+      keyframes: (param) => anims?.[param]?.keyframes ?? [],
+      addKeyframe: (param, value) =>
+        update(param, setKeyframe(anims?.[param], clock?.get() ?? 0, value)),
+      removeKeyframe: (param, index) => {
+        const track = anims?.[param]
+        if (track) update(param, removeKeyframe(track, index))
+      },
+      moveKeyframe: (param, index, to) => {
+        const track = anims?.[param]
+        if (!track) return index
+        const moved = moveKeyframe(track, index, to)
+        update(param, moved.track)
+        return moved.index
+      },
+      setEasing: (param, index, easing) => {
+        const track = anims?.[param]
+        if (track) update(param, setKeyframeEasing(track, index, easing as Easing))
+      },
+      easings: EASING_OPTIONS,
+    }
+  }, [animatable, anims, id, onAnimsChange, clock])
   const fields = useMemo(() => {
-    const set = (patch: ParamsPatch) => onParamsChange(id, patch)
+    const set = (patch: ParamsPatch) => {
+      const routed = routeEdit(params, shown, patch as Record<string, unknown>, anims, time)
+      if (routed.anims !== anims) onAnimsChange?.(id, routed.anims)
+      if (Object.keys(routed.params).length) onParamsChange(id, routed.params as ParamsPatch)
+    }
     switch (kind) {
       case 'master':
         return <MasterFields params={params as MasterParams} set={set} />
       case 'shape':
-        return <ShapeFields params={params as ShapeParams} set={set} />
+        return <ShapeFields params={shown as ShapeParams} set={set} />
       case 'twist':
-        return <TwistFields params={params as TwistParams} set={set} />
+        return <TwistFields params={shown as TwistParams} set={set} />
       case 'etch':
-        return <EtchFields params={params as EtchParams} set={set} />
+        return <EtchFields params={shown as EtchParams} set={set} />
       case 'text':
         return (
           <>
+            <TextTypeFields
+              params={params as TextParams}
+              fallback={{ fontSize: typeFallbackSize, leading: typeFallbackLeading }}
+              set={set}
+            />
+            <NodeDivider />
             <TextLinesField
               lines={(params as TextParams).lines}
               onChange={(lines) => set({ lines })}
+            />
+            <NodeDivider />
+            {/* Typing letter by letter, or each line appearing whole at its turn. */}
+            <ToggleField
+              label="typing"
+              icon={<CursorIcon />}
+              checked={(params as TextParams).typing !== false}
+              onChange={(typing) => set({ typing })}
             />
             <BackspaceFields
               backspace={(params as TextParams).backspace}
               set={(backspace) => set({ backspace })}
             />
+            <NodeDivider />
             <ToggleField
               label="mask"
               checked={(params as TextParams).mask === true}
@@ -132,15 +227,29 @@ export const NodeCard = memo(function NodeCard({
           </>
         )
       case 'lighting':
-        return <LightingFields params={params as LightingParams} set={set} />
+        return <LightingFields params={shown as LightingParams} set={set} />
       case 'material':
-        return <MaterialFields params={params as MaterialSettings} set={set} />
+        return <MaterialFields params={shown as MaterialSettings} set={set} />
       case 'texture':
-        return <TextureFields params={params as TextureParams} set={set} />
+        return <TextureFields params={shown as TextureParams} set={set} />
       case 'pattern':
-        return <PatternFields params={params as PatternParams} set={set} status={pattern} />
+        return <PatternFields params={shown as PatternParams} set={set} status={pattern} />
     }
-  }, [kind, params, id, onParamsChange, pattern, typingPlaying, onTypingToggle])
+  }, [
+    kind,
+    params,
+    shown,
+    anims,
+    time,
+    id,
+    onParamsChange,
+    onAnimsChange,
+    pattern,
+    typingPlaying,
+    onTypingToggle,
+    typeFallbackSize,
+    typeFallbackLeading,
+  ])
 
   return (
     <div
@@ -153,14 +262,18 @@ export const NodeCard = memo(function NodeCard({
       data-muted={muted || undefined}
       data-grouped={grouped || undefined}
       data-compact={compact || node.collapsed || undefined}
-      style={{
-        left: node.x,
-        top: node.y,
-        transform:
-          position === node
-            ? undefined
-            : `translate(${position.x - node.x}px, ${position.y - node.y}px)`,
-      }}
+      style={
+        {
+          left: node.x,
+          top: node.y,
+          transform:
+            position === node
+              ? undefined
+              : `translate(${position.x - node.x}px, ${position.y - node.y}px)`,
+          // The lighting node glows yellow: as strongly as its ambient, as blurred as its softness.
+          ...(kind === 'lighting' ? lightingGlow(params as LightingParams) : {}),
+        } as CSSProperties
+      }
     >
       <div
         className="node-card"
@@ -202,7 +315,19 @@ export const NodeCard = memo(function NodeCard({
           >
             {node.collapsed ? '+' : '−'}
           </button>
-          {node.name}
+          <span className="node-card-name">{node.name}</span>
+          {/* Twists, etches and patterns: a preview of what they draw, on the header's right. */}
+          {PREVIEW_KINDS.has(kind) && (
+            <span className="node-card-preview">
+              {kind === 'twist' ? (
+                <TwistPreview params={params as TwistParams} />
+              ) : kind === 'etch' ? (
+                <EtchPreview params={params as EtchParams} />
+              ) : (
+                <PatternPreview map={pattern?.map ?? null} />
+              )}
+            </span>
+          )}
           {isMaster ? (
             <span className="node-card-note">all scenes</span>
           ) : grouped ? null : (
@@ -222,8 +347,23 @@ export const NodeCard = memo(function NodeCard({
           )}
         </div>
         {/* Fields only when shown (a card's fields are most of its DOM). */}
-        {!node.collapsed && !compact && <div className="node-card-body">{fields}</div>}
+        {!node.collapsed && !compact && (
+          <div className="node-card-body">
+            <FieldAnimContext.Provider value={animControls}>{fields}</FieldAnimContext.Provider>
+          </div>
+        )}
       </div>
     </div>
   )
 })
+
+/** The lighting node's glow (CSS custom properties): ambient (0–1) sets its strength and
+ *  spread, softness (0–1) its blur. */
+function lightingGlow({ ambient, softness }: LightingParams) {
+  const strength = Math.min(1, Math.max(0, ambient))
+  return {
+    '--glow-alpha': 0.2 + strength * 0.3,
+    '--glow-spread': `${10 + strength * 30}px`,
+    '--glow-blur': `${30 + Math.min(1, Math.max(0, softness)) * 120}px`,
+  }
+}

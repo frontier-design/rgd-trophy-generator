@@ -28,6 +28,7 @@ import {
   type NodeLink,
 } from './graph'
 import { parseTextParams } from './textLines'
+import { parseAnims } from './paramAnim'
 import {
   createMasterNode,
   DEFAULT_MASTER_PARAMS,
@@ -228,6 +229,8 @@ function parseModifier(value: unknown, kind: unknown = undefined): ModifierNode 
     y: isFiniteNumber(value.y) ? value.y : 0,
     ...(value.collapsed === true ? { collapsed: true } : {}),
   }
+  const anims = parseAnims(value.anims)
+  if (anims) Object.assign(base, { anims })
   const params = asObject(value.params)
   const type = value.kind ?? kind
   if (type === 'etch') {

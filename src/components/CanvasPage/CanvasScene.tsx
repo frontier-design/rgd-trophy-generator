@@ -14,12 +14,13 @@ import type { ThreeScene } from '../../render3d'
 import { outlineToLatheProfiles } from '../../render3d/revolve'
 import type { Outline2D } from '../../types'
 import { ModifierRangeOverlay } from './ModifierRangeOverlay'
+import { SceneTools } from './SceneTools'
 import type { PaperScene } from '../../shape2d'
 import { SceneArtboard } from '../SceneArtboard'
 import { bannerLogo, composeScene } from '../SceneArtboard/composeScene'
 import { sceneMaterial, type ModifierNode, type SceneModifiers } from './graph'
 import { useNodeDrag, useNodePosition } from './nodeDrag'
-import { maskTop } from './textLines'
+import { maskTop, withTextType } from './textLines'
 import {
   FRAME_EDGES as EDGES,
   resizeFrame,
@@ -70,6 +71,9 @@ interface CanvasSceneProps {
   onFrameSource?: (id: string, source: SceneFrameSource | null) => void
   onVisualChange?: (id: string) => void
   onResize: (id: string, frame: FrameRect) => void
+  onImageExportChange: (id: string, patch: Partial<ImageExportOptions>) => void
+  /** Its image exporter, once its artboard is mounted (for the export button). */
+  exporter: (id: string) => SceneExporter | undefined
 }
 
 interface RangeBounds {
@@ -117,6 +121,8 @@ export const CanvasScene = memo(function CanvasScene({
   onFrameSource,
   onVisualChange,
   onResize,
+  onImageExportChange,
+  exporter,
 }: CanvasSceneProps) {
   const {
     id,
@@ -323,6 +329,14 @@ export const CanvasScene = memo(function CanvasScene({
             : undefined
         }
       />
+      {selected && (
+        <SceneTools
+          node={node}
+          onResize={onResize}
+          onImageExportChange={onImageExportChange}
+          exporter={exporter}
+        />
+      )}
       {revolve &&
         rangeBounds &&
         rangeBounds.height > 0 &&
@@ -388,7 +402,8 @@ const SceneArtwork = memo(function SceneArtwork({
     () =>
       modifiers.material || modifiers.lighting || modifiers.text !== undefined
         ? {
-            ...node.settings,
+            // A text node's size and line height, where it sets them.
+            ...withTextType(node.settings, modifiers.textType),
             // A material node's look, with the scene's own lighting unless a lighting node
             // is linked (sceneMaterial).
             material: sceneMaterial(node.settings.material, modifiers),

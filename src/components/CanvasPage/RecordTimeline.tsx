@@ -1,6 +1,15 @@
 import { useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import type { TimelineRow } from './recordNode'
 
+/** An animated property's keyframes, shown as a row of their own (yellow diamonds). */
+export interface KeyframeRow {
+  /** `node id:property path`. */
+  id: string
+  label: string
+  /** Its keyframes' times (s), in order. */
+  times: readonly number[]
+}
+
 interface RecordTimelineProps {
   rows: readonly TimelineRow[]
   /** The video's length (s). */
@@ -17,6 +26,10 @@ interface RecordTimelineProps {
   onRestart: () => void
   /** A row's bar (or a line's hold, `part`) dragged to `seconds` long. */
   onRetime: (row: TimelineRow, seconds: number, part: 'bar' | 'hold') => void
+  /** Animated properties of the nodes linked into the scene. */
+  keyframeRows?: readonly KeyframeRow[]
+  /** A keyframe dragged to `time` (s). */
+  onKeyframeMove?: (row: KeyframeRow, index: number, time: number) => void
 }
 
 /** Ruler steps (s): the first giving at most ~12 ticks. */
@@ -27,7 +40,9 @@ const seconds = (value: number) => `${value < 10 ? value.toFixed(2) : value.toFi
 /**
  * A record node's timeline, like a motion tool's: a ruler, one row per stretch of the video
  * (hold in, each text line typing, the pause and deleting, hold out) with its bar and length,
- * and a playhead. Drag on the ruler or rows to scrub; drag a bar's right end to retime it.
+ * one row per animated property of the scene's nodes (its keyframes, yellow), and a playhead.
+ * Drag on the ruler or rows to scrub; drag a bar's right end to retime it; drag a keyframe
+ * left or right to move it in time.
  */
 export function RecordTimeline({
   rows,
@@ -40,6 +55,8 @@ export function RecordTimeline({
   onPlay,
   onRestart,
   onRetime,
+  keyframeRows = [],
+  onKeyframeMove,
 }: RecordTimelineProps) {
   const tracks = useRef<HTMLDivElement>(null)
   // While a bar is dragged the scale holds (the total changes with it), so its end follows
@@ -109,6 +126,35 @@ export function RecordTimeline({
     setFrozen(null)
   }
 
+  // Dragging a keyframe: its time follows the pointer (snapped to hundredths); where it
+  // lands in time order is where the others leave it.
+  const keyDrag = useRef<{ pointer: number; row: KeyframeRow; index: number } | null>(null)
+  const keyDown = (row: KeyframeRow, index: number, event: PointerEvent<HTMLElement>) => {
+    if (disabled || event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    keyDrag.current = { pointer: event.pointerId, row, index }
+    setFrozen(total)
+    capture(event)
+    onScrub(row.times[index] ?? 0)
+  }
+  const keyMove = (event: PointerEvent<HTMLElement>) => {
+    const drag = keyDrag.current
+    if (!drag || drag.pointer !== event.pointerId) return
+    event.stopPropagation()
+    const time = Math.max(0, Math.round(timeAt(event.clientX) * 100) / 100)
+    onKeyframeMove?.(drag.row, drag.index, time)
+    const others = drag.row.times.filter((_, i) => i !== drag.index)
+    keyDrag.current = { ...drag, index: others.filter((other) => other <= time).length }
+    onScrub(time)
+  }
+  const keyEnd = (event: PointerEvent<HTMLElement>) => {
+    if (keyDrag.current?.pointer !== event.pointerId) return
+    event.stopPropagation()
+    keyDrag.current = null
+    setFrozen(null)
+  }
+
   /** A row's bar, or a line's hold after it, with its length and (retimable) end handle. */
   const clip = (row: TimelineRow, part: 'bar' | 'hold') => {
     const span = part === 'hold' && row.hold ? row.hold : row
@@ -125,7 +171,10 @@ export function RecordTimeline({
         }
         style={{ left: share(span.start), width: share(length) } as CSSProperties}
       >
-        <span className="record-clip-length">{seconds(length)}s</span>
+        {/* Holds (in, out, a line's) show no length: their bars say enough. */}
+        {part !== 'hold' && row.kind !== 'hold-in' && row.kind !== 'hold-out' && (
+          <span className="record-clip-length">{seconds(length)}s</span>
+        )}
         {(part === 'hold' || canRetime(row)) && (
           <span
             className="record-clip-handle"
@@ -228,6 +277,37 @@ export function RecordTimeline({
             >
               {clip(row, 'bar')}
               {row.hold && clip(row, 'hold')}
+            </div>
+          </div>
+        ))}
+        {keyframeRows.map((row) => (
+          <div key={row.id} className="record-row" style={{ display: 'contents' }}>
+            <span className="record-row-label" data-keyframes title={row.label}>
+              {row.label}
+            </span>
+            <div
+              className="record-track"
+              data-keyframes
+              onPointerDown={scrubDown}
+              onPointerMove={scrubMove}
+              onPointerUp={scrubEnd}
+              onPointerCancel={scrubEnd}
+            >
+              {row.times.map((time, i) => (
+                <span
+                  key={i}
+                  className="record-keyframe"
+                  role="slider"
+                  aria-label={`${row.label} keyframe ${i + 1}`}
+                  aria-valuenow={time}
+                  style={{ left: share(time) }}
+                  onPointerDown={(event) => keyDown(row, i, event)}
+                  onPointerMove={keyMove}
+                  onPointerUp={keyEnd}
+                  onPointerCancel={keyEnd}
+                  onLostPointerCapture={keyEnd}
+                />
+              ))}
             </div>
           </div>
         ))}

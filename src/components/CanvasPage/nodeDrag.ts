@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useSyncExternalStore,
   type PointerEvent,
@@ -100,6 +101,46 @@ export function useNodePosition(id: string, fallback: NodePosition) {
   )
   const snapshot = useCallback(() => controller?.positions.get(id), [controller, id])
   return useSyncExternalStore(subscribe, snapshot, noPosition) ?? fallback
+}
+
+/** Several nodes' drag previews at once (e.g. a group's members, so its frame follows them
+ *  live). Entries without a preview are absent. Re-renders only when one of them moves. */
+export function useNodePositions(ids: readonly string[]): ReadonlyMap<string, NodePosition> {
+  const controller = useContext(NodeDragContext)
+  const key = ids.join(' ')
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const unsubscribe = key
+        ? key.split(' ').map((id) => controller?.positions.subscribe(id, listener))
+        : []
+      return () => unsubscribe.forEach((stop) => stop?.())
+    },
+    [controller, key],
+  )
+  // A primitive snapshot, so React sees no change until a member's preview does.
+  const snapshot = useCallback(() => {
+    if (!controller || !key) return ''
+    return key
+      .split(' ')
+      .flatMap((id) => {
+        const position = controller.positions.get(id)
+        return position ? [`${id}:${position.x}:${position.y}`] : []
+      })
+      .join(' ')
+  }, [controller, key])
+  const value = useSyncExternalStore(subscribe, snapshot, () => '')
+  return useMemo(
+    () =>
+      new Map(
+        value
+          ? value.split(' ').map((entry) => {
+              const [id = '', x, y] = entry.split(':')
+              return [id, { x: Number(x), y: Number(y) }] as const
+            })
+          : [],
+      ),
+    [value],
+  )
 }
 
 /** The parts of a pointer event a drag reads (React's or the window's). */

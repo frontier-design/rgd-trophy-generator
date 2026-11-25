@@ -12,7 +12,7 @@ async function insertScene() {
 }
 
 describe('CanvasPage', () => {
-  it('right-click → insert scene places a scene, selected, with its controls beside it', async () => {
+  it('right-click → insert scene places a scene, selected, with its frame and export under it', async () => {
     render(<CanvasPage tools={null} />)
     expect(screen.getByText('Right-click to insert a scene')).toBeInTheDocument()
 
@@ -24,30 +24,31 @@ describe('CanvasPage', () => {
     expect(scene.querySelector('.banner')).toBeNull()
     expect(screen.queryByRole('menu')).toBeNull()
 
-    // Its controls: no animation (keyframes, reveal, timeline) and no banner.
-    const panel = screen.getByRole('complementary', { name: 'Control panel' })
-    expect(within(panel).getByText('scene 1')).toBeInTheDocument()
-    expect(within(panel).getByRole('slider', { name: 'size' })).toBeInTheDocument()
-    expect(within(panel).queryByRole('slider', { name: 'reveal' })).toBeNull()
-    expect(within(panel).queryByRole('region', { name: 'banner' })).toBeNull()
-    expect(within(panel).queryByRole('region', { name: 'timeline' })).toBeNull()
-    expect(within(panel).queryByRole('button', { name: /^keyframe/ })).toBeNull()
+    // No inspector: the frame's size (bottom left) and a PNG export (bottom right).
+    expect(screen.queryByRole('complementary', { name: 'Control panel' })).toBeNull()
+    expect(within(scene).getByRole('spinbutton', { name: 'width' })).toHaveValue(1920)
+    expect(within(scene).getByRole('spinbutton', { name: 'height' })).toHaveValue(1080)
+    expect(within(scene).getByRole('combobox', { name: 'export scale' })).toHaveValue('2')
+    const transparent = within(scene).getByRole('button', { name: 'transparent' })
+    expect(transparent).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(transparent)
+    expect(transparent).toHaveAttribute('aria-pressed', 'true')
+    expect(within(scene).getByRole('button', { name: 'export png' })).toBeInTheDocument()
+
+    // A new width fits the text and trophy to it.
+    fireEvent.change(within(scene).getByRole('spinbutton', { name: 'width' }), {
+      target: { value: '1080' },
+    })
+    expect(scene.style.getPropertyValue('--artboard-width')).toBe('1080px')
   })
 
-  it('the master node sets the shared settings of every scene; scene panels leave them out', async () => {
+  it('the master node sets the shared settings of every scene', async () => {
     render(<CanvasPage tools={null} />)
     const first = await insertScene()
     fireEvent.pointerDown(canvas())
     fireEvent.contextMenu(canvas(), { clientX: 900, clientY: 700 })
     fireEvent.click(screen.getByRole('menuitem', { name: 'insert scene' }))
     const second = await screen.findByLabelText('scene 2')
-
-    const panel = screen.getByRole('complementary', { name: 'Control panel' })
-    for (const name of ['taper', 'overshoot', 'grain', 'wobble']) {
-      expect(within(panel).queryByRole('slider', { name })).toBeNull()
-    }
-    expect(within(panel).queryByRole('button', { name: 'debug' })).toBeNull()
-    expect(within(panel).getByRole('slider', { name: 'light angle' })).toBeInTheDocument()
 
     const master = screen.getByRole('group', { name: 'master' })
     // No output port: it applies to every scene without links.
@@ -373,8 +374,7 @@ describe('CanvasPage', () => {
     expect(readout('width')).toHaveTextContent('1080')
     expect(scene.style.getPropertyValue('--artboard-width')).toBe('1080px')
     // The frame fields follow.
-    const frame = screen.getByRole('region', { name: 'frame' })
-    expect(within(frame).getByRole('spinbutton', { name: 'width' })).toHaveValue(1080)
+    expect(within(scene).getByRole('spinbutton', { name: 'width' })).toHaveValue(1080)
     // A background click deselects; a background drag would keep selection while panning.
     fireEvent.pointerDown(canvas())
     fireEvent.pointerUp(canvas())

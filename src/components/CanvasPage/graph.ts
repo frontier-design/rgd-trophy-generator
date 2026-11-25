@@ -1,4 +1,5 @@
 import type { HeightMap, SolidPattern } from '../../render3d'
+import { animatedParams, animates, type ParamAnims } from './paramAnim'
 import { ARTBOARD, DEFAULT_MATERIAL, DEFAULT_SETTINGS, DEFAULT_SCENE_PARAMS } from '../../state'
 import { FULL_CROP } from '../../pattern'
 import { lineTracking, linesFromText, textMask, textOf, type TextParams } from './textLines'
@@ -20,6 +21,8 @@ interface ModifierBase {
   y: number
   /** Folded to its header (its fields hidden). */
   collapsed?: boolean
+  /** Its animated properties (sliders following a text line's typing, `paramAnim.ts`). */
+  anims?: ParamAnims
 }
 
 /** Twist: flutes around the trophy (its settings are the sliders on the node). */
@@ -236,18 +239,19 @@ export const DEFAULT_SHAPE: ShapeParams = {
 /** Node cards' size at full scale (px): their width, and their header's height (the output
  *  port sits at its right end). */
 export const NODE_CARD = { width: 260, header: 34 }
-/** Cards are full size on screen down to this zoom; zoomed out further, they shrink with the
- *  canvas (so they don't cover the scenes). */
+
+/** The kinds whose header shows a preview of what they draw. */
+export const PREVIEW_KINDS: ReadonlySet<string> = new Set(['twist', 'etch', 'pattern'])
+/** Canvas zoom at which a node card is shown at its base size. */
 export const CARD_FULL_ZOOM = 0.5
 /** Below this on-screen scale a card shows only its header (lighter, out of the way). */
-export const CARD_COMPACT_SCALE = 0.6
+export const CARD_COMPACT_SCALE = 0.4
 /** Cards never get smaller than this on screen, so their names stay legible. */
 export const CARD_MIN_SCALE = 0.3
 
-/** A card's on-screen scale at a zoom: 1 down to CARD_FULL_ZOOM, then with the canvas (to
- *  CARD_MIN_SCALE). */
+/** A card scales with the canvas in both directions, with a floor for readability. */
 export function cardScale(zoom: number): number {
-  return Math.min(1, Math.max(CARD_MIN_SCALE, zoom / CARD_FULL_ZOOM))
+  return Math.max(CARD_MIN_SCALE, zoom / CARD_FULL_ZOOM)
 }
 
 /** A new node of a kind, with its defaults. */
@@ -384,22 +388,52 @@ export interface SceneModifiers {
   text?: string
   /** Its lines' tracking (thousandths of an em), when any line is tracked. */
   lineTracking?: number[]
+  /** Its type size (px) and line height (× size), where it sets them. */
+  textType?: { fontSize?: number; leading?: number }
   /** The text node masks the trophy to its typing: characters typed of all of them. */
   mask?: { typed: number; total: number }
 }
 
 /** Each linked scene's modifiers; `maps` holds the pattern nodes' height maps by id. */
+// Animated params, kept per node params, animations and time, so an unchanged node keeps
+// the same objects (its scenes don't re-render).
+const animatedCache = new WeakMap<object, WeakMap<object, Map<number, object>>>()
+
+/** A node's params as a scene sees them at `time` (s on the animation clock: animated
+ *  properties at their values). */
+function sceneParams<T extends ModifierNode>(node: T, time: number): T['params'] {
+  const anims = node.anims
+  if (!animates(anims)) return node.params
+  const byAnims = animatedCache.get(node.params) ?? new WeakMap<object, Map<number, object>>()
+  animatedCache.set(node.params, byAnims)
+  const byTime = byAnims.get(anims!) ?? new Map<number, object>()
+  byAnims.set(anims!, byTime)
+  const cached = byTime.get(time)
+  if (cached) return cached as T['params']
+  const value = animatedParams(node.params, anims, time)
+  // A few times per node at most (the time moves on): keep the latest.
+  if (byTime.size > 8) byTime.clear()
+  byTime.set(time, value)
+  return value
+}
+
 export function modifiersByScene(
   links: readonly NodeLink[],
   nodes: readonly ModifierNode[],
   maps: ReadonlyMap<string, HeightMap> = new Map(),
+  /** The animation clock's time (s): animated properties at their values then. */
+  time = 0,
 ): Map<string, SceneModifiers> {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const out = new Map<string, SceneModifiers>()
   for (const link of links) {
     if (link.muted) continue
-    const node = byId.get(link.from)
-    if (!node) continue
+    const found = byId.get(link.from)
+    if (!found) continue
+    const node = {
+      ...found,
+      params: sceneParams(found, time),
+    } as ModifierNode
     const current: SceneModifiers = out.get(link.to) ?? {
       twists: [],
       etches: [],
@@ -417,6 +451,9 @@ export function modifiersByScene(
       current.text = textOf(node.params.lines)
       current.lineTracking = lineTracking(node.params.lines)
       current.mask = textMask(node.params) ?? undefined
+      const { fontSize, leading } = node.params
+      current.textType =
+        fontSize !== undefined || leading !== undefined ? { fontSize, leading } : undefined
     } else {
       const map = maps.get(node.id)
       if (map) current.patterns = [...current.patterns, { map, params: node.params }]
@@ -437,6 +474,7 @@ export function createSceneModifiersResolver() {
     links: readonly NodeLink[],
     nodes: readonly ModifierNode[],
     maps: ReadonlyMap<string, HeightMap> = new Map(),
+    time = 0,
   ): Map<string, SceneModifiers> => {
     const byId = new Map(nodes.map((node) => [node.id, node]))
     const inputs = new Map<string, Input[]>()
@@ -449,7 +487,7 @@ export function createSceneModifiersResolver() {
       entries.push({
         id: node.id,
         kind: node.kind,
-        params: node.params,
+        params: sceneParams(node, time),
         map: node.kind === 'pattern' ? maps.get(node.id) : undefined,
       })
       inputs.set(link.to, entries)
@@ -472,7 +510,10 @@ export function createSceneModifiersResolver() {
           )
         })
       const resolved = unchanged ? previous.get(scene) : undefined
-      next.set(scene, resolved ?? modifiersByScene(sceneLinks.get(scene)!, nodes, maps).get(scene)!)
+      next.set(
+        scene,
+        resolved ?? modifiersByScene(sceneLinks.get(scene)!, nodes, maps, time).get(scene)!,
+      )
     }
     const priorEntries = [...previous]
     const same =

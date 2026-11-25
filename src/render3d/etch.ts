@@ -119,3 +119,56 @@ export function etchDistance(s: EtchShape, phi: number, v: number, direction: 1 
   const turn = s.layout === ETCH_LAYOUTS.horizontal ? 0 : etchOffset(s, vb, direction)
   return nearestLine(s, ((phi - turn) * s.bundles) / (2 * Math.PI))
 }
+
+/** How much of the way around the header preview shows: the front half, as on the trophy. */
+const PREVIEW_TURN = Math.PI
+
+const smoothstep = (edge0: number, edge1: number, x: number) => {
+  const t = clamp((x - edge0) / Math.max(edge1 - edge0, 1e-6), 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * An etch node's lines for its card header (`width` × `height` px, row by row): each pixel's
+ * coverage, 0…1. The header stands for the strip unrolled (top to bottom = from to to,
+ * across = the front half of the way around), so it shows the layout, bundles, lines, gap,
+ * slant, waves and cross; thickness is scaled to 1.25–5 CSS px; the depth eases from top to
+ * bottom depth and fades at the edges, roughly as on the solid (an approximation: the shader's
+ * stripDepth is the reference).
+ */
+export function etchPreview(
+  params: EtchParams,
+  width: number,
+  height: number,
+  /** Device px per CSS px, so lines keep their thickness on screen. */
+  ratio = 1,
+): Float32Array {
+  const s = { ...etchShape(params), from: 0, to: 1 }
+  const out = new Float32Array(width * height)
+  if (width <= 0 || height <= 0) return out
+  const half = (clamp(params.width * 0.4, 1.25, 5) * ratio) / 2
+  // One bundle period, in px: around (lines down the strip) or across it (rings).
+  const aroundPx = (width * (2 * Math.PI)) / PREVIEW_TURN / s.bundles
+  const ringPx = height / s.bundles
+  const directions: (1 | -1)[] = s.cross ? [1, -1] : [1]
+  for (let y = 0; y < height; y++) {
+    const v = (y + 0.5) / height
+    const edge = s.fade > 0 ? smoothstep(0, s.fade, v) * smoothstep(0, s.fade, 1 - v) : 1
+    const depth =
+      (s.depthTop + (s.depthBottom - s.depthTop) * smoothstep(0, 1, v)) *
+      edge *
+      (0.6 + 0.4 * s.strength)
+    if (depth <= 0) continue
+    for (let x = 0; x < width; x++) {
+      const phi = ((x + 0.5) / width) * PREVIEW_TURN
+      let coverage = 0
+      for (const direction of directions) {
+        const rings = s.layout === ETCH_LAYOUTS.horizontal && direction === 1
+        const d = etchDistance(s, phi, v, direction) * (rings ? ringPx : aroundPx)
+        coverage = Math.max(coverage, clamp(half + 0.5 - d, 0, 1))
+      }
+      out[y * width + x] = coverage * depth
+    }
+  }
+  return out
+}
