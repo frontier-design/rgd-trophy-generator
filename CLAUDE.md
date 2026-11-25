@@ -1,0 +1,910 @@
+# RGD Generator
+
+## Agent skills
+
+### Issue tracker
+
+Use local Markdown: specs at `.scratch/<feature>/spec.md`, one implementation issue per file under `.scratch/<feature>/issues/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the standard `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human` and `wontfix` vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `GLOSSARY.md` and lazily created `docs/adr/`. Read relevant domain docs before design or implementation. See `docs/agents/domain.md`.
+
+A typography tool that measures the rag (ragged edge) of a text block, turns it into
+2D vector shapes, and renders those shapes in 3D.
+
+## Data flow
+
+Data flows in one direction. Each stage is its own module and is testable on its own:
+
+```
+Settings (text, font, size, column width, line height)          state/
+  → LineMeasure[]   line widths, measured by Pretext             measure/
+  → LineBox[]       one padded, rounded box per line, and the     rag/
+                    ShapeExtent (text's left, top band, last
+                    baseline from the font's metrics)
+  → Outline2D       Paper.js: the extent minus the boxes, up to   shape2d/
+                    the right edge (boolean subtract), flattened
+  → THREE.Mesh      revolved (lathe) around the right edge,      render3d/
+                    shaded by the trophy material (material/ +
+                    render3d/trophyMaterial.ts)
+```
+
+The canvas is now the only page, served at `/` (legacy `/canvas` URLs also work).
+The standalone generator and page picker were removed. Its animation/video modules
+(`timeline/`, Theatre.js, `export/video.ts`) remain available for future integration,
+but timeline, manual reveal, and banner editing aren't exposed on the canvas.
+Legacy generator/timeline save data is retained for project-file compatibility.
+
+`Outline2D` (plain `{ contours: Point2[][] }`) is the hand-off between Paper.js and
+Three.js, so `render3d/` never imports Paper and `shape2d/` never imports Three.
+Shared types live in `src/types/index.ts`.
+
+## Folder structure
+
+```
+src/
+  main.tsx, Root.tsx   entry; Root renders CanvasPage with shared save/open controls.
+                       CanvasPage owns scenes, modifier nodes, links and workspace state.
+                       Scenes have no inspector (SceneTools under each: frame size, PNG export);
+                       selected repeats expose RepeatControls; CanvasScene renders SceneArtboard.
+  state/               Settings via React context + useReducer (useSettings, SettingsProvider)
+  measure/             Pretext wrapper + font loading (no React)
+  banner/              pure math: the banner's layout (scaled from RGD's 2000 px artwork) and
+                       reveal (no imports besides itself)
+  rag/                 pure math: line widths → line boxes (and rag points/polygons)
+                       (no imports besides ../types)
+  material/            pure math for the trophy material: palette presets, gradient
+                       sampling, lit-mode lighting, OKLCH color + palette generation,
+                       ledge occlusion
+                       (no imports besides ../types)
+  pattern/             pure: the pattern node's image grids, Wave Function Collapse (overlapping
+                       model), height maps, and the worker that builds them (no imports besides
+                       ../types)
+  shape2d/             Paper.js: dedicated PaperScope per canvas, boxes → rag shape →
+                       Outline2D (no React)
+  render3d/            Three.js: Outline2D → lathe profiles → revolved solid (+ twist.ts / etch.ts,
+                       pure math for twist and etch nodes), sweep animation,
+                       trophy ShaderMaterial, orthographic/perspective cameras (a fixed
+                       front view), snapshots at any pixel ratio, disposal (no React)
+  timeline/            Theatre.js (no React): params.ts (pure: AnimatedParams ⇄ timeline
+                       values, changed props), theatre.ts (the project/sheet/object, Studio,
+                       keyframes, playback, docking), studioPrivate.ts (Studio internals)
+  components/          SceneArtboard (one scene's artboard: shape, solid, text, banner),
+                       CanvasPage (+ CanvasScene, NodeCard, TwistFields, EtchFields,
+                       PatternFields, TextureFields, patternImage,
+                       ContextMenu, sceneNode, graph,
+                       canvasDocument: the canvas page), SaveControls (save / open / status),
+                       RagEditor (the text block is the editor; debug boxes + width labels),
+                       PaperCanvas (fills the artboard behind the text, anchored to it; draws the
+                       rag shape, reports its Outline2D),
+                       ThreeCanvas (fills the artboard behind the text; revolves the shape in place),
+                       TimelineSlot (the strip Theatre's sequence editor docks into),
+                       ControlPanel (Collapse/Expand All; ControlSections of
+                       Range/Select/Toggle/ColorFields, each with a KeyframeButton: size, line height, align, edge, mirror, top, round top, top
+                       radius, taper, overshoot, box pad x/y,
+                       radius, smooth joins + join radius; material incl. SeedColorField + ColorStops; canvas colors;
+                       2D sketch, perspective, debug; timeline: play, to start, length, fps,
+                       export 4K MP4)
+  hooks/               useInfiniteCanvas (workspace pan/zoom),
+                       useSceneModel (one scene's composition),
+                       useAutosave + useSaveStatus (saving), useUndo (the canvas's undo / redo), usePatternMaps (pattern nodes'
+                       maps, in a worker),
+                       useFontLoaded, useRagMeasure, usePanZoom, useTimeline (params ⇄
+                       timeline), useVideoExport (one export job: progress, cancel, error)
+  styles/global.css    the global stylesheet: tokens + all app styles
+  export/              MP4 export (video.ts: seek → draw → encode, mediabunny), frame
+                       compositing (composite.ts); SVG / PNG / GLB placeholders
+  types/               shared types
+tests/                 Vitest tests mirroring src/
+public/fonts/          local font files (declare them with @font-face in src/styles/global.css)
+```
+
+Selecting a twist, etch, pattern or texture node shows its `from` and `to` handles on
+all linked 3D scene artboards. Every selected modifier keeps its handles, even alongside
+selected scenes/other modifiers. Source-named tags occupy separate horizontal columns so
+coincident ranges remain editable. They edit the source node, not a scene-local copy.
+The track uses the actual lathe profile's vertical bounds projected
+at the axis (z = 0), and supports keyboard adjustment as well as pointer dragging. Handles
+are editor overlays and are not included in exports.
+
+### Rules
+
+- **Library logic stays out of React.** `measure/`, `rag/`, `shape2d/`, `render3d/`,
+  `timeline/` and `export/` are plain TypeScript and must not import React (enforced by ESLint).
+  React components should only render and pass data in (canvas components: create a
+  canvas, call the module's factory, pass data in, dispose).
+- **`rag/`, `material/`, `banner/` and `pattern/` import no libraries at all** (enforced by ESLint), so their math
+  stays easy to unit test. `material/` is shared by `shape2d/` and `render3d/`, which must not
+  import each other.
+- **Paper.js:** always use the scope from `createPaperScene` (`new scope.Path(...)`), never the
+  global `paper` object. Call `scope.activate()` before creating items.
+- **Three.js:** anything added to a scene must be disposed via `disposeObject3D` when replaced
+  or on unmount. Three does not free GPU memory when objects are removed.
+- **The 3D view renders on demand** (`threeScene`): no per-frame loop (each scene is a
+  full-frame canvas with a heavy shader; several idling at 60 fps made the canvas page lag).
+  Visual changes in a React commit are drawn by ThreeCanvas's `render()` (unrelated
+  commits do not redraw; anchor movement is checked separately); others (resizes,
+  observers, pixel ratio) via `requestRender` (one coalesced animation frame). Only the
+  sweep runs a loop, stopped when it ends. Canvas scenes and node cards read the zoom through
+  a getter for drags and render at a settled, quarter-step zoom (`useSettled`, 200 ms), so
+  zooming doesn't re-render them or re-allocate their buffers every wheel tick.
+- **Text, shape and solid update in the same frame** (otherwise animated text runs ahead of
+  its groove): the canvas wrappers create their scene and apply every update in
+  `useLayoutEffect` (so before paint; PaperCanvas's outline → App state → ThreeCanvas is
+  re-rendered synchronously), Paper draws at once (`view.update()`), ThreeCanvas calls
+  `ThreeScene.render()` after visual commits, and `useTimeline` applies Theatre's playback
+  values with `flushSync`. Only the anchor observers are passive effects: the editor (the
+  anchor) renders after the canvases, so its ref isn't attached during their layout
+  effects. PaperCanvas skips painting while hidden behind the 3D view (`visible`).
+- **Board movement is not an artwork edit.** `CanvasPage/nodeDrag.ts` holds transient
+  positions in a workspace-local external store. Pointer samples coalesce to one animation
+  frame; only the moved wrapper, incident edges and its floating panel subscribe. Wrappers
+  preview via CSS transforms, commit one document/undo update on release, and discard previews
+  on pointer cancel/lost capture/unmount. `CanvasScene` separates this lightweight wrapper
+  from memoized `SceneArtwork`; keep board position/selection out of artwork inputs. Node-card
+  fields are memoized separately. `createSceneModifiersResolver` preserves per-scene modifier
+  identities across card moves/folds, so presentation changes don't invalidate linked trophies.
+- **Canvas wrappers** (`PaperCanvas`, `ThreeCanvas`) create a fresh `<canvas>` inside
+  a layout effect and remove it in cleanup, so React StrictMode's double mount gets a clean
+  canvas, scope and WebGL context each time. Reusing one canvas breaks Three.js, because
+  `ThreeScene.dispose()` force-loses the WebGL context.
+- **Fonts:** never measure before the font has loaded (`useFontLoaded` / `ensureFontLoaded`).
+  Pretext measures with canvas, so an unloaded font silently measures as the fallback font.
+  Use a named font family (default: PP Mori semibold 600, tight 1.0 × size leading, like the
+  RGD reference; a variable font in `public/fonts/` declared
+  with `@font-face` in `global.css` and preloaded in `index.html`); Pretext is inaccurate
+  with `system-ui`. Pretext only sees variable axes that appear in the canvas font string
+  (weight does; `font-variation-settings` would not).
+  Font loading is keyed on family + weight only (`toFontLoadQuery`), so size changes
+  don't re-trigger it.
+- **Page layout:** edge to edge, no gaps: the sidebar full height on the left
+  (`--panel-width`); on the right the canvas at the column's full width and 16:9
+  (`.artboard-viewport`, aspect ratio from `ARTBOARD`), and the timeline filling the rest
+  below (at least `--timeline-min-height`; on short windows the canvas shrinks instead).
+- **Workspace** (After Effects–style, `hooks/usePanZoom`): the frame sits on a grey
+  pasteboard (`--color-workspace`). The wheel or a trackpad pinch zooms about the cursor
+  (0.1–8× the fitted zoom), dragging anywhere but a control (or middle-dragging anywhere)
+  pans, and a double-click on the pasteboard or **Fit** (bottom right, with the zoom %,
+  100% = actual size) fits it again, 48 px clear; it stays fitted as the window resizes
+  until you pan or zoom. Pure math (`fitView`, `zoomAt`) is unit-tested. The 3D view has
+  no orbit controls: the camera is a fixed front view. The 3D view renders at device ratio
+  × zoom, capped at 3.
+- **The artboard is a fixed 1920 × 1080** (`ARTBOARD` in `state/view.ts`, the video frame),
+  laid out at that size and scaled to the workspace's zoom (`--artboard-scale`, CSS
+  `transform`) inside `.artboard-frame`, placed at the view's offset, so the composition is the same at any window size.
+  `relativePosition` undoes the transform (positions in the artboard's own px), and
+  ThreeCanvas renders at device ratio × display scale (`pixelRatio`).
+- **Both canvases fill the artboard and are anchored to the editor** (`observeAnchor`,
+  positions relative to the canvas), so the shape and solid can extend past the text block
+  (padding, top band). The artboard clips everything at its border.
+- **The shape's extent** (`rag/shapeExtent`, a `ShapeExtent`): left = the text's left side
+  (x = 0, never the padded boxes' left; centered text: see Align); top = the frame's top
+  margin, always (`ShapeExtent` option `top`, `ARTBOARD.padding` minus where the text sits;
+  never below the first box), so adding lines never moves the trophy's top: the top band
+  (no words, so full width, revolving into a full-width top section) fills down to the first
+  line. `topHeight` is kept in the params (and timeline) but no longer used: there's no top
+  height slider; bottom = the
+  last line's baseline plus `overshoot` (default 3px, sidebar slider), so the shape sits on
+  the type and reads as optically aligned with it (a flat edge exactly on the baseline
+  looks slightly high). The baseline uses the font's
+  ascent/descent from canvas (`measure/measureFontMetrics`, measured once the font is
+  ready) and CSS's rule: half the leading plus the ascent below the line top
+  (`rag/lineBaseline`). Checked against the browser's baseline to within half a pixel. The
+  magenta edge guide spans the extent; the debug overlay also draws every line's baseline
+  (`.rag-baseline`, `--color-baseline`).
+- **Top band: taper + rounded corner** (`shape2d/topBand.ts`, pure geometry): the band is
+  built as its own path: a trapezoid when tapered (**taper** 0–90%: the top edge starts
+  that share of the way from the text's left side to the edge, so the trophy's top circle
+  thins out), with an optional fillet at its bottom-left corner (**round top** + **top
+  radius**) tangent to both edges at any corner angle (r / tan(θ/2) from the corner). The
+  fillet is capped by the band's visible bottom edge (to where the first box starts curving)
+  and its side. `ragShapeFromBoxes` unites the band with the region below FIRST and carves
+  the boxes after: uniting with an already-carved region can leave a shared edge ending
+  exactly on a box's curve, where Paper's union silently returns nothing (regression test
+  in tests/shape2d/boxShape.test.ts).
+- **In-place 3D:** both cameras show the z = 0 plane at 1 unit per CSS px (perspective by
+  distance, orthographic by frustum size), and `setViewOffset` pins the solid to the
+  editor's on-screen position (`ThreeScene.setAnchor`). Keep that invariant, or the solid
+  detaches from the rag. Orthographic (exact front view) is the default.
+- **The right edge is the column width** (`Settings.columnWidth`): it's both the width
+  text wraps at and the revolve axis, so the rag never crosses it. The **edge** slider
+  edits it; the magenta `.rag-edge` guide marks it.
+- **Smooth joins** (`shape2d/joinFillets.ts`, pure geometry): where consecutive lines'
+  boxes meet, the shape has a sharp corner (the narrower box's side meets the wider box's
+  top or bottom: a right angle when they overlap past the corner radius, a spike or cusp
+  when they barely do). `joinFillets` returns a fillet tangent to both sides (externally
+  tangent to a rounded corner), shrunk to end on straight parts (before the wider box's
+  corner curve; on a box with joins at both ends, before the halfway point between them).
+  `ragShapeFromBoxes` subtracts each fillet's notch (corner region minus its disc) last.
+  On by default (sidebar **smooth joins** + **join radius**, default 16px).
+- **Shared reveal timing** (`rag/staggered`): items appearing one after another, each
+  settling over one unit with the reference's ease-out (exponent 2.5), the next starting
+  `stagger` later. The text's stack-in (lines, bottom first) and the banner's items (left
+  to right) both use it, with the text's stagger, so they move alike; the sculpt intro
+  times the banner's keyframes with the text's slide time (`bannerRevealUnits`). The top
+  band's rounded corner grows in with the first line's settle (it sits on that line's box),
+  rather than appearing at full size when the line pops in.
+- **Text reveal: stack-in** (`reveal` %, `revealStagger` %, `revealSlide` %; sidebar
+  **reveal** / **stagger** / **slide**, animatable), modeled on the RGD reference GIF: lines
+  appear one at a time from the bottom up, each all at once and `slide` % of the type size
+  to the left, easing right into place (ease-out, exponent 2.5, fitted to the reference);
+  the next line appears `stagger` % of a slide later (`rag/stackReveal`). Only shown lines
+  carve, each box moved with its line (`rag/revealedBoxes`), so a groove deepens as its
+  line slides in; the extent and top band come from all the text
+  (`ShapeExtent.bandBottom`), so at 0% the shape is uncarved: a full cylinder. While
+  revealing, the textarea's text is transparent and `.rag-reveal` shows the shown lines
+  at their offsets (the mirror slides in from the right); exports draw the same
+  (`TextLayer.offsets`). `reveal` must be keyframed linearly to keep this timing.
+- **Reveal fill** (`revealFill` %, sidebar **fill**, animatable, default 0): at the reveal's
+  start the uncarved trophy reaches out to cover the whole frame (100%) and eases back to
+  its extent as the text stacks in (`rag/revealFill`, smootherstep over the reveal; at 100%
+  reveal it's exactly the extent). Only the extent grows (`rag/fillExtent`: left out to the
+  radius reaching the frame's farther side, top and bottom past the frame, 1 px bleed);
+  the boxes carve from past its left side as always, so the grooves stay on the text. App
+  measures the text block's place in the frame after every commit for this.
+- **Align** (sidebar **align**, `textAlign`, animatable as `type.align`): left (default) or
+  center. `rag/alignOffsets` gives each line's start in the column ((column − width) / 2
+  centered); its box still starts at the text's left side and reaches to where the line ends
+  (`lineBoxes` `offsets`), so the carving stays between the text and the axis (typed, the
+  start grows in with the line's first letter, `revealedBoxes`). The textarea, the reveal
+  lines and the mirror center with CSS (`.rag-editor[data-align='center']`; the mirror's
+  reveal offsets work unchanged), width labels move with their line (`--line-start`), and
+  exports add the starts to the text layers' offsets (`composeScene`). Centered, the shape
+  starts half a gap (`padX`) past the column's middle (`rag/shapeLeft`, `ShapeExtent.left`),
+  not at the text's left side: two copies of the graphic side by side then leave a full gap
+  between their trophies, as between the letters and the trophy.
+- **No text** (`shapeExtent`'s `whenEmpty`): an empty text block gives a full, uncarved
+  block from the frame's top margin to the (empty) text block's bottom, which sits on the
+  bottom margin: a cylinder filling the frame's margins, instead of no shape.
+- **Line order** (sidebar **line order**, `revealOrder`, animatable): which line reveals
+  first, bottom (default, the RGD reference) or top, for both styles (`from` in
+  `stackReveal` / `typeReveal`).
+- **Text reveal: type** (sidebar **reveal style** = type; `rag/typeReveal`), modeled on a
+  letter-by-letter, spacing-driven type animation: letters appear one at a time at their
+  places, top line first, in reading order or, with **scatter**, in a stable scattered order
+  within each line (spaces aren't typed). Each letter arrives with **spacing** % of the type
+  size (`revealSpacing`, its own slider; **slide** is the stack-in's) of extra space before it that closes up with the shared ease-out, pushing the letters
+  after it along, so the line's tracking tightens as it fills; **stagger** is the time
+  between letters. Each line carves only as far as its typed letters reach (`extent`,
+  padding growing in with its first letter), so the groove grows letter by letter; the
+  mirror's line moves so its typed letters end at the reflected edge. Letter positions come
+  from `measure/measurePrefixWidths`; the editor renders letters as relatively positioned
+  spans (keeps shaping), exports draw them one by one (`TextLayer.glyphs`), each right-aligned at where it ends (the kerned width of the text up to and including it), so letters sit exactly where the whole line puts them and nothing jumps when the reveal ends (placing a letter at the width of the text before it misses its kerning with that letter, ~9 px for AW). The sculpt intro
+  times it per letter (0.3 s settles, a letter every 0.06 s).
+- **Sculpt intro** (timeline section preset, `SCULPT_INTRO` in App): fits the mirrored
+  composition to the frame (`rag/fitToFrame`: edge = half the frame minus `ARTBOARD.padding`, type sized so
+  the widest line carves 75% of the radius, top band bleeding off the top), sets the
+  reference's stagger (20%) and slide (60%), fill 100% (so it opens on the trophy covering
+  the frame), and keyframes reveal 0 → 0 → 100%, linear
+  (hold 0.4 s, stack in over 0.75 s slides, hold 1 s) via `Timeline.setKeyframes`, which
+  makes tweens linear (`studioPrivate.linearTweens`). Playback loops (**loop** toggle,
+  `Timeline.play(loop)`); an export is one cycle, so it loops seamlessly.
+- **One margin all around** (`ARTBOARD.padding`, 60 px; the final look matches RGD's
+  layout): the text's left (and so the trophy's left silhouette) and the mirror's right sit
+  on it; the trophy's bottom (the last baseline plus overshoot, not the text box's bottom,
+  which includes descenders) sits that far above the frame's bottom, or above a bottom
+  banner's row (App derives `--artboard-padding-bottom` from the extent for this); the
+  sculpt intro sizes the top band so the cylinder's flat top sits on the top margin.
+- **Banner** (sidebar **banner** section; `components/Banner`, `banner/`): RGD's artwork, no
+  divider: the logo (`public/images/RGD_Logo.svg`, its black block flush with the frame's
+  left edge), a headline and a link, sized from the artwork (2000 px wide: 56 px PP Mori
+  Medium caps, logo 43 px tall, baseline 4 px above its bottom) scaled to the frame. At the
+  bottom (default) the row ends a margin from the frame's bottom, the link ends a margin
+  from the right, the headline sits between logo and link with equal gaps (its and the
+  link's widths are measured), and the trophy keeps a margin clear above the row
+  (`clearance`), so trophy → row = row → frame bottom. Top mirrors this. One SVG in
+  artboard px over everything (z-index 4); video export draws the same from the same layout
+  (`export/composite`'s `BannerLayer`, the logo preloaded). **banner** (show) and
+  **banner reveal** are animatable (`banner.show`, `banner.reveal`); position and the text
+  are App state. The reveal (`bannerReveal`): the bar (canvas background, the row and its
+  margins) grows up from its bottom edge, then the logo, headline and link rise one after
+  another from the bar's bottom, clipped to it, with the text's ease-out. The sculpt intro
+  keyframes it to rise as the text settles. Both canvases re-read the anchor after every
+  commit, since a layout change like the bottom padding moves the text without resizing
+  anything the observers watch.
+- **Presets set layout static**: `useTimeline().editStatic` / `Timeline.setStatic` drop any
+  keyframes on the values a preset sets (Studio's "make static", `studioPrivate.makeStatic`),
+  so the composition holds through the animation. `useTimeline` also applies the saved
+  project as soon as Theatre loads it (`Timeline.ready`), so presets never compute from
+  defaults.
+- **Pages** (`Root`, `hooks/usePage`, no router library): a **page** dropdown
+  (`components/PageSwitch`; in the generator's sidebar, floating top left on the canvas)
+  switches between the generator (`/`) and the canvas (`/canvas`) with `history.pushState`;
+  back/forward work (`popstate`). Paths are under Vite's `BASE_URL`; a production host
+  needs an SPA fallback so `/canvas` serves `index.html`. Only one page is mounted, so the
+  generator's view state (e.g. banner text) resets when you leave it; Theatre's project
+  persists. Theatre's overlay is hidden off the generator (`useTimeline` calls
+  `Timeline.setStudioVisible`).
+- **Canvas page** (`components/CanvasPage`, a work in progress, no sidebar): an infinite,
+  gridded pasteboard. Dragging the empty canvas (or middle-dragging anywhere) and the wheel
+  pan; ⌘/Ctrl + wheel or a trackpad pinch zooms about the cursor (0.1–8×, `zoomAt` from
+  `usePanZoom`); **Reset** (bottom right, with the zoom %) recenters. The grid is CSS
+  backgrounds following the view (`--grid-x/y`, `--grid-fine` = 24 px × zoom, one
+  weight of line, no major lines; they fade out when too dense); the world layer (`.infinite-canvas-world`,
+  `--zoom`) is transformed with the view and holds the scenes. `data-no-pan` elements don't
+  start a pan; over `data-own-wheel` ones (the controls) the wheel scrolls them.
+- **Selection** (`CanvasPage/selection.ts`): view-only selected IDs plus an active ID; never
+  saved or recorded in undo. Click selects one (a press on an already-selected node defers
+  collapsing the group until a tap, so dragging moves the group); Shift-click toggles.
+  Shift-primary drag on empty canvas reserves a screen-space additive marquee before pan
+  handling (`SelectionMarquee`, rAF-local preview). It intersects scene/card DOM bounds,
+  including the master and compact cards. Plain background drags pan without clearing;
+  background click/Escape clears. All selected scenes retain resize handles; all selected
+  linked modifiers retain range handles. Only the active scene's control panel is shown.
+  Text/field clicks select one; range edits and frame resizing remain single-source edits.
+  Group moves preview through the position store and commit together as one undo step.
+  Delete removes the group and incident links except the undeletable master. Copy/paste and
+  duplicate clone scenes/modifiers with internal links, preserving relative placement and
+  allocating fresh IDs; the master is not cloned. Each paste/duplicate is one undo step.
+- **Canvas scenes, node-style** (`CanvasPage`, `CanvasScene`, `sceneNode.ts`): right-click
+  → **insert scene** (`ContextMenu`) centers a 1920 × 1080 scene on the click; each has its
+  own state (`SceneNode`: settings, scene params, view toggles, position), no timeline.
+  Pressing a scene selects it (raised, outlined). Scenes have no inspector: type comes from
+  the linked text node, shape/material/lighting from their nodes, shared settings from the
+  master, and `SceneTools` sits under the artboard (width and height bottom left; PNG export
+  bottom right: scale, ×2 by default, a **transparent** toggle dimmed while off, **export
+  png**); dragging it (not its text) moves it; its text
+  edits as in the generator; a click on the empty canvas deselects; Delete/Backspace
+  (unless typing) or right-click → **delete scene** removes it. **Copy / paste**: right-click
+  a scene or node → **copy** / **duplicate** (beside it), right-click anywhere → **paste**
+  (at the click); ⌘/Ctrl C, V (at the pointer), D (not while typing: only text fields count,
+  `isTyping`; sliders, switches and buttons keep focus after a node press, and pressing a
+  node blurs a field focused elsewhere). Option/Alt-drag duplicates: the originals stay and
+  copies land at the drop (`NodeDragContext` `duplicate`). The clipboard is the
+  module's (`copied`, a deep copy), so it survives switching pages; a paste gets the next id
+  and name of its kind and is selected. **Undo / redo** (⌘/Ctrl Z, ⇧⌘Z or Ctrl Y;
+  `hooks/useUndo`): over the scenes, nodes and links (not the view, selection or id
+  counters), each change recorded once it settles (300 ms with no pointer pressed, so a drag
+  or a slider's whole move is one step; 100 steps). Inside a text field the field's own undo
+  applies. The keys are caught on the window in the capture phase and stopped, so Theatre's
+  ⌘Z (the generator's undo, for its params) never sees them. A new scene starts on RGD's
+  reference layout without the banner (`canvasSceneDefaults`): text measured once its font
+  loads (`measureDefaultText`), fitted with `rag/fitToFrame` (the sculpt intro's rule:
+  mirrored, the widest line + box carving 80% of the radius, the top band up to the top
+  margin), boxes, corners and joins scaled with the type, round top on. Each scene is its
+  own WebGL context (browsers cap them, ~16) and render loop. Saved (see Saving).
+- **Node cards** (`NodeCard`): base size at 50% canvas zoom, growing and shrinking with
+  the canvas (with a 30% floor for readability, `cardScale`). `--card-world-scale` sets
+  the card transform; `outputPort` uses the same ratio to place links. Separate artboard
+  controls and ports stop growing at 50%. Below 40% scale (20% zoom) they show only their header (no fields in the DOM); the header's
+  −/+ folds a card at any zoom (`collapsed`, saved).
+- **Twist node** (`TwistFields`, `graph.ts`; right-click → **insert twist**): a card with
+  fields: **section**
+  (lobes: raised lobes, grooves between; grooves: narrow rounded channels in flat ribs),
+  **flutes**, **depth** % of the radius, **twist** ° over the band, **curve** (the turn
+  bends: + slow at the top, tightening below), **sharpness** (lobes: rounder lobes, crisper
+  creases; grooves: narrower channels), **rotate**, **from**/**to** (the band of the height,
+  % from the top), **ends** (fade, or round: each cut closes in an arch) and **end size** (%
+  of the height). Drag from its output port onto a scene's input port (mid-left) to link
+  (`NodeLink`, curves in `.node-links`, an SVG in canvas px); dragging from a linked input
+  picks its last link up; deleting a node drops its links. A link dropped short of any input
+  goes to the first valid scene (or, from a scene, composition) on the line from the outlet
+  through the drop point (`graph.ts` `rayTarget`; targets the outlet sits over are skipped). An output can feed several
+  scenes; a scene takes the first `MAX_TWISTS` (8), multiplied (etches: `MAX_ETCHES`, 8).
+  - The math (`render3d/twist.ts`, pure, tested; `twistScale`): the radius is scaled by
+    m = 1 − depth·fade·cut, cuts centered on the creases (lobes 1 − sin(x/2)^p, grooves
+    cos(x/2)^p, x = distance from the crease), so the surface only cuts in from the revolved
+    silhouette (never past the rag). Ends apply where the band ends inside the trophy, and at
+    its very top and bottom only with an end size (at 0 the flutes run off the rim, rim
+    included); every inside end is at least 1.5% of the height (no steps); round ends narrow
+    the _cuts_ to a point (quarter ellipse) so the surface around stays full and the
+    silhouette carries on.
+  - `buildLathe` scales each vertex's radius (one evaluation of m each) and keeps the
+    undeformed normals (plus `aProfileNormal`); the shader computes the exact normal per pixel (`twistOne` / `twistScale` / `twistedNormal`
+    in trophyMaterial.ts mirror twist.ts: keep in sync), so creases stay crisp wherever they
+    cross the mesh. Steps around the axis rise to `STEPS_PER_FLUTE` per flute (≤ 960); sweep
+    caps are narrowed to the flutes at their angle. A fluted solid's changes after its
+    first build are drafts (40% of the steps around, ~35 ms) until they pause 220 ms, then
+    rebuilt in full (`threeScene` `rebuild`; snapshots always full). Twists shape the 3D
+    solid only.
+- **Etch node** (`EtchFields`, `render3d/etch.ts`; right-click → **insert etch**): a strip
+  (**from**/**to**, % of the height) of fine lines laid out by **layout**: diagonal (winding
+  by **slant**), vertical (straight down), horizontal (rings, `bundles` across the strip),
+  zigzag or wave (**waves** periods, swinging by slant); **cross** doubles them (mirrored and
+  crossing: lattice, guilloché; horizontal: plus vertical lines, a grid). Their depth eases
+  like a pattern's (**fade**, **top depth** / **bottom depth**, `stripDepth`, shared). Lines
+  in **bundles** around the trophy, **lines**
+  per bundle **gap** apart, **thickness** (0.3–40 frame px), winding by **slant** ° over the strip, both
+  ways with **cross** (a lattice); **style** cut (default) or bright/dark inlay;
+  **strength**. Drawn by the shader (`etchAt` mirrors `etchDistance`), not the mesh: hairline
+  grooves are far finer than any lathe resolution. Lines are a fixed width on the frame
+  (screen-space slopes; the angle comes from two cuts of the circle so its slope never sees
+  atan's seam). Cut lines are V-grooves that bend the normal per pixel (derivative bump
+  mapping, `perturbNormal`, like Three's perturbNormalArb), so their walls catch the key light
+  and shade with it; the silhouette stays smooth. Grooves under ~4 px on screen blend from
+  wall shading to a soft shaded line (one pixel can't show both walls: they'd break into
+  dashes). GLSL ES 3.0 reserves names like `layout` and `sample`: a test scans the shader
+  for reserved names used as variables, and another checks both shaders declare the same
+  varyings once each (each mistake blanked every trophy once: jsdom can't compile GLSL). No rebuild: uniforms only (`setEtches`).
+- **Frame size** (canvas scenes; `SceneTools`' width and height): each scene has its own
+  `frame` (any width × height, 256–8192 px). A new size
+  re-fits the text and trophy to it (`fitSceneToFrame`: measures the scene's text and runs
+  the sculpt intro's rule, `rag/fitToFrame`, scaling boxes/corners/joins with the type).
+  Selected, a scene also has resize
+  handles at its edges' midpoints (`frame-handle`, screen-sized; `resizeFrame`: the opposite
+  edge stays, Shift keeps the ratio) with its width and height beside them, re-fitting live;
+  its input port moved up its left side (`INPUT_PORT_AT`, a quarter down) for the left
+  handle. `useSceneModel` takes the frame (banner
+  layout, reveal fill), CanvasScene sizes the artboard with it (`--artboard-*`), and ports and
+  the controls' position follow it. The generator stays 1920 × 1080 (`ARTBOARD`, the video).
+- **Image export** (generator: **image** section; canvas scenes: `SceneTools`, PNG only): the frame as it is now
+  as PNG (optionally **transparent**: no background, the banner's bar too) or JPEG (opaque,
+  0.92), at ×1–×5 (`export/image.ts` `renderImage`; `maxImageScale` caps it so the longest side
+  stays ≤ 16384 px and the image ≤ 100 M px, e.g. 4K at ×3). Both pages build the layers with
+  one function, `SceneArtboard/composeScene` (also the video export's frames): the 3D view
+  rendered at the scale (drawn in the same task), the text and mirror at their baselines, the
+  banner. Canvas scenes hand their exporter up (`onExporter`); options are saved per scene
+  (`imageExport`) and in the generator's document.
+- **Record node** (`CanvasRecord`, `RecordTimeline`, `recordNode.ts`, `export/recorder.ts`;
+  right-click → **insert record**): an MP4 of the scene or repeat artboard linked into it
+  (its output → the record's input, one input, like a composition; a repeat's output links
+  only to record nodes). A repeat's frames are its tiles drawn at the record's scale as one
+  image (`RepeatArtboard` `onFrameSource`; its shared trophy snapshot at that scale, kept
+  until `release`); the text node linked into the repeat is the timeline's. It has no width or height: it takes its input's
+  frame, and records at the input's image-export scale, a whole number capped at ×3
+  (`recordScale`; lower when no encoder takes the size: H.264 → HEVC → VP9 → AV1, so ×3 of
+  16:9 is HEVC). Its video: **hold in**, the animation of the text node linked into the scene
+  (the last one, through groups), **hold out** (`recordTimeline`). Its artboard is only a
+  preview: drawn at `RECORD_PREVIEW_SCALE` (¼) of the video (`PlacedRecordNode.frame`; the
+  render uses `video`), with its controls and timeline under it.
+  - **Timeline** under the node, like a motion tool's: a ruler, one row per stretch (hold in,
+    each text line typing with its hold as a second, hatched bar, the backspace's pause and
+    deleting, hold out) with its bar and
+    length, and a playhead. Dragging on the ruler or rows scrubs (the scene shows that moment,
+    `useTypingPlayback` `seek`); ▶ plays it live, ↺ from the start; deselecting the node (or
+    the end of playback) lets the scene go. Dragging a bar's right end retimes it: a line's
+    speed (characters over the new length) or hold, the pause, the delete speed, or a hold; the
+    scale holds during the drag so the end follows the pointer. The playhead is absolutely
+    positioned, not a grid item (it would push the rows out of their cells).
+  - **Render** runs its own clock, not the browser's: frame i seeks the text node to i / fps
+    − hold in (`flushSync`, so the scene is drawn when it returns; the text is a pure
+    function of time, `textAt`), composes the scene (`SceneFrameSource.compose`, which keeps
+    the 3D view at the export resolution until `release`), and queues the frame for the
+    encoder. Every frame is drawn however long it takes (a lagging browser makes a slow
+    export, never a skipped frame); `drain` keeps only a few full-size frames waiting.
+    Cancel or unmounting stops it; the seek is always undone. The node (name, position, fps,
+    hold in/out; saves with one `hold` load it as the hold out) is saved under `records`.
+- **Line hold** (a line's formatting, under tracking: **hold** checkbox + its length;
+  `TextLine.hold`, s, absent = none): after the line is typed the animation waits that long
+  before the next line starts (`typedText` shows the lines so far, the next not begun;
+  `textSegments` gives it as a `hold` segment). Edited lines keep their hold; new lines don't
+  inherit it.
+- **Text node mask** (text node **mask** toggle, `TextParams.mask`; `textLines.ts`
+  `maskReveal` / `maskTop` / `textMask`), after the RGD reference video: while the text
+  types, linked scenes show only the trophy's band from the first typed line's box down (its
+  top plus its corner radius: cut at the box's very top, its rounded corners and anti-aliased
+  edge left slivers of trophy along the first line);
+  over the last characters the band's top eases (smoothstep) up to the shape's top (half at
+  the third-last character, whole at the second-last, `MASK_REVEAL_CHARACTERS`); nothing
+  typed hides the trophy. Typing previews and seeks carry `progress` (typed / total
+  characters, never saved; `typedParams`) to the scene (`SceneModifiers.mask`); at rest
+  (all typed) nothing is clipped. On screen it's a CSS `clip-path` on the 3D and 2D layers
+  (`.artboard[data-masked]`, `--mask-top`); exports clip the trophy image
+  (`PlacedImage.clipTop`, via `composeScene`'s `maskTop`). Text is never masked.
+- **Animated node properties** (`paramAnim.ts`, `ControlPanel/fieldAnim.ts`,
+  `ControlPanel/KeyframeTimeline.tsx`, `ControlPanel/animationClock.ts`): every slider on a
+  modifier node (shape, twist, etch, pattern, texture, material, lighting, and the lighting /
+  shape views' sliders; not the master, the text node or scene panels) has a keyframe diamond
+  (`RangeField` / `NodeView` `param`, the property's path, `lineBox.padX` inside an object;
+  outlined while static, filled once it has keyframes) opening its **keyframe timeline**
+  under it: a ruler in seconds, its keyframes (yellow diamonds) and the playhead. Click or
+  drag the track to scrub; drag a keyframe left/right to retime it (selecting it moves the
+  playhead to it); scroll pans, ⌘/Ctrl-scroll or a pinch zooms about the pointer; the bar
+  plays the clock, adds/removes a keyframe at the playhead, and sets the selected keyframe's
+  **easing** (how it moves on to the next: `EASINGS` ease (smoothstep, default, not saved),
+  linear, fast out, fast in-out, hold). Keyframes are in seconds on the canvas's **animation
+  clock** (one time for the whole canvas, `AnimationClockContext`; a node's timeline scrubs
+  and plays it, a record node moves it while scrubbing, playing and rendering, `flushSync`
+  per frame; it stays where it was left), independent of the text's typing. A track's value
+  (`trackValue`): the first keyframe's before it, the last's after, eased between. An
+  animated slider shows the value at the clock's time and an edit sets a keyframe there
+  (`routeEdit`; the node's own value stays); its label is marked ◆. Saved per node under
+  `anims` (`ParamAnims`: `{ keyframes: [{ time, value, easing? }] }` per path); animations
+  saved before keyframes (a line's typing, from / to) are dropped on load. `modifiersByScene`
+  resolves each node's params at the clock's time (`sceneParams`, cached by params, anims and
+  time); the page follows the clock only while some node animates. Record nodes show one
+  row per animated property of the nodes linked into their scene (`KeyframeRow`, "node ·
+  property"), its keyframes draggable there too.
+- **Text node typing** (**typing** toggle, cursor icon, above backspace; `TextParams.typing`,
+  absent = on): off, each line appears whole at its turn instead of letter by letter
+  (`timedLines`: no time to type), holds and backspace still play.
+- **Text node backspace** (`BackspaceFields`, `TextParams.backspace`, `textLines.ts`): after
+  the typing, a **pause** on the whole text, then deleting it one character at a time from
+  the end at **delete speed** (`textSegments`, `textDuration`, `textAt`). It's the text
+  node's, so its ▶ preview, every linked scene and the record node's render all play it.
+- **Pattern node** (`PatternFields`; right-click → **insert pattern**; starts in repeat mode,
+  fold around, which works best for organic ornament): ornament on a strip from an image (starts with `public/images/ornament-sample.png`; **load image** stores a
+  ≤ 2048 px WebP data URL in the node, so it's saved with the canvas; maps keep up to 512 px
+  across the strip / 4096 around in repeat mode, never upscaled, and 2048 px in image mode:
+  `pattern/map.ts` `REPEAT_HEIGHT`, `REPEAT_MAX_WIDTH`, `IMAGE_MAX_SIDE`). The image is cropped to
+  its ornament and turned so its long side runs around (`pattern/grid.ts`). **mode**:
+  - **generate**: Wave Function Collapse, the overlapping model (`pattern/wfc.ts`, after
+    Gumin; AC-4 propagation, seeded mulberry32, retries on contradiction, gives up past
+    600 neighborhoods): the image read at **detail** cells across (binarized at
+    **threshold**, **invert**), **size** × size neighborhoods with **symmetry** (none,
+    mirror, all), **length** cells around, wrapping around (seamless), **seed** (+ new
+    seed). Pixel-level WFC keeps an image's local texture, not long continuous forms
+    (organic scrolls come out as scroll-like texture), so **fold** mirrors the result like
+    designed ornament (across the middle line, around in pairs, both: the default).
+  - **repeat**: the image itself (contrast at threshold), **fold** around mirrors every
+    other repeat so they meet seamlessly.
+  - **image**: the image itself, as is: no cropping, turning, contrast or folding; its
+    brightness is the relief (soft shading carries over), scaled to ≤ 1024 px, invert and
+    softness still apply (`buildPatternMap` prepares the image only for repeat/generate;
+    `usePatternMaps` caches raw images).
+  - **spin** slides the whole pattern around the trophy (about its axis, degrees;
+    `uPatternD.z`, subtracted from the angle around before mapping).
+  - **angle** turns the ornament on the trophy: the map's coordinates rotated in its own
+    proportions (a tile is `aspect` rows wide), slopes with them, so it doesn't shear (exact
+    under surface mapping); a turned lattice can't meet itself where the angle wraps, at
+    the back, out of a front view.
+  - The map (255 = ornament) is blurred by **softness**, built in a worker
+    (`pattern/worker.ts`, driven by `hooks/usePatternMaps`: per node, debounced, stale jobs
+    dropped, sync fallback without workers; only map fields rebuild, placement doesn't), and
+    previewed on the node (`usePatternMaps` keys images by a short id, not their data URL).
+    **mapping**: **strip** stretches the map over the strip (from/to); **surface** follows
+    the trophy's surface: the vertical coordinate is `aSurface` (`lathe.ts`
+    `surfaceCoordinates`: ∫ −dy / r down the profile, in the same units as the angle), so
+    the ornament keeps its proportions (map width/height) everywhere, repeating in rows from
+    the strip's top (`surfaceAtHeight` → `uPatternC.w`) and getting smaller where the trophy
+    narrows: for covering the whole shape (from 0 to 100) without stretching; there,
+    **repeats** sets its size. The shader wraps it **repeats** times around the strip with
+    seam-safe `textureGrad`, at **scale** (density, proportions kept: smaller repeats more around, whole
+    repeats for seamlessness, and stacks rows across, the texture repeating vertically;
+    larger crops it to the strip about its middle line; fold across or both makes rows meet
+    seamlessly), and **shape scale** (each motif in its own cell, the same number of them:
+    smaller spaces them out on plain surface, edges feathered over 8% of a motif; larger
+    crops into them). Its embossing depth (`patternDepth`) eases from **top depth** to
+    **bottom depth** over the strip (e.g. 100 → 0: the ornament gradually loses its relief)
+    and to 0 at its edges over **fade** % of it (smootherstep); it scales the relief only,
+    never adds its own slope (the normal follows the map's gradient × depth), so motifs
+    flatten into the surface instead of the strip reading as a bevel; **style** raised / cut bends the normal by
+    the height's screen-space slope (relief up to 10 frame px × **strength**, the ground or
+    the cut a touch darker), bright / dark inlay recolor. Up to `MAX_PATTERNS` (4) per scene (one
+    sampler each: the shader writes out the per-slot code, `PATTERN_SLOTS`);
+    textures upload once per map (`trophyMaterial.setPatterns`) and are freed with the scene.
+- **Texture node** (`TextureFields`, `render3d/texture.ts`; right-click → **insert texture**):
+  a rough finish, by default over the whole trophy: **style** rough (four octaves of value
+  noise: cast metal), hammered (Worley: a round dent per cell, ridges where they meet) or
+  brushed (noise stretched 16× along streaks around, turned by **angle**), **scale** (feature
+  size, frame px), **strength**, **new seed**, and the strip (**from**/**to**, **fade**,
+  **top depth** / **bottom depth**, `stripDepth`). Drawn by the shader (`surfaceTextureAt`),
+  in solid space (frame px), so it holds at any zoom and in exports: each height comes with
+  its exact gradient (`noiseGradient`, `dentsGradient`), projected on the screen through the
+  position's screen slopes into `perturbNormal` (smooth per pixel, no 2 × 2 blocks), its
+  height up to half the feature size × strength (same steepness at any scale); octaves
+  smaller than ~2 px on screen fade out instead of shimmering; pits or streaks a touch
+  darker. Up to `MAX_TEXTURES` (4) per scene; uniforms only (`setTextures`).
+- **Text node type** (`TextTypeFields`; `TextParams.fontSize` px, `leading` × size; absent =
+  each linked scene keeps its own, fitted to its frame): **size** and **line height** for every
+  linked scene (`withTextType`, via `SceneModifiers.textType`); the font is always PP Mori.
+  Until set, the sliders show the first linked scene's type.
+- **Text node** (`TextLinesField`, `textLines.ts`, pure and tested; params `{ lines }`, each
+  `{ text, speed, tracking }`; saves with one `text` load as lines): one input per line that
+  edits like a textarea (Enter at a line's end goes to the next line or makes one after the
+  last, mid-line splits; Backspace/Delete at the ends join; arrows cross lines; multi-line
+  pastes split). Beside each, its typing **speed** (chars/s); its chevron unfolds
+  **tracking** (thousandths of an em). **Play typing** (`useTypingPlayback`, session only)
+  types line after line, each at its speed. Tracking reaches scenes as
+  `Settings.lineTracking`: `measureLines` measures each hard line with Pretext's
+  `letterSpacing`, and widths are the ink's (no spacing after the last letter, which CSS and
+  canvas add: right-aligned/centered drawing takes it back, `marginRight` in RagEditor,
+  `trackedX` in exports). Tracked text can't be styled per line in the textarea, so its
+  text is hidden and the lines drawn over it, as while revealing.
+- **Modifier nodes** (`graph.ts`: `ModifierNode` = twist | etch | pattern | texture, `kind`;
+  `NodeCard` is the shared card, `TwistFields` / `EtchFields` / `PatternFields` /
+  `TextureFields` the fields): one link model, `modifiersByScene` groups each scene's
+  twists, etches, textures and patterns in link order. Saved under `modifiers` (saves from
+  before etch, with `twists` only, still load). New nodes' defaults (`DEFAULT_TWIST`,
+  `DEFAULT_ETCH`, `DEFAULT_PATTERN`) follow how nodes were actually used in saved projects
+  (shallow straight lobes; bold horizontal rings; surface-mapped bands with no fade, all on a
+  band in the lower body); the render3d math tests pin their own fixtures instead.
+- **Groups** (called clusters in code: `cluster.ts`, `ClusterFrame`, ids `cluster-N`, saved under
+  `clusters`; ⌘G groups the selected modifier nodes, ⇧⌘G takes groups apart, also in the
+  right-click menu): a frame behind the members' cards (measured with a ResizeObserver) with a
+  header (select, drag: moves every member, via the drag participants; ⌘-click mutes its links)
+  and one output port. A link from a group stands for a link from each member
+  (`expandClusterLinks`, in canvas order; scenes, range handles and port fills use the expanded
+  links). Grouped nodes have no links or output ports of their own; ⌘-click mutes one within its
+  group (`ClusterNode.muted`). ⌘G (`groupSelected`): with a group selected, the first one takes in
+  the other selected groups and nodes (keeping its name and links, dropping the nodes' own links);
+  otherwise a new group, which feeds the one artboard its nodes all fed (`rewireToCluster`) or
+  drops their links. Ungrouping carries a group's links (and mutes) on to its members. Deleting a
+  group deletes its nodes. Copies of grouped nodes join their group, copies of a whole group make
+  a new one (`copiedGroups` / `pasteGroups`); Option+⌘-drag copies outside the group. Old default
+  names ("cluster 3") load as "group 3".
+- **Master node** (`master.ts`, `MasterFields`; one per canvas, `MASTER_ID`, saved under
+  `master`): the settings every scene shares (align, mirror, overshoot, round top, taper,
+  smooth joins; shading, banding, gradient scale, tilt, wobble, edge hue, ledge, grain, grain
+  size; background; 2D sketch, perspective, debug). It has no output port: `withMaster`
+  writes its params into every scene (on edit, insert, paste, load, and inside
+  `updateScene`, so fitting to a frame can't override them), so scenes keep their own copy
+  and everything downstream is unchanged. Scene panels leave these fields out
+  (`ControlPanel` `hidden`, `MASTER_FIELDS`). It can't be deleted, copied or duplicated;
+  undo covers it. A canvas saved without one starts it from its first scene's values.
+- **Saving** (`state/persist.ts`, `hooks/useAutosave`, `components/SaveControls`):
+  - **Autosave**: each page writes its document to localStorage (`rgd-generator:canvas`,
+    `rgd-generator:generator`) 400 ms after a change (not the value it loaded with, and
+    never unchanged content), and at once on unmount (switching
+    pages), `pagehide`/hidden and before a manual save. The canvas: scenes, twists, links,
+    insert counters, view (`canvasDocument.ts`); the generator: text, banner, view toggles,
+    fps, loop (`state/generatorDocument.ts`; `SettingsProvider` starts from its text). The
+    generator's params and keyframes are Theatre's own autosave. Loading merges saved values
+    over today's defaults (old saves keep loading), drops broken nodes and dangling links,
+    and continues ids past the highest. Status beside the page dropdown ("autosaved …").
+    Pattern images are stored apart, once each by content (`storeBlob`, key
+    `rgd-generator:blob:<id>`; `useAutosave`'s `serialize: storeCanvasDocument`), so the
+    canvas document stays a few KB and autosaves (every pan) stay cheap; unused ones are
+    pruned; loading resolves them (`loadBlob`), project files inline them (`inlineBlobs`).
+  - **Other tabs**: when another tab saves _different_ content for a page (`storage` event),
+    this tab stops autosaving it and warns (otherwise the last tab to write wins and work is
+    lost). Tabs on the same origin share it: test with a second dev server on another port
+    (e.g. 5181), never in the user's origin.
+  - **Manual save** (**save**, ⌘/Ctrl+S; ⇧ = pick a new file): a project file (JSON:
+    both pages + Theatre's `createContentOfSaveFile`). Chromium: the first save asks where,
+    later ones overwrite that file (File System Access API); elsewhere it downloads a copy.
+    **Open** writes the file's pages to storage and reloads (autosave suspended so the
+    closing page can't overwrite it). Not yet: opening doesn't restore the timeline
+    (Theatre's keyframes), only carries it in the file.
+  - Tests clear localStorage after each test (`tests/setup.ts`).
+- **One scene, two pages:** `hooks/useSceneModel` (measure → boxes, reveal, extent, fill,
+  banner layout, baselines; reads where the text sits after every commit) and
+  `components/SceneArtboard` (the artboard: PaperCanvas, ThreeCanvas, RagEditor, Banner)
+  are shared by the generator (App adds the timeline, export, presets, pan/zoom frame) and
+  canvas scenes. The caller creates `editorRef`/`artboardRef` and passes them to both (refs
+  inside a returned object trip React's refs lint).
+- The text box isn't auto-focused (it used to be): with Theatre's spacebar for play, a
+  focused text box took the space as typing.
+- **Line boxes decide the shape.** `rag/lineBoxes` turns lines + `LineBoxStyle` (padding,
+  radius) into `LineBox[]`; the overlay draws them and `shape2d/` carves the rag shape with
+  the same data, so they always match. Radii are clamped there once (CSS and Paper.js clamp
+  differently). Boxes never affect measurement or line height. Width labels stay anchored
+  to the measured line, not the padded box.
+- **Type size** changes go through the `setFontSize` action, which scales line height
+  by the same factor.
+- **Mirror** (on by default; the reference layout is the trophy between two text blocks):
+  `RagEditor` draws a read-only, right-aligned copy of the measured lines (`.rag-mirror`)
+  in the column's reflection across the edge (edge → edge + column width). Same line
+  widths, so its rag mirrors the original's exactly, and the trophy's right half meets it.
+  The 2D sketch also draws the shape's reflection (`PaperScene.showRag`, `mirror`), but only
+  the original half goes to 3D (the lathe is symmetric anyway). The composition centers on
+  the edge (`.artboard[data-mirror='on']`). Mirrored, the revolve sweep starts from both flat
+  halves (±90°) and turns them toward each other (`ThreeScene.setMirror`; four caps), so the
+  handoff from the mirrored 2D sketch is seamless.
+- **3D first:** the view opens on the finished trophy with no sweep (`ThreeCanvas`
+  `animateIn` false on load); **2D Sketch** flips to the flat view, and going back plays the
+  sweep.
+- **Canvas colors** (`CanvasColors`, sidebar **background** / **text** pickers): view-only,
+  set as `--color-artboard-bg` / `--color-canvas-text` on `.artboard` (defaults in
+  `state/view.ts` and `global.css`). The 3D view is transparent, so the background shows
+  through.
+- **Sidebar sections:** fields are grouped in named, collapsible `ControlSection`s (type,
+  shape, top, line boxes, material, lighting, canvas, view; all open by default), separated
+  by solid rules. A section's header is a button (`aria-expanded`) that hides its body
+  (`hidden`). Sections and bodies are CSS subgrids of the panel, and a collapsed body stays in
+  the layout at zero height, so all labels share one column that never shifts.
+- **Sidebar look:** one two-column grid (`.control-panel`; field wrappers are
+  `display: contents`): bold, Title Case (`text-transform`; the DOM text stays lowercase,
+  which is also the accessible name), right-aligned labels in gray boxes
+  (`--color-label-bg`); sliders are a solid line to a tick with dots after it (`--fill` on
+  `.range-wrap`), values shown above the tick on hover/focus; buttons are
+  gray boxes, inverted when pressed.
+- **Styling** goes in `src/styles/global.css`. Typography that Pretext measures (font
+  family/size/weight, line height, column width) comes from `Settings` and reaches CSS as
+  `--rag-*` custom properties set by `RagEditor`. Never hard-code those values in CSS, or
+  the displayed text and the measurement drift apart. The shape's and trophy's colors come
+  from `Settings.material` (see Trophy material), not CSS.
+- **The editor is a textarea** laid out exactly like the measurement (no padding, border or
+  scrollbar; `white-space: pre-wrap`), and measured with Pretext's `whiteSpace: 'pre-wrap'`
+  so line breaks match. `LineMeasure.width` is the visible width (trailing spaces excluded).
+
+- **Timeline (Theatre.js):** one Theatre object (`trophy`) whose props are every
+  `AnimatedParams` field, grouped like the sidebar (`timeline/params.ts`, `PARAM_PATHS`).
+  The app stays the source of its own state: sidebar edits go through `useTimeline().edit`
+  (applied at once, and the changed props pushed with `timeline.set`, a debounced Studio
+  scrub = one undo step per drag; animated props get a keyframe at the playhead, Theatre's
+  rule), and the timeline's values at the playhead (`onValues`) are applied back. Never
+  push on every value change: Theatre reports interpolated colors that don't survive the
+  hex round trip, and pushing them would add keyframes. Line height is stored as
+  **leading** (× size), so animating size scales line height like the size slider does.
+  Palette colors are 8 rgba props (`c1`–`c8`); the color count stays in app state.
+  - **Keyframe buttons** (◇ static, dark ◇ animated, ◆ keyframe at the playhead):
+    `toggleKeyframe` sequences the prop if needed and sets a keyframe with the current
+    value, or unsets the one at the playhead. They re-render on keyframe changes via a
+    dataverse `prism` over `__experimental_getKeyframes` (tracked reads).
+  - **Studio** shows its sequence editor only once something is animated. `TimelineSlot`
+    docks it over the strip below the canvas (a temp, never-committed Studio transaction,
+    so no undo steps). Its outline/details panels are unpinned (open from its toolbar).
+  - **Private Studio APIs** (sequencing a prop, panel position, unpinning) live only in
+    `timeline/studioPrivate.ts`, written against `@theatre/*` 0.7.2, pinned exactly; check
+    them when upgrading. `@theatre/studio` is CommonJS: `theatre.ts` normalizes its
+    default import (Vite 8 hands over the module object).
+  - Theatre saves the project (static values, keyframes, length) in localStorage; it
+    restores on load and is applied to the app on mount. `getTimeline` is a singleton
+    (Theatre objects must be created once).
+- **Video export** (`useVideoExport` + `export/`): pauses, then for each frame seeks the
+  timeline and applies its values synchronously (`flushSync(syncNow)`; the canvases update
+  in layout effects, so the frame is ready at once, no animation frames needed, which also
+  keeps exports running in background tabs), and draws a
+  `Composition`: background, the 3D view (`ThreeScene.snapshot(2)`) or the 2D shape
+  (`PaperScene.snapshot(2)`, a Paper rasterize), then the text and its mirror with canvas
+  `fillText` at the same baselines, then the banner (the debug overlay is left out). Encoded at 3840 × 2160,
+  `QUALITY_VERY_HIGH`, first encodable of H.264 → HEVC → VP9 → AV1, then downloaded.
+
+## Trophy material
+
+The revolved trophy uses a custom shader with two **shading** modes. Its look lives in
+`Settings.material` (state/, `updateMaterial` action) and is edited in the sidebar's
+**material** section.
+
+- **Lit** (default; the RGD trophy reference, made as Illustrator 3D Revolve + Photoshop
+  layers): a grayscale lighting pass recolored through the palette as a **gradient map**
+  (darkest stop = shadow, lightest = highlight), which is what makes the color "pass from
+  the highlight" (deep green → mauve → steel blue → sage → cream → white with the `studio`
+  palette). Lighting = ambient + wrapped diffuse from a key light (**light angle** around the
+  subject, **light height**, **softness** = how far light wraps, a softer shadow edge) +
+  a Blinn highlight (**highlight**, **highlight size**), darkened toward the silhouette
+  (edge depth) and under ledges (ledge), plus airbrushed unevenness (wobble). Mirrors the
+  pure, tested `material/lighting.ts` (`lightDirection`, `litLuminance`). Offset/scale move
+  and stretch the map along the light; tilt and edge hue don't apply. Defaults were tuned by
+  eye against the reference (side-on key light from the right).
+- **Painted** (the original look, modeled on `docs/reference/material-ref.png`): matte,
+  airbrushed vessels with the palette painted along the height in diagonal bands, color
+  deepening and hue-shifting toward the silhouette, dark bands under ledges, no highlights.
+  The lighting sliders don't apply.
+
+Every palette (presets, custom, generated) works in both modes.
+
+**Palettes:** seven presets, the RGD scenes' color sets (studio, slate, gold, silver, bronze, rose, pewter; `material/palettes.ts`; saves using a removed preset load it as a custom palette of its colors, `migratePalette`) or `'custom'`, which uses
+`MaterialSettings.customColors` (`#rrggbb`, top → bottom). The sidebar always shows the
+current palette's colors (`ColorStops`); editing, adding or removing one switches to
+`'custom'` seeded from what was shown. Custom colors persist while browsing presets. Colors
+are evenly spaced stops; 2 to `MAX_STOPS` (8, the shader's uniform array size, defined once
+in `material/`). Use `materialStops(look)` / `paletteColors(look)` rather than reading
+presets directly, so custom palettes work everywhere.
+
+**Generate from one color** (`material/generate.ts`, sidebar's **generate** picker): builds
+a `MAX_STOPS`-color ramp in OKLCH (`material/oklab.ts`), dark (top) → light (bottom) in
+perceptually even lightness steps, with the seed at its own lightness. Hue turns toward
+blue-violet (280°) in the darks and warm yellow (95°) in the lights (the painter's hue
+shift); chroma eases toward the ends and is reduced only as far as needed to fit sRGB
+(gamut mapping keeps hue and lightness). Generating sets `palette: 'custom'`, stores
+`seedColor`, and sets `banding` to 0.
+
+**Banding** (`MaterialSettings.banding`, `uBanding`): how stops blend. 1 = smoothstep per
+segment (soft bands; the gradient eases in and out of each stop, like the reference), 0 =
+linear (no pause at stops; seamless with dense, generated stops). `samplePalette` and the
+shader mix between the two by this amount.
+
+**Why a `ShaderMaterial`** (`render3d/trophyMaterial.ts`) and not `onBeforeCompile`: the look
+comes entirely from the shader with no lights (the scene has none). A built-in material
+would bring the lighting pipeline only to be overridden, and `onBeforeCompile` patches
+internal shader chunks by string replacement, which breaks silently across Three.js versions.
+
+How the fragment shader builds the color:
+
+1. **Gradient**: a band coordinate (`bandCoord`): depth from the solid's top over its height
+   (0 = top, 1 = bottom) plus `tilt` × distance from the axis over the height, so bands are
+   straight diagonals across the body. Then low-frequency 3D value noise around the revolve
+   (via cos/sin of the angle, so no seam) and along the height for wobble, offset/scale
+   (`gradientCoord`), and a smoothstep blend between stops (`samplePalette`). Positions are
+   in "solid space" (world position minus `uSolidOrigin`), so caps and the lathe agree
+   whatever their mesh rotation. All of this mirrors the pure, unit-tested functions in
+   `material/gradient.ts`; keep them in sync.
+2. **Edge depth + edge hue**: fresnel `1 - |n·v|` mixes toward an edge tone: the "deep" tone
+   (`color² × 0.85`, darker and more saturated) hue-rotated by `edgeHue` degrees about the
+   gray axis (`hueRotate`; negative turns orange → crimson, lavender → blue). `v` is
+   `(0,0,1)` for the orthographic camera (`isOrthographic`, provided by Three.js) and
+   `-viewPosition` for perspective.
+3. **Ledge shadow**: downward-facing normals, plus `aLedge`, a per-vertex occlusion
+   precomputed along the lathe profile (`material/ledgeOcclusion`: how far a point sits under
+   an overhang), mix toward a darker deep tone. Upward tops read slightly lighter.
+4. **Back faces** (inside an open, partial sweep): normals flipped, shaded as interior shade.
+5. **Grain** (`applyGrain`): monochrome Gaussian grain, like Photoshop's Add Noise
+   (Gaussian, monochromatic), added to the color (no blend mode) over the whole shape, a
+   little stronger in the midtones like film grain. White noise (an independent,
+   Irwin–Hall Gaussian value per grain, "hash without sine"), not Perlin: Perlin is smooth,
+   low-frequency noise, which at grain scale makes wormy blobs and aliases when the view is
+   scaled; white noise has no structure, so it stays even at any zoom. Grains are
+   `grainSize` frame px (sidebar **grain size**, animatable; 0.5 = one 4K pixel), smoothly
+   interpolated so larger sizes read as soft clumps; positions are in frame px
+   (`uPixelRatio`), so the export matches the preview. Caps skip it. Plus an always-on
+   ±½-of-an-8-bit-step dither so slow gradients never show steps, even with grain at 0.
+
+**Smoothness:** curves reach the shader as straight segments. `shape2d/pathToOutline`
+flattens with `OUTLINE_FLATNESS` (0.05px max error: ~16 segments per quarter circle at a
+40px radius), and the lathe takes one step around the axis per ~6px of the widest rim
+(96–384 steps). The lathe is built by `render3d/lathe.ts` `buildLathe`: the same geometry as
+Three's `LatheGeometry` (unit-tested equal) plus `aLedge`, straight into typed arrays.
+LatheGeometry took ~100ms for a full-frame trophy (~250k vertices); this takes a few ms, so
+the solid can be rebuilt every frame of an animation (a full update is ~12ms).
+
+Colors are **sRGB in and out**: stops are uploaded as plain `Vector3`s (a `THREE.Color` would
+be converted to linear) and the shader omits `colorspace_fragment`, so the 3D colors match
+the 2D canvas exactly.
+
+**2D sketch in lit mode:** `litFrontRamp` lights a cylinder seen from the front (left
+silhouette → right silhouette) and gradient-maps it; the Paper shape gets that gradient
+across the trophy's width (`RagStyle.across`), so the sketch reads as the flat front of the
+lit trophy. The sweep's first frame is then close to, not identical to, the sketch.
+
+**2D ↔ 3D handoff (painted):** the 2D shape (Paper.js) is filled with the same gradient: the palette
+densely sampled over `gradientSpan` (`gradientRamp`; outside the span the color is a
+constant end stop, so the gradient's padding is exact), laid along the tilted band
+direction by `tiltedGradientLine` (unit-tested to reproduce `bandCoord` at any point). The
+sweep's flat caps use a second material instance sharing every uniform but with `uFlat = 1`
+(gradient and tilt only: no wobble, ledge or grain), so the first frame of the sweep is
+identical to the 2D shape.
+
+| Uniform                                             | Source             | Meaning                                   |
+| --------------------------------------------------- | ------------------ | ----------------------------------------- |
+| `uStopColors[8]`, `uStopPositions[8]`, `uStopCount` | palette/colors     | gradient stops, top → bottom              |
+| `uHeightRange`                                      | solid's bounds     | normalizes height for the gradient        |
+| `uSolidOrigin`                                      | solid's group      | origin of solid space (axis, mid-height)  |
+| `uGradientOffset`, `uGradientScale`                 | offset, scale      | shift / stretch the bands                 |
+| `uTilt`                                             | tilt               | band slope (diagonal bands)               |
+| `uBanding`                                          | banding            | stop blend: 1 soft bands, 0 linear        |
+| `uWobble`                                           | wobble             | noise in band transitions                 |
+| `uEdgeDepth`                                        | edge depth         | fresnel deepening toward the silhouette   |
+| `uEdgeHue`                                          | edge hue           | hue rotation of the edge tone (degrees)   |
+| `uLedgeShadow`                                      | ledge              | darkening under ledges (and lighter tops) |
+| `uGrain`                                            | grain              | screen-space noise amount                 |
+| `uFlat`                                             | cap vs surface     | 1 = plain gradient (caps)                 |
+| `uShading`                                          | shading            | 1 lit (gradient map), 0 painted           |
+| `uLightDir`                                         | light angle/height | key light, view space (`lightDirection`)  |
+| `uAmbient`, `uSoftness`                             | ambient, softness  | shadow-side light, wrap of the lit side   |
+| `uHighlight`, `uHighlightSize`                      | highlight, size    | Blinn highlight strength and spread       |
+| attribute `aLedge`                                  | lathe profile      | precomputed occlusion under overhangs     |
+
+**GLB export (planned):** custom shader materials don't export to glTF. To export, bake the
+look first: either per-vertex colors (evaluate the same gradient/fresnel-free terms in JS per
+vertex, using `material/` functions and `aLedge`, into a `color` attribute on a
+`MeshBasicMaterial`; the fresnel term is view-dependent, so bake it for the front view or
+leave it out), or render the shader into a texture over the lathe's UVs (u = around, v =
+along the profile) with a render target and assign it as `map`.
+
+## Commands
+
+```sh
+npm run dev          # Vite dev server
+npm run build        # typecheck (tsc -b) + production build
+npm run typecheck    # tsc -b --noEmit (app, tests, config)
+npm run lint         # ESLint
+npm run format       # Prettier (write); format:check to verify
+npm test             # Vitest, single run; test:watch for watch mode
+```
+
+Tests run in jsdom with the `canvas` package installed, so Paper.js (and Pretext's canvas
+measurement) work in Node. WebGL does not: tests rendering the whole App (which shows 3D by
+default) use `vi.mock('../../src/render3d', () => import('../support/render3dStub'))`; add
+new `ThreeScene` methods there. Theatre's Studio doesn't run in jsdom either: they also use
+`vi.mock('../../src/timeline', () => import('../support/timelineStub'))` (a static
+timeline; the pure `timeline/params.ts` is tested directly).
+
+## Documentation references
+
+- Pretext: https://github.com/chenglou/pretext
+- Paper.js reference: http://paperjs.org/reference/
+- Theatre.js docs: https://www.theatrejs.com/docs/latest (types: `node_modules/@theatre/core/dist/index.d.ts`,
+  `node_modules/@theatre/studio/dist/index.d.ts`)
+- mediabunny (MP4 muxing over WebCodecs): https://mediabunny.dev (types:
+  `node_modules/mediabunny/dist/mediabunny.d.ts`)
+- Three.js docs: https://threejs.org/docs/
+  - ShaderMaterial: https://threejs.org/docs/#api/en/materials/ShaderMaterial
+  - Material.onBeforeCompile: https://threejs.org/docs/#api/en/materials/Material.onBeforeCompile
+- React docs: https://react.dev/
+- Vite docs: https://vite.dev/
+- Vitest docs: https://vitest.dev/
+
+**Before using any library API, check these references and the installed packages' type
+definitions instead of relying on memory.** APIs change between versions. Useful local files:
+
+- `node_modules/@chenglou/pretext/dist/layout.d.ts` and `node_modules/@chenglou/pretext/README.md`
+- `node_modules/paper/dist/paper.d.ts` (types are a global `paper` namespace; some runtime
+  methods such as `PaperScope#remove` are missing, so check `paper/dist/paper-core.js`)
+- `node_modules/@types/three/src/`
